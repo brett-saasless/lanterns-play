@@ -552,6 +552,7 @@ export function stepRoad(road, pl, dt, events, rng = () => 0.5) {
  * pose: { offset, yaw, pitch } (any may be missing). Returns the place: { x, z, y, yaw, pitch }.
  */
 export function footSeat(pose = {}) {
+  if (pose && pose.out) return outSeat();
   const F = ROAD.foot;
   const off = Number.isFinite(pose.offset) ? clamp(pose.offset, -F.halfWidth, F.halfWidth) : 0;
   // the warden's right, facing along the road at the foot (sim.js: right = (cos yaw, -sin yaw))
@@ -562,4 +563,14 @@ export function footSeat(pose = {}) {
     yaw: Number.isFinite(pose.yaw) ? pose.yaw + F.turn : F.yaw,
     pitch: Number.isFinite(pose.pitch) ? clamp(pose.pitch, -1.4, 1.4) : 0,
   };
+}
+
+/**
+ * The title's Road start (the owner, 2026-11-17): the foot of the road just out of the tunnel's
+ * mouth, on the centreline, facing west up leg 1. Returns the place: { x, z, y, yaw, pitch }.
+ */
+export function outSeat() {
+  const F = ROAD.foot;
+  const x = F.tunnel.mouthX - 1;
+  return { x, z: F.z, y: heightAt(stationAt(x, F.z)), yaw: F.yaw, pitch: 0 };
 }

@@ -273,6 +273,7 @@ export const CASTLE_PLACES = f([
 /** The title's Castle button and subline (the two sentences of the forest-to-castle entry), and the controls notes. */
 export const CASTLE_COPY = f({
   button: 'Castle',
+  road: 'Road', // the title's Road start (the owner, 2026-11-17): the road's foot, just out of the tunnel
   subline: 'The house has its bridge down. It is expecting someone.',
   controls: '(Rose Court, Castle)',
   // Issue #20 (DRAFT, for the owner's approval): the banner after the triumph, before the closing card.

@@ -117,6 +117,7 @@ async function boot() {
   warmRoutes(CONFIG); // the yard creatures' walk grids, built before the first wave (#21)
   let state = 'TITLE';
   let runRoom = 'yard'; // the room of the current run; Play again and Try again replay it
+  let runStart = null; // 'road': this castle run began at the road's foot (the title's Road start); Restart and Play again keep it
   let cardAfter = null; // what happens when the open story card is turned away
   let cardNeedsLock = false; // the card sits over play: turning it away needs the mouse captured
   let seenArch = false; // the arch card is shown once a run, not again after a death
@@ -293,6 +294,7 @@ async function boot() {
     const pose = poseOf(sim);
     const castleCarry = to === 'castle' ? keepRules.keep.arrivalFrom(sim) : null;
     runRoom = to;
+    runStart = null;
     enterRoom(to);
     handover.fade(hex, 1);
     if (to === 'castle') {
@@ -406,7 +408,7 @@ async function boot() {
   }
 
   /** Locks the pointer, then enters PLAYING. `fresh` starts a new run. Lock refused: stay put. */
-  async function deploy(fresh, room = runRoom, checkpoint = false) {
+  async function deploy(fresh, room = runRoom, checkpoint = false, start = room === runRoom ? runStart : null) {
     if (locking) return;
     audio.unlock();
     locking = true;
@@ -419,7 +421,10 @@ async function boot() {
     }
     if (fresh) {
       runRoom = room;
+      runStart = room === 'castle' && start === 'road' ? 'road' : null;
       enterRoom(room);
+      // The Road start (the owner, 2026-11-17): the castle run, seated at the road's foot just out of the tunnel.
+      if (runStart === 'road' && keepRules && typeof keepRules.keep.enterRoad === 'function') keepRules.keep.enterRoad(sim, { out: true });
     } else if (checkpoint && !restoreAtCheckpoint()) {
       enterRoom(runRoom); // no checkpoint to go back to: the level starts over
       fresh = true;
@@ -508,7 +513,7 @@ async function boot() {
   const roomBtns = { yard: document.getElementById('deploy-yard'), cave: document.getElementById('deploy-cave'), court: document.getElementById('deploy-court') };
   roomBtns.court.textContent = COPY.button;
   const bindRoomBtn = (name, btn) => {
-    btn.addEventListener('click', () => deploy(true, name));
+    btn.addEventListener('click', () => deploy(true, name, false, null));
     btn.addEventListener('mouseenter', () => previewRoom(name));
     btn.addEventListener('focus', () => previewRoom(name));
   };
@@ -556,6 +561,15 @@ async function boot() {
     for (const n of document.querySelectorAll('.castlenote')) n.textContent = CASTLE_COPY.controls;
     bindRoomBtn('castle', roomBtns.castle);
     roomBtns.castle.disabled = false;
+    const roadBtn = document.getElementById('deploy-road'); // the Road start: the castle's run from the road's foot
+    if (roadBtn && typeof keep.enterRoad === 'function') {
+      roadBtn.textContent = CASTLE_COPY.road;
+      roadBtn.addEventListener('click', () => deploy(true, 'castle', false, 'road'));
+      roadBtn.addEventListener('mouseenter', () => previewRoom('castle'));
+      roadBtn.addEventListener('focus', () => previewRoom('castle'));
+      roadBtn.disabled = false;
+      roomBtns.road = roadBtn; // Enter on the focused Road button starts it (the title's Enter handler)
+    }
     return true;
   }
 
