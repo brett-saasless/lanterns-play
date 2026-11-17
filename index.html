@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LANTERN YARD</title>
+<link rel="icon" href="data:,">
+<!-- The pin and its hash move together: whoever changes the three version below regenerates
+     the integrity value in the same change (curl -sL <url> | openssl dgst -sha384 -binary |
+     openssl base64 -A). Chrome enforces it; Safari may load the module without the check
+     (accepted risk, see docs/features/cave/backlog.md). -->
+<script type="importmap">
+{
+  "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" },
+  "integrity": { "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js": "sha384-GY5FqjttLCFRt/McQbyaVdCk2O1IQtOeX8Py6NfD89BIAsIyJFRl4UgSXrk2vXAk" }
+}
+</script>
+<style>
+  :root {
+    --teal: #16343A; --bilge: #0B1A1D; --concrete: #27302F; --rust: #8A4B2A;
+    --oxide: #3F5A56; --amber: #FFB347; --flare: #FF6A1F; --glass: #7FD6C2;
+    --chalk: #E8E2D0; --red: #E5484D;
+    --label: "DIN Condensed", "Avenir Next Condensed", "Arial Narrow", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--teal); color: var(--chalk);
+    font-family: var(--label); -webkit-user-select: none; user-select: none; }
+  #view { position: fixed; inset: 0; display: block; width: 100%; height: 100%; }
+  .label { text-transform: uppercase; letter-spacing: 0.12em; font-size: 13px; }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* HUD */
+  #hud { position: fixed; inset: 0; pointer-events: none; display: none; }
+  #hud.on { display: block; }
+  #hud.dim { opacity: 0.35; }
+  .plate { background: rgba(11, 26, 29, 0.78); border-left: 2px solid var(--chalk); padding: 8px 16px; }
+  #wavebox { position: absolute; top: 24px; left: 24px; display: flex; gap: 24px; align-items: baseline; }
+  #wavebox .num { font-size: 22px; margin-left: 8px; }
+  #mutebox { position: absolute; top: 24px; right: 24px; display: none; }
+  #mutebox.on { display: block; }
+  #healthbox { position: absolute; left: 24px; bottom: 24px; display: flex; align-items: center; gap: 16px; }
+  #hbar { display: flex; gap: 3px; }
+  #hbar i { display: block; width: 14px; height: 20px; background: var(--glass); }
+  #hbar i.off { background: rgba(127, 214, 194, 0.15); }
+  #hbar.low i:not(.off) { background: var(--red); }
+  #hnum { font-size: 34px; min-width: 2.2em; }
+  #ammobox { position: absolute; right: 24px; bottom: 24px; text-align: right; }
+  #ammobox .row { display: flex; gap: 12px; align-items: baseline; justify-content: flex-end; }
+  #mag { font-size: 34px; color: var(--amber); }
+  #mag.empty, #ammobox #mag.empty { color: var(--red); }
+  #reserve { font-size: 22px; }
+  #pips { display: flex; gap: 4px; margin-top: 8px; justify-content: flex-end; }
+  #pips i { display: block; width: 7px; height: 14px; border-radius: 4px 4px 1px 1px; background: var(--amber); }
+  #pips i.off { background: rgba(255, 179, 71, 0.15); }
+  #crosshair { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+  #crosshair i { position: absolute; background: var(--chalk); box-shadow: 0 0 2px #000; transition: transform 0.08s ease-out; }
+  #crosshair i:nth-child(1) { width: 2px; height: 8px; left: -1px; top: calc(-8px - var(--gap)); }
+  #crosshair i:nth-child(2) { width: 2px; height: 8px; left: -1px; top: var(--gap); }
+  #crosshair i:nth-child(3) { width: 8px; height: 2px; top: -1px; left: calc(-8px - var(--gap)); }
+  #crosshair i:nth-child(4) { width: 8px; height: 2px; top: -1px; left: var(--gap); }
+  #crosshair { --gap: 5px; }
+  #crosshair.fire { --gap: 9px; }
+  #hitmark { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; }
+  #hitmark.on { opacity: 1; }
+  #hitmark i { position: absolute; width: 2px; height: 9px; background: var(--chalk); left: -1px; top: -4.5px; }
+  #hitmark i:nth-child(1) { transform: rotate(45deg) translateY(-11px); }
+  #hitmark i:nth-child(2) { transform: rotate(135deg) translateY(-11px); }
+  #hitmark i:nth-child(3) { transform: rotate(225deg) translateY(-11px); }
+  #hitmark i:nth-child(4) { transform: rotate(315deg) translateY(-11px); }
+  #hitmark.kill i { background: var(--flare); height: 13px; top: -6.5px; }
+  #hitmark.kill i:nth-child(n) { width: 3px; }
+  #prompt { position: absolute; left: 50%; top: calc(50% + 90px); transform: translateX(-50%); font-size: 16px; text-align: center; white-space: nowrap; }
+  #prompt:empty { display: none; }
+  #prompt .prog { display: block; height: 2px; background: var(--amber); margin-top: 6px; width: 0; }
+  #banner { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); font-size: 44px; letter-spacing: 0.16em; text-transform: uppercase;
+    opacity: 0; transition: opacity 0.3s; text-shadow: 0 2px 12px #000; white-space: nowrap; }
+  #banner.on { opacity: 1; }
+  #banner small { display: block; font-size: 16px; letter-spacing: 0.12em; text-align: center; color: var(--glass); margin-top: 6px; }
+  #toast { position: absolute; left: 50%; bottom: 90px; transform: translateX(-50%); font-size: 16px; color: var(--glass); opacity: 0; transition: opacity 0.25s; }
+  #toast.on { opacity: 1; }
+  #toast.ammo { color: var(--amber); }
+  #dmg { position: fixed; inset: 0; pointer-events: none; opacity: 0; box-shadow: inset 0 0 120px 30px rgba(229, 72, 77, 0.85); }
+  #dmg.reduced { box-shadow: inset 0 0 0 4px rgba(229, 72, 77, 0.8); }
+  #lowhp { position: fixed; inset: 0; pointer-events: none; opacity: 0; box-shadow: inset 0 0 160px 50px rgba(229, 72, 77, 0.55); }
+  #lowhp.on { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.9; } }
+  #dirarc { position: fixed; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; opacity: 0; }
+  #dirarc i { position: absolute; left: -90px; top: -230px; width: 180px; height: 40px; border-top: 6px solid var(--red);
+    border-radius: 50% 50% 0 0 / 100% 100% 0 0; filter: drop-shadow(0 0 6px var(--red)); }
+  #fade { position: fixed; inset: 0; pointer-events: none; background: #3a0b0d; opacity: 0; transition: opacity 0.9s; }
+  #fade.on { opacity: 0.75; }
+
+  /* Overlays */
+  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+    background: linear-gradient(90deg, rgba(11, 26, 29, 0.92) 0%, rgba(11, 26, 29, 0.55) 60%, rgba(22, 52, 58, 0.2) 100%); }
+  .screen.on { display: flex; }
+  .card { width: min(560px, 90vw); padding: 40px; background: rgba(11, 26, 29, 0.9); border-left: 2px solid var(--chalk); }
+  .screen h1 { font-size: 88px; line-height: 0.9; margin: 0 0 16px; letter-spacing: 0.08em; font-weight: 700; color: var(--chalk); }
+  .screen h1 .lamp { color: var(--amber); text-shadow: 0 0 24px rgba(255, 179, 71, 0.6); }
+  .screen h2 { font-size: 44px; margin: 0 0 16px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700; }
+  #won h2 { color: var(--glass); }
+  #lost h2 { color: var(--red); }
+  .sub { font-size: 18px; letter-spacing: 0.06em; margin: 0 0 24px; color: var(--chalk); opacity: 0.9; }
+  .controls { display: grid; grid-template-columns: max-content 1fr; gap: 4px 24px; margin: 0 0 24px; font-size: 15px; }
+  .controls dt { font-family: var(--mono); color: var(--amber); font-size: 13px; padding-top: 2px; }
+  .controls dd { margin: 0; letter-spacing: 0.04em; }
+  .settings { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; align-items: center; margin: 0 0 24px; }
+  .settings input[type=range] { width: 100%; accent-color: var(--amber); }
+  .settings input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--amber); }
+  .btns { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  button { font: inherit; text-transform: uppercase; letter-spacing: 0.14em; font-size: 18px; padding: 12px 28px; border: 0; cursor: pointer;
+    background: var(--amber); color: var(--bilge); font-weight: 700; }
+  button:hover, button:focus-visible { background: #ffc66e; outline: 2px solid var(--chalk); outline-offset: 2px; }
+  button.secondary { background: transparent; color: var(--chalk); border: 1px solid var(--chalk); }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  button:empty { display: none; } /* the Rose Court and Castle buttons take their words from script.js once the page script runs (the Castle only if its rules load) */
+  .hint { font-size: 14px; color: var(--glass); margin: 16px 0 0; min-height: 1.2em; letter-spacing: 0.04em; }
+  .stats { display: grid; grid-template-columns: max-content max-content; gap: 6px 32px; margin: 0 0 24px; }
+  .stats dd { margin: 0; font-family: var(--mono); font-size: 22px; font-variant-numeric: tabular-nums; }
+  .deploylabel { font-size: 13px; margin: 0 0 8px; opacity: 0.8; }
+  .enter { font-size: 12px; opacity: 0.7; }
+  #paused { background: rgba(11, 26, 29, 0.7); }
+  #fatal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: var(--teal); z-index: 10; }
+  #fatal.on { display: flex; }
+  #fatal p { font-size: 20px; max-width: 34em; line-height: 1.5; letter-spacing: 0.03em; }
+  #fatal code { font-family: var(--mono); color: var(--amber); }
+
+  /* Rose Court: words on screen (spoken line, item tray, pencil tick), story cards and the log */
+  :root { --hand: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; --leaf: rgba(232, 226, 208, 0.12); }
+  #ammobox #mag.worn { text-decoration: underline dotted; text-underline-offset: 6px; }
+  #speech { position: absolute; left: 50%; bottom: 60px; transform: translateX(-50%); max-width: 44ch; text-align: left;
+    display: none; padding: 8px 16px; }
+  #speech.on { display: block; }
+  #hud:has(#speech.on) #notice-line { opacity: 0; } /* the notice waits while a plate is up (the five-line riddle would overlap it); it returns after */
+  #speech .who { display: block; font-size: 11px; letter-spacing: 0.18em; color: var(--glass); font-variant: small-caps; text-transform: none; margin-bottom: 4px; }
+  #speech .said { font-family: var(--hand); font-style: italic; font-size: 18px; line-height: 25px; } /* the Hare's five-line riddle must clear the prompt and the notice line at 1280 by 720 */
+  #tray { position: absolute; left: 24px; bottom: 92px; display: none; gap: 8px; }
+  #tray.on { display: flex; }
+  #tray .slot { position: relative; width: 24px; height: 24px; }
+  #tray .slot svg { width: 24px; height: 24px; display: block; fill: none; stroke: var(--chalk); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  #tray .slot.ghost svg { opacity: 0.4; stroke-dasharray: 2 2; }
+  #tray .slot .full { fill: var(--glass); stroke: var(--glass); }
+  #tray .slot b { position: absolute; right: -4px; bottom: -4px; font: 700 10px var(--mono); color: var(--amber); }
+  #tick { position: absolute; top: 72px; right: 28px; width: 22px; height: 22px; opacity: 0; transition: opacity 0.3s; }
+  #tick.on { opacity: 0.85; }
+  #tick svg { width: 22px; height: 22px; fill: none; stroke: var(--chalk); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .courtkeys { display: none; }
+  body.court .courtkeys { display: block; }
+  .book { width: min(760px, 92vw); display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding: 40px; }
+  .book.tall { min-height: min(560px, 86vh); grid-template-rows: 1fr auto; }
+  .book .leaf { font-family: var(--hand); font-style: italic; font-size: 19px; line-height: 30px; color: var(--chalk); letter-spacing: 0; }
+  .book .leaf p { margin: 0 0 16px; }
+  .book .leaf .no { font: 700 11px var(--mono); font-style: normal; color: var(--amber); margin-right: 8px; }
+  .book .doc { background: var(--leaf); border: 1px solid var(--chalk); padding: 24px; align-self: start; position: relative; }
+  .book .doc.label::before { content: ""; position: absolute; top: 8px; left: 50%; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; border: 1px solid var(--chalk); background: var(--bilge); }
+  .book .doc.label { padding-top: 32px; transform: rotate(-1.5deg); }
+  .book .doc.note { border-style: dashed; }
+  .book .doc.ticket { border-style: double; border-width: 3px; font-style: normal; font-family: var(--mono); font-size: 15px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .book .doc:empty { display: none; }
+  .book .foot { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; gap: 16px; font-family: var(--label); }
+  .book .foot .enter { margin-left: auto; }
+  .book .foot .hint { margin: 0; }
+  #card, #logbook { z-index: 3; }
+  /* #29 (N6): the court's card on the journey sits in the shaft's daylight: lit from above, not from one side */
+  #card.daylit { background: linear-gradient(180deg, rgba(11, 26, 29, 0.05) 0%, rgba(11, 26, 29, 0.4) 55%, rgba(11, 26, 29, 0.8) 100%); }
+  /* The clue card (R13): a parchment leaf centred in the HUD, over the frozen and dimmed view. Words are set as text only. */
+  #hud.scene, body.scene #lowhp, body.scene #dmg, body.scene #dirarc { display: none !important; }
+  /* Issue #20: THE END, after the triumph and before the closing card. Outside #hud, so a scene does not hide it. */
+  #theend { position: absolute; left: 0; right: 0; top: 38%; text-align: center; pointer-events: none; z-index: 2;
+    font-family: Georgia, "Times New Roman", serif; font-size: clamp(40px, 9vw, 96px); letter-spacing: 0.3em; text-transform: uppercase;
+    color: #f4e2b0; text-shadow: 0 0 24px rgba(255, 196, 96, 0.55), 0 2px 6px rgba(0, 0, 0, 0.8); opacity: 0; transition: opacity 1.2s ease-out; }
+  #theend.on { opacity: 1; }
+  #hud.dim.reading { opacity: 1; }
+  #hud.reading > :not(#clue-card) { opacity: 0.35; }
+  #hud.reading::before { content: ""; position: absolute; inset: 0; background: rgba(11, 26, 29, 0.6); }
+  #clue-card { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(560px, 90vw); box-sizing: border-box;
+    padding: 36px 40px 44px; display: none; background: rgba(232, 226, 208, 0.12); -webkit-backdrop-filter: brightness(0.3) blur(3px); backdrop-filter: brightness(0.3) blur(3px); border: 1px solid var(--chalk); cursor: pointer; z-index: 2;
+    /* a deckled lower edge */
+    clip-path: polygon(0 0, 100% 0, 100% 96%, 96% 99%, 90% 96.5%, 82% 99.5%, 74% 97%, 66% 99%, 58% 96.5%, 50% 99.5%, 42% 97%, 34% 99%, 26% 96.5%, 18% 99.5%, 10% 97%, 4% 99%, 0 96%); }
+  #clue-body { margin: 0; font-family: var(--hand); font-style: italic; font-size: 19px; line-height: 30px; color: var(--chalk); white-space: pre-line; }
+  #clue-logged { position: absolute; top: 72px; right: 56px; font: 700 12px var(--label); letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--chalk); opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+  #clue-logged.on { opacity: 0.85; }
+  #notice-line { position: absolute; left: 50%; top: calc(50% + 124px); transform: translateX(-50%); max-width: 46ch; text-align: center;
+    font-family: var(--hand); font-style: italic; font-size: 17px; line-height: 24px; color: var(--chalk); opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+  #notice-line.on { opacity: 0.95; }
+</style>
+</head>
+<body>
+<canvas id="view" tabindex="-1"></canvas>
+
+<div id="theend" aria-live="polite"></div>
+<div id="hud" aria-hidden="true">
+  <div id="wavebox" class="plate">
+    <span class="label"><span id="wavelab">Wave</span><span class="num" id="wavenum">1/3</span></span>
+    <span class="label"><span id="hostlab">Hostiles</span><span class="num" id="hostiles">0</span></span>
+  </div>
+  <div id="mutebox" class="plate label">Muted</div>
+  <div id="banner"></div>
+  <div id="crosshair"><i></i><i></i><i></i><i></i></div>
+  <div id="hitmark"><i></i><i></i><i></i><i></i></div>
+  <div id="prompt" class="label"></div>
+  <div id="speech" class="plate"><span class="who label" id="speechwho"></span><span class="said" id="speechsaid"></span></div>
+  <div id="toast" class="label"></div>
+  <div id="tray" class="plate"></div>
+  <div id="notice-line" aria-live="polite"></div>
+  <div id="clue-card" role="dialog" aria-label="Clue"><p id="clue-body"></p></div>
+  <div id="clue-logged"></div>
+  <div id="tick"><svg viewBox="0 0 24 24"><path d="M4 13l5 5L20 6"/></svg></div>
+  <div id="healthbox" class="plate">
+    <span class="label">Health</span>
+    <span id="hbar"></span>
+    <span class="num" id="hnum">100</span>
+  </div>
+  <div id="ammobox" class="plate">
+    <div class="row"><span class="num" id="mag">12</span><span class="num" id="reserve">/ 48</span><span class="label" id="ammolab">Rivets</span></div>
+    <div id="pips"></div>
+  </div>
+</div>
+<div id="lowhp"></div>
+<div id="dmg"></div>
+<div id="dirarc"><i></i></div>
+<div id="fade"></div>
+
+<section id="title" class="screen on">
+  <div class="card">
+    <h1>LANTERN<br><span class="lamp">YARD</span></h1>
+    <p class="sub" id="titlesub">Night shift. Three surges. Hold the yard.</p>
+    <dl class="controls">
+      <dt>W A S D</dt><dd>Move (arrows work too)</dd>
+      <dt>MOUSE</dt><dd>Look</dd>
+      <dt>CLICK</dt><dd>Fire (hold to repeat)</dd>
+      <dt>R</dt><dd>Reload</dd>
+      <dt>SHIFT</dt><dd>Sprint forward</dd>
+      <dt>SPACE</dt><dd>Jump</dd>
+      <dt>E</dt><dd>Interact <span class="castlenote">(Rose Court)</span></dd>
+      <dt>Q</dt><dd>Swap weapon <span class="castlenote">(Rose Court)</span></dd>
+      <dt>TAB</dt><dd>Warden's log <span class="castlenote">(Rose Court)</span></dd>
+      <dt>ESC</dt><dd>Pause</dd>
+      <dt>M</dt><dd>Mute</dd>
+    </dl>
+    <div class="settings" data-settings></div>
+    <div class="label deploylabel">Deploy to</div>
+    <div class="btns"><button id="deploy-yard" disabled>Yard</button><button id="deploy-cave" disabled>Cave</button><button id="deploy-court" disabled></button><button id="deploy-castle" disabled></button><span class="enter label">or press Enter</span></div>
+    <p class="hint" id="titlehint">Lighting the yard</p>
+  </div>
+</section>
+
+<section id="paused" class="screen">
+  <div class="card">
+    <h2>Shift paused</h2>
+    <dl class="controls">
+      <dt>W A S D</dt><dd>Move</dd><dt>CLICK</dt><dd>Fire</dd><dt>R</dt><dd>Reload</dd>
+      <dt>SHIFT</dt><dd>Sprint</dd><dt>SPACE</dt><dd>Jump</dd><dt>M</dt><dd>Mute</dd>
+      <dt class="courtkeys">E</dt><dd class="courtkeys">Interact</dd>
+      <dt class="courtkeys">Q</dt><dd class="courtkeys">Swap weapon</dd>
+      <dt class="courtkeys">TAB</dt><dd class="courtkeys">Warden's log</dd>
+    </dl>
+    <div class="settings" data-settings></div>
+    <div class="btns"><button id="resume">Resume</button><button id="restart" class="secondary">Restart shift</button><button id="pausetitle" class="secondary">Back to title</button></div>
+    <p class="hint" id="pausehint"></p>
+  </div>
+</section>
+
+<section id="won" class="screen">
+  <div class="card">
+    <h2 id="wontitle">Yard secured</h2>
+    <p class="sub" id="wonsub">All three surges held. The tide is turning.</p>
+    <dl class="stats" id="wonstats"></dl>
+    <div class="btns"><button id="again">Play again</button><button id="wontitlebtn" class="secondary">Back to title</button><span class="enter label">or press Enter</span></div>
+    <p class="hint" id="wonhint"></p>
+  </div>
+</section>
+
+<section id="lost" class="screen">
+  <div class="card">
+    <h2>Warden down</h2>
+    <p class="sub" id="lostsub">The yard fell on surge 1.</p>
+    <dl class="stats" id="loststats"></dl>
+    <div class="btns"><button id="retry">Try again</button><button id="losttitlebtn" class="secondary">Back to title</button><span class="enter label">or press Enter</span></div>
+    <p class="hint" id="losthint"></p>
+  </div>
+</section>
+
+<section id="card" class="screen">
+  <div class="card book" role="dialog" aria-label="Story card">
+    <div class="leaf" id="cardlog"></div>
+    <div class="leaf doc" id="carddoc"></div>
+    <div class="foot"><span class="hint" id="cardhint"></span><span class="enter label">Enter, E, Space or click</span></div>
+  </div>
+</section>
+
+<section id="logbook" class="screen">
+  <div class="card book tall" role="dialog" aria-label="Warden's log">
+    <div class="leaf" id="logdoc"></div>
+    <div class="leaf" id="logentries"></div>
+    <div class="foot"><span class="label">Warden's log</span><span class="num" id="logpage"></span><span class="enter label">A D turn pages, Tab closes</span></div>
+  </div>
+</section>
+
+<div id="fatal"><p id="fatalmsg"></p></div>
+
+<script>
+  // Classic script: runs even where modules cannot, so a disk-opened page is never blank.
+  (function () {
+    function fatal(html) {
+      var f = document.getElementById('fatal');
+      document.getElementById('fatalmsg').innerHTML = html;
+      f.className = 'on';
+    }
+    window.__lyFatal = fatal;
+    if (location.protocol === 'file:') {
+      fatal('LANTERN YARD has to be served, not opened from disk. In the project folder run <code>npm start</code>, then open <code>http://127.0.0.1:8765</code>.');
+    }
+  })();
+</script>
+<script type="module" crossorigin="anonymous" src="./main.js"></script>
+</body>
+</html>
