@@ -14,6 +14,7 @@ import { COPY, CASTLE_COPY } from './logic/script.js';
 import { NEXT, PASSAGE, carryOf, seatCarry, passageOf, poseOf } from './logic/journey.js'; // issue #29: one continuous journey
 import { needsAutoReload, isGhostClick } from './logic/touchmap.js';
 import { carried } from './logic/weapon.js';
+import { CUTAWAY, cutawayBlack } from './logic/cutaway.js'; // the werewolf cutaway's dip to black
 
 const ENGINE_FAIL = 'Could not load the 3D engine. Check your connection and reload.';
 const NO_WEBGL = 'This browser could not start WebGL, which LANTERN YARD needs. Try current Chrome or Safari with hardware acceleration on.';
@@ -145,6 +146,8 @@ async function boot() {
   // Art pass K11/K12, the castle's death and triumph: the dawn's gold dip that carries the cut into
   // the pyre ({ t }), and the triumph's last view held under THE END ({ pos, quat, fov }).
   let goldDip = null;
+  let cutDip = 0; // seconds left of the fade back in from black after the werewolf cutaway
+  let cutDipOn = false; // the cutaway's dip holds the cover
   let endHold = null;
   const DAWN_GOLD = 0xf2c14e;
   const CASTLE_EASE = 0.75; // seconds: the castle's hand-overs between a scene's camera and the warden's eye (K11)
@@ -942,11 +945,13 @@ async function boot() {
       const sceneNow = sim.waves && sim.waves.scene ? sim.waves.scene.kind : null;
       if (sceneBefore && !sceneNow && sceneLast) {
         if (sceneBefore === 'triumph' && runRoom === 'castle') endHold = { pos: sceneLast.pos, quat: sceneLast.quat, fov: sceneLast.fov || FOV };
+        else if (sceneBefore === 'cutaway') sceneEase = null; // the film ends on a cut back to the warden's own eye (its set is far off)
         else sceneEase = { pos: sceneLast.pos, quat: sceneLast.quat, fov: sceneLast.fov, t: 0 };
         sceneLast = null;
       }
       // K11: the third curtain opens and the dawn floods in: the cut to the pyre's camera is carried by a dip through dawn gold
       if (!sceneBefore && sceneNow === 'pyre' && runRoom === 'castle') { goldDip = { t: 0 }; sceneEase = null; }
+      if (sceneBefore === 'cutaway' && !sceneNow) cutDip = CUTAWAY.fade; // the werewolf cutaway: back to the warden out of black
       const way = passageOf(sim); // #29: the crater's dark, the shaft's light, as the warden goes through
       if (way) {
         handover.fade(way.way === 'up' ? 0xfff4dc : 0x000000, way.k * way.k);
@@ -957,6 +962,12 @@ async function boot() {
       ear.yaw = sim.player.yaw;
       audio.update(sim, ear); // after the fan-out; moves what is sounding, starts nothing
     }
+    // the werewolf cutaway's dip to black at its end, and the fade back in from it (CUTAWAY.fade)
+    const playing = sim.waves && sim.waves.scene;
+    const film = playing && playing.kind === 'cutaway' ? playing : undefined;
+    if (film) { handover.fade(0x000000, cutawayBlack(film.t)); cutDipOn = true; }
+    else if (cutDip > 0) { cutDip = Math.max(0, cutDip - (state === 'PLAYING' ? dt : 0)); handover.fade(0x000000, cutDip / CUTAWAY.fade); }
+    else if (cutDipOn) { handover.fade(0x000000, 0); cutDipOn = false; }
     if (goldDip) {
       goldDip.t += state === 'PLAYING' ? dt : 0;
       const len = settings.reducedFlash ? 0.9 : 0.55;
@@ -1000,6 +1011,7 @@ async function boot() {
       hasUsePrompt: !!usePrompt,
       inLogRoom: inLogRoom(),
       sceneSkippable: !!cut && cut.skippable !== false, // the bloom, the crater, the vault, the castle's strike: not the pyre or the triumph
+      film: !!cut && cut.kind === 'cutaway', // the werewolf cutaway: SKIP alone over the film
       weaponCount: carried(sim).length, // in hand, the holster (next on Q) and the rack
     });
 

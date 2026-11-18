@@ -2,8 +2,9 @@
 // record): about a minute's walk up a rutted dirt road in five switchbacks, sunset going to night
 // as the warden climbs, and two scares that frighten and never touch: a boulder (and a second,
 // half its size) that bounds across the road a few metres ahead, and a swarm of bats from a
-// roadside cave followed, a step or two later, by one giant bat. And one glimpse, for a warden who
-// looks up to where the boulder came from: something that pushed it, running away up the hill. Nothing here hurts: this file never imports the hurt path, has no
+// roadside cave followed, a step or two later, by one giant bat. And, the frame the boulder is
+// gone, the werewolf cutaway's latch (logic/cutaway.js plays it: the thing that pushed it, seen up
+// close, then running to the castle). Nothing here hurts: this file never imports the hurt path, has no
 // damage number, and nothing on the road is a creature (tests/road.test.js checks all three).
 //
 // Pure and seeded. The geometry is data (keepmap.js reads RECTS as the 'road' zone, its floor
@@ -94,18 +95,13 @@ export const ROAD = f({
   // point (2 or 3, from the run's seed), one giant bat flies out, across and away in `giant` s.
   // The cave is 12 m on from the trigger point: the swarm streams back from it over the warden's
   // head, and two or three steps on, the giant bat comes out of it just ahead.
-  // The glimpse (the owner, pass 3: "if the user looks up to where the boulder came from a hybrid
-  // creature runs up the hill away from the user and out of sight. it runs up the hill, not up the
-  // road; it does not attack"): from the crack until `window` seconds after the boulder is gone, a
-  // warden looking up (pitch at least `minPitch`) within `cone` radians of the place it let go
-  // (their eye `eye` above their feet) sees it once. It runs `run` seconds straight up the hillside
-  // from just behind the outcrop (z `from`) across leg 3 and the bank above it to the crest of leg 4's
-  // shelf (z `to`), drifting `drift` metres back from the cave's side, and sinks `sink` metres over
-  // the crest in the last fifth: out of sight from the road below, and gone for good. `ease`: its
-  // speed at the start as a share of its mean (it is already running when seen; it only gathers
-  // pace). `stride`: metres of ground per loping stride (the view's limbs). Nothing on it is a strike.
-  creature: { window: 3, cone: 0.42, minPitch: 0.1, eye: 1.65, run: 2.6, from: 83.2, to: 67, drift: 1.2, sink: 2, ease: 0.7, stride: 2.6 },
-  bats: { at: 268, cave: { x: 10, z: 63.4, y: 1.8 }, swarm: 2.6, gap: 0.6, steps: [2, 3], giant: 1.8 },
+  // The old look-up glimpse (pass 3) is retired: the werewolf cutaway (logic/cutaway.js) shows the
+  // creature instead, by itself, right after the boulder (the owner, 2026-11-18).
+  // swarm: seconds the swarm holds the road, till its last bat is clear (SWARM_GUSTS: 3.67 s; was
+  // 2.6 before the owner slowed the flocks). giant: seconds of the giant bat's flight (GIANT_PATH:
+  // ~55 m at half its old ~15 m/s on average, two swoops around the warden; was 1.8 s, one
+  // fly-by). tail: seconds of quiet after it has gone before the scare is over (the art critic).
+  bats: { at: 268, cave: { x: 10, z: 63.4, y: 1.8 }, swarm: 3.7, gap: 0.6, steps: [2, 3], giant: 7.9, tail: 1 },
 });
 
 /** The stretch a point is on: the index into RECTS, or -1 off the road. */
@@ -207,9 +203,10 @@ export function createRoad(walked = true) {
     at: null, // metres up the road last frame (null off it): the scares fire on the way up past their points
     dark: walked ? 1 : 0, // the ratchet: the highest progress up the road so far, 0 to 1
     boulder: { state: walked ? 'done' : 'ready', t: 0, x: null, wx: null }, // ready | falling | done; x: where it crosses
-    // ready | run | done; w: seconds since the crack (its window), t: into its run, x: where the boulder let go
-    creature: { state: walked ? 'done' : 'ready', t: 0, w: 0, x: null, d: 0 }, // d: its distance from the warden last frame
-    bats: { state: walked ? 'done' : 'ready', t: 0, steps: 0, need: 2 }, // ready | swarm | quiet | giant | done
+    // the werewolf cutaway's latch (logic/cutaway.js): ready | due (the boulder is gone) | play | done
+    cutaway: { state: walked ? 'done' : 'ready' },
+    // ready | swarm | quiet | giant | done; hold: the x of the road's block in front of the warden while the giant circles
+    bats: { state: walked ? 'done' : 'ready', t: 0, steps: 0, need: 2, hold: null },
   };
 }
 
@@ -220,9 +217,11 @@ export function settledRoad(was) {
   r.dark = clamp(Number.isFinite(was.dark) ? was.dark : 1);
   const bo = was.boulder && was.boulder.state;
   r.boulder.state = bo === 'ready' ? 'ready' : 'done';
-  // the glimpse is spent with the boulder: its window has passed (or is cut short), and once seen it is never seen again
-  const cr = was.creature && was.creature.state;
-  r.creature.state = r.boulder.state === 'ready' && (cr === 'ready' || cr == null) ? 'ready' : 'done';
+  // where it came down is kept (the cutaway's rubble lies there)
+  if (r.boulder.state === 'done' && Number.isFinite(was.boulder && was.boulder.x)) r.boulder.x = was.boulder.x;
+  // the cutaway is spent with the boulder: once it has fallen (seen or cut short) it never plays again
+  const cu = was.cutaway && was.cutaway.state;
+  r.cutaway.state = r.boulder.state === 'ready' && (cu === 'ready' || cu == null) ? 'ready' : 'done';
   const bt = was.bats && was.bats.state;
   r.bats.state = bt === 'ready' ? 'ready' : 'done';
   const need = was.bats && was.bats.need;
@@ -241,19 +240,224 @@ export const BATS_DIR = Math.sign(BATS_LEG.dx);
 export const BATS_X = BATS_LEG.ax + BATS_LEG.dx * (ROAD.bats.at - BATS_LEG.s0);
 
 /**
- * The swarm comes out in three uneven gusts, not a stream (review A7, A8): each `at` seconds after
- * the swarm starts, `share` of the bats, let go over `spread` seconds; every bat flies `fly` [min,
- * max] seconds from the mouth over the warden's head and away. The last is clear by ROAD.bats.swarm
- * (the road's block holds till then). The view's flock and the cue's clusters both read this.
+ * Every small bat's way (the view draws it): a curve out of the cave's mouth, back down the road
+ * over the warden's head at the trigger point, then away off the road's edge and down the slope.
+ * `y` is over the road at the trigger point. A bat's own scatter (b: dx, dz, up) moves the middle
+ * and the end, as the view always has.
  */
-export const SWARM_GUSTS = f({
-  gusts: f([f({ at: 0, share: 0.42, spread: 0.24 }), f({ at: 0.47, share: 0.38, spread: 0.2 }), f({ at: 0.86, share: 0.2, spread: 0.24 })]),
-  fly: f([1.3, 1.5]),
+export const SWARM_PATH = f({
+  mouth: f({ x: ROAD.bats.cave.x, y: 1.6, z: ROAD.bats.cave.z + 0.9 }),
+  over: f({ x: BATS_X - BATS_DIR * 0.5, y: 2.25, z: 68 }),
+  away: f({ x: BATS_X - BATS_DIR * 9, y: -2, z: 84 }),
 });
 
+/** Where a small bat is `u` (0 to 1) along its way, with its scatter b { dx, dz, up }. Into `out`: { x, y, z }. */
+export function swarmPoint(u, b, out = {}) {
+  const A = SWARM_PATH.mouth; const B = SWARM_PATH.over; const E = SWARM_PATH.away;
+  const y0 = heightAt(ROAD.bats.at);
+  const a1 = (1 - u) * (1 - u); const a2 = 2 * u * (1 - u); const a3 = u * u;
+  out.x = a1 * A.x + a2 * (B.x + b.dx) + a3 * (E.x + b.dx * 2);
+  out.y = y0 + a1 * A.y + a2 * (B.y + b.up) + a3 * (E.y + b.up);
+  out.z = a1 * A.z + a2 * (B.z + b.dz * 0.5) + a3 * (E.z + b.dz);
+  return out;
+}
+
 /**
- * The giant bat's wing-beat (review A9): `rate` radians a second, its wings spread at the start
- * (phase 0, rising); a downstroke passes level at each of `beats` (seconds), where the cue strikes.
+ * How far along its way (0 to 1) a small bat passes the warden held at the block's near face: out
+ * of a forward view up the road (toward the cave), on past the head, behind and below. ~0.495.
+ */
+export const SWARM_PAST = (() => {
+  const held = BATS_X + BATS_DIR * ROAD.bats.gap;
+  const o = {}; const b = { dx: 0, dz: 0, up: 0 };
+  let lo = 0; let hi = 1;
+  for (let k = 0; k < 40; k++) { const m = (lo + hi) / 2; if (BATS_DIR * (swarmPoint(m, b, o).x - held) > 0) lo = m; else hi = m; }
+  return Math.round(((lo + hi) / 2) * 10000) / 10000;
+})();
+
+/**
+ * The swarm comes out in three uneven gusts, not a stream (review A7, A8): each `at` seconds after
+ * the swarm starts, `share` of the bats, let go over `spread` seconds (the view lets bat i go at
+ * at + spread * r^1.5, r uniform: on average 0.4 of the spread in); each of a gust's bats flies its
+ * way in `fly` [min, max] seconds. The last is clear by ROAD.bats.swarm (the road's block holds
+ * till then). The view's flock and the cue's clusters both read this.
+ *
+ * The owner (fix/bat-pacing): "slow the flocks of bats down to half speed so the user can get a
+ * look at them. Keep the third flock of bats at full speed so it catches up with the second flock
+ * as they leave the screen." Full speed is the old 1.3 to 1.5 s a bat; gusts 1 and 2 take twice
+ * that over the same way (2.6 to 3.0 s). Gust 3 keeps 1.3 to 1.5 s and is let go after gust 2's
+ * last bat, timed so that, on average, its bats draw level with gust 2's at SWARM_MEET along the
+ * way, just before they pass the warden and leave a view up the road (SWARM_PAST), so the meeting
+ * is on screen (the art critic):
+ *   at(g, u) = g.at + 0.4 g.spread + u * mean(g.fly)   (when a gust is, on average, u along)
+ *   at(2, 0.45) = 0.47 + 0.08 + 0.45 * 2.8 = 1.81 s
+ *   gust 3's at = 1.81 - 0.4 * 0.24 - 0.45 * 1.4 = 1.084, so 1.08 s (gust 2's last bat goes at 0.67 s)
+ * Gust 3 then pulls ahead past the warden; its last bat is clear at 1.08 + 0.24 + 1.5 = 2.82 s,
+ * gust 2's at 0.67 + 3.0 = 3.67 s, so ROAD.bats.swarm is 3.7.
+ *
+ * The view's look of each gust (the art critic): `beat` [min, max] Hz of a bat's wing-beat (6 to 8
+ * for the slow flocks, which at 9 to 12 read as hovering; 9 to 12 for the fast one), `scatter`
+ * [across, along] metres of spread about the way (gust 3 tighter, so it cuts through as one), and
+ * `tint` (its colour times this: gust 3 darker, so it is told apart from gust 2 as it catches it).
+ */
+export const SWARM_MEET = 0.45;
+export const SWARM_GUSTS = (() => {
+  const FULL = [1.3, 1.5]; // a bat's flight at full speed, seconds
+  const HALF = [FULL[0] * 2, FULL[1] * 2];
+  const mean = (a) => (a[0] + a[1]) / 2;
+  const slow = { beat: [6, 8], scatter: [3.2, 3.4], tint: 1 };
+  const g1 = { at: 0, share: 0.42, spread: 0.24, fly: HALF, ...slow };
+  const g2 = { at: 0.47, share: 0.38, spread: 0.2, fly: HALF, ...slow };
+  const meet2 = g2.at + 0.4 * g2.spread + SWARM_MEET * mean(g2.fly);
+  const s3 = 0.24;
+  const g3 = { at: Math.round((meet2 - 0.4 * s3 - SWARM_MEET * mean(FULL)) * 100) / 100, share: 0.2, spread: s3, fly: FULL,
+    beat: [9, 12], scatter: [2.2, 2.4], tint: 0.55 };
+  return f({ gusts: [g1, g2, g3] });
+})();
+
+/**
+ * The giant bat's flight (the owner, fix/bat-pacing: "Have the large bat swoop around the user
+ * twice so it can be seen and cause dread. Slow by half. It flies by so quick it can't be
+ * appreciated."): out of the cave's mouth toward the warden, a first swoop just over their head
+ * (on the bank side), on past their shoulder, a wide banking loop round out over the slope and back
+ * in front of them, a second swoop over the head coming in at their face, past the shoulder again
+ * and away down the slope ahead of them. The art critic's pass: the loop is kept off the warden's
+ * back (at the corner of a view up the road), the first swoop comes ~1.75 s after it appears, it
+ * slows to GIANT_SLOW (4.5 m/s) through each swoop so each reads for more than half a second, and
+ * out on the loop it is slower where a warden facing up the road sees it than where they do not.
+ * Half the old fly-by's speed on average: that was ~27 m in 1.8 s (~15 m/s) from where the warden
+ * stands as it comes out (`home`, two or three steps past the trigger point); this is ~55 m in
+ * ROAD.bats.giant = 7.9 s (~7 m/s; 4.5 m/s at the swoops, up to ~11 m/s behind the shoulder). A
+ * scare only: it never comes nearer the eye than `clear` (the old pass straight over the head) and
+ * touches nothing.
+ *
+ * `points`: the way after the mouth, each [ahead (up the road), up, down the slope (+z)] metres
+ * from `over`, the point `clear` over the warden's eye; the view keeps `over` on the warden as they
+ * move. A centripetal Catmull-Rom curve runs through the mouth and the points, timed at `home` by
+ * the speeds above. `passes`: the seconds of the two close passes (the cue's air). `hold`: the road
+ * is held in front of the warden (roadBlock) until this many seconds in, just after the second
+ * swoop, so they stand for both and the circling is not a chase.
+ */
+const GIANT_CLEAR = 2.3; // the body over the eye at a pass: its wingtips (1.7 m, banked) still clear
+const GIANT_EYE = 1.6; // the warden's eye over their feet (keepconfig player.eyeHeight)
+const GIANT_POINTS = f([
+  [2.5, 0, -1.5], // out of the mouth, growing as it comes (the art critic: watch it come ~1.6 s before the first swoop)
+  [0, 0, -0.9], // the first swoop, just over the head on the bank side, going back down the road
+  [-2.5, 0.8, 3.5], // past the shoulder, banking (kept off the back, at the corner of the eye)
+  [-0.5, 1.6, 6.5], // out over the slope
+  [3, 1.8, 6], // wide, broadside to the warden's downhill side
+  [5.5, 1.3, 4], // ahead, coming round in front of them
+  [5, 0.5, 0.2], // turning in, at their face
+  [0, 0, -0.9], // the second swoop over the head
+  [-1.5, 1, 3], // past the shoulder again, banking hard
+  [2.5, 2.6, 8], // turning back out in front over the slope
+  [6, 5, 17], // gone down the slope, ahead of them
+]);
+const GIANT_MOUTH = f({ x: ROAD.bats.cave.x, y: heightAt(ROAD.bats.at) + 1.7, z: ROAD.bats.cave.z + 0.9 });
+const GIANT_N = GIANT_POINTS.length + 1; // the mouth and the points
+const _gp = [{}, {}, {}, {}]; // the four control points of a span (scratch: no allocation a frame)
+const _gq = [{}, {}, {}, {}, {}];
+
+/** Control point i of the giant's curve around `over` into o (i -1 and GIANT_N are the ends mirrored). */
+function giantCtrl(i, over, o) {
+  if (i < 0) { giantCtrl(0, over, o); const ox = o.x; const oy = o.y; const oz = o.z; giantCtrl(1, over, o); o.x = 2 * ox - o.x; o.y = 2 * oy - o.y; o.z = 2 * oz - o.z; return o; }
+  if (i >= GIANT_N) { giantCtrl(GIANT_N - 1, over, o); const ox = o.x; const oy = o.y; const oz = o.z; giantCtrl(GIANT_N - 2, over, o); o.x = 2 * ox - o.x; o.y = 2 * oy - o.y; o.z = 2 * oz - o.z; return o; }
+  if (i === 0) { o.x = GIANT_MOUTH.x; o.y = GIANT_MOUTH.y; o.z = GIANT_MOUTH.z; return o; }
+  const w = GIANT_POINTS[i - 1];
+  o.x = over.x + BATS_DIR * w[0]; o.y = over.y + w[1]; o.z = over.z + w[2];
+  return o;
+}
+
+const lerpTo = (o, a, b, ta, tb, t) => { const k = tb - ta > 1e-9 ? (t - ta) / (tb - ta) : 0; o.x = a.x + (b.x - a.x) * k; o.y = a.y + (b.y - a.y) * k; o.z = a.z + (b.z - a.z) * k; return o; };
+
+/** The curve at g (0 to GIANT_N - 1: span floor(g), k into it) around `over`, into out. */
+function giantCurve(g, over, out) {
+  const i = Math.min(GIANT_N - 2, Math.max(0, Math.floor(g)));
+  const k = clamp(g - i);
+  const p0 = _gp[0]; const p1 = _gp[1]; const p2 = _gp[2]; const p3 = _gp[3];
+  giantCtrl(i - 1, over, p0); giantCtrl(i, over, p1); giantCtrl(i + 1, over, p2); giantCtrl(i + 2, over, p3);
+  const d = (a, b) => Math.max(1e-4, Math.sqrt(Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)));
+  const t1 = d(p0, p1); const t2 = t1 + d(p1, p2); const t3 = t2 + d(p2, p3);
+  const t = t1 + (t2 - t1) * k;
+  const a1 = _gq[0]; const a2 = _gq[1]; const a3 = _gq[2]; const b1 = _gq[3]; const b2 = _gq[4];
+  lerpTo(a1, p0, p1, 0, t1, t); lerpTo(a2, p1, p2, t1, t2, t); lerpTo(a3, p2, p3, t2, t3, t);
+  lerpTo(b1, a1, a2, 0, t2, t); lerpTo(b2, a2, a3, t1, t3, t);
+  return lerpTo(out, b1, b2, t1, t2, t);
+}
+
+const GIANT_SAMPLES = 1200;
+const GIANT_SLOW = 4.5; // m/s at a pass (the art critic: each swoop over the head reads for longer than half a second)
+const GIANT_NEAR = [1.5, 3.5]; // m across the ground from the warden: all slow inside the first, full loop speed past the second
+// Out on the loop it flies slower where a warden facing up the road sees it (within ~40 degrees of
+// ahead) than where it is off their shoulder or behind (past ~75 degrees): GIANT_FRONT times as fast.
+const GIANT_FRONT = 0.5;
+const GIANT_SEEN = [Math.cos((75 * Math.PI) / 180), Math.cos((40 * Math.PI) / 180)];
+const GIANT_TIMING = (() => {
+  const feet = heightAt(ROAD.bats.at + 5); // ~2.5 strides past the trigger point
+  const home = f({ x: BATS_X + BATS_DIR * 5, y: feet + GIANT_EYE + GIANT_CLEAR, z: 68 });
+  const ds = new Float64Array(GIANT_SAMPLES + 1); // the length of each step of the curve's own parameter
+  const near = new Float64Array(GIANT_SAMPLES + 1); // 1 at a pass, 0 out on the loop
+  const p = {}; const q = {};
+  giantCurve(0, home, q);
+  const nearOf = (o) => 1 - smooth((Math.hypot(o.x - home.x, o.z - home.z) - GIANT_NEAR[0]) / (GIANT_NEAR[1] - GIANT_NEAR[0]));
+  const front = new Float64Array(GIANT_SAMPLES + 1); // 1 well ahead of the warden, 0 off the shoulder or behind
+  const frontOf = (o) => { const dx = BATS_DIR * (o.x - home.x); const dz = o.z - home.z; const c = dx / Math.max(1e-6, Math.hypot(dx, dz));
+    return smooth((c - GIANT_SEEN[0]) / (GIANT_SEEN[1] - GIANT_SEEN[0])); };
+  front[0] = frontOf(q);
+  const flat = new Float64Array(GIANT_SAMPLES + 1);
+  flat[0] = Math.hypot(q.x - home.x, q.z - home.z);
+  near[0] = nearOf(q);
+  let length = 0;
+  for (let s = 1; s <= GIANT_SAMPLES; s++) {
+    giantCurve((s / GIANT_SAMPLES) * (GIANT_N - 1), home, p);
+    ds[s] = Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z);
+    length += ds[s];
+    flat[s] = Math.hypot(p.x - home.x, p.z - home.z);
+    near[s] = nearOf(p);
+    front[s] = frontOf(p);
+    q.x = p.x; q.y = p.y; q.z = p.z;
+  }
+  // The loop's speed, found so the whole flight takes ROAD.bats.giant with GIANT_SLOW at the passes.
+  const vAt = (fast, s) => { const loop = fast * (1 + (GIANT_FRONT - 1) * front[s]); return loop + (GIANT_SLOW - loop) * near[s]; };
+  const timeAt = (fast) => { let t = 0; for (let s = 1; s <= GIANT_SAMPLES; s++) t += ds[s] / vAt(fast, s); return t; };
+  let lo = GIANT_SLOW; let hi = 60;
+  for (let k = 0; k < 60; k++) { const m = (lo + hi) / 2; if (timeAt(m) > ROAD.bats.giant) lo = m; else hi = m; }
+  const fast = (lo + hi) / 2;
+  const tim = new Float64Array(GIANT_SAMPLES + 1); // seconds into the flight at each step
+  for (let s = 1; s <= GIANT_SAMPLES; s++) tim[s] = tim[s - 1] + ds[s] / vAt(fast, s);
+  const k = ROAD.bats.giant / tim[GIANT_SAMPLES];
+  for (let s = 0; s <= GIANT_SAMPLES; s++) tim[s] *= k;
+  const passes = [];
+  for (let s = 1; s < GIANT_SAMPLES; s++) {
+    if (flat[s] < 1.5 && flat[s] <= flat[s - 1] && flat[s] < flat[s + 1]) passes.push(Math.round(tim[s] * 1000) / 1000);
+  }
+  return { path: f({ clear: GIANT_CLEAR, eye: GIANT_EYE, points: GIANT_POINTS, home, length: Math.round(length * 100) / 100,
+    speed: Math.round((length / ROAD.bats.giant) * 100) / 100, slow: GIANT_SLOW, fast: Math.round(fast * 100) / 100, passes: f(passes),
+    // the road is held in front of the warden from the giant's coming out until just after its second swoop
+    hold: passes.length ? Math.round((passes[passes.length - 1] + 0.3) * 100) / 100 : 0 }), tim };
+})();
+/** Seconds into the flight at each of GIANT_SAMPLES + 1 even steps of the curve's own parameter, at home. */
+const GIANT_TIM = GIANT_TIMING.tim;
+export const GIANT_PATH = GIANT_TIMING.path;
+
+/**
+ * Where the giant bat is `t` seconds into its flight around `over` (the point GIANT_PATH.clear over
+ * the warden's eye): GIANT_PATH.slow at the passes, GIANT_PATH.fast out on the loop, eased between.
+ * Held at its last place after the end. Into `out`: { x, y, z }.
+ */
+export function giantAt(t, over, out = {}) {
+  const tim = GIANT_TIM;
+  const s = clamp(t, 0, ROAD.bats.giant);
+  let lo = 0; let hi = GIANT_SAMPLES;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (tim[m] <= s) lo = m; else hi = m; }
+  const span = tim[hi] - tim[lo];
+  const k = span > 1e-9 ? clamp((s - tim[lo]) / span) : 0;
+  return giantCurve(((lo + k) / GIANT_SAMPLES) * (GIANT_N - 1), over, out);
+}
+
+/**
+ * The giant bat's wing-beat (review A9): `rate` radians a second (~1.6 Hz, heavy; kept when the
+ * flight was slowed), its wings spread at the start (phase 0, rising); a downstroke passes level at
+ * each of `beats` (seconds), where the cue strikes, all the way through its flight.
  */
 export const GIANT_FLAP = (() => {
   const rate = 10;
@@ -272,16 +476,23 @@ const pastBats = (x) => BATS_DIR * (x - BATS_X) >= 0;
 
 /**
  * While the swarm is on the road: the block across leg 4 just past the trigger point, so the
- * warden cannot pass it until the swarm has cleared (keep.js keepBoxes adds it). Null otherwise.
+ * warden cannot pass it until the swarm has cleared. While the giant bat circles, until just after
+ * its second swoop (GIANT_PATH.hold): the same block just in front of where the warden stood as it
+ * came out (the art critic and the controller: they stand for both swoops, and its loop around them
+ * is not a chase; their walking is never slowed). keep.js keepBoxes adds it. Null otherwise.
  */
 export function roadBlock(road) {
-  if (!road || !road.bats || road.bats.state !== 'swarm') return null;
+  const bt = road && road.bats;
+  if (!bt) return null;
+  const giant = bt.state === 'giant' && Number.isFinite(bt.hold) && bt.t < GIANT_PATH.hold;
+  if (bt.state !== 'swarm' && !giant) return null;
   const r = RECTS[BATS_RECT];
-  const near = BATS_X + BATS_DIR * ROAD.bats.gap; // the block's near face, just past the trigger point
+  // the block's near face: just past the trigger point, or just in front of the warden as the giant came out
+  const near = giant ? bt.hold : BATS_X + BATS_DIR * ROAD.bats.gap;
   const minX = Math.min(near, near + BATS_DIR * 0.4);
   const maxX = Math.max(near, near + BATS_DIR * 0.4);
   return {
-    kind: 'swarm', x: (minX + maxX) / 2, z: (r.minZ + r.maxZ) / 2, w: maxX - minX, d: r.maxZ - r.minZ, h: 40,
+    kind: giant ? 'giant' : 'swarm', x: (minX + maxX) / 2, z: (r.minZ + r.maxZ) / 2, w: maxX - minX, d: r.maxZ - r.minZ, h: 40,
     minX, maxX, minY: -40, maxY: 40, minZ: r.minZ, maxZ: r.maxZ,
   };
 }
@@ -382,53 +593,6 @@ export function boulderSmallAt(t, crossX, out = {}) {
 }
 
 /**
- * Where the glimpsed creature is `t` seconds into its run, given the x the boulder let go at
- * (road.creature.x). Into `out`: { x, z, sink, heading, stride, u }. Not on the road, so no y:
- * the view stands it on the hill (roadview.js hillAt) and lowers it by `sink` over the crest.
- * heading: the way it runs, as a yaw (forward = (-sin, -cos) in x, z: up the hill, -z).
- * stride: its gait's phase in radians. u: 0 to 1 through the run. Always moving: never back down.
- */
-export function creatureAt(t, x0, out = {}) {
-  const C = ROAD.creature;
-  const u = clamp(t / C.run);
-  const e = C.ease * u + (1 - C.ease) * u * u;
-  const dx = -BOULDER_DIR * C.drift; // back from the cave's side of the hill
-  const dz = C.to - C.from;
-  out.x = (x0 == null ? BOULDER_X : x0) + dx * e;
-  out.z = C.from + dz * e;
-  out.sink = C.sink * smooth((u - 0.8) / 0.2);
-  out.heading = Math.atan2(-dx, -dz);
-  out.stride = (Math.hypot(dx, dz) * e * 2 * Math.PI) / C.stride;
-  out.u = u;
-  return out;
-}
-
-const CREATURE_AT = {}; // stepRoad's own scratch for creatureAt (no allocation a frame)
-
-const LET_GO = {}; // stepRoad's own scratch for the let-go place
-/** The place the boulder let go from, as the glimpse's trigger aims at it: { x, y, z } (a scratch object). */
-function letGoAt(x) {
-  return boulderAt(0, x, LET_GO);
-}
-/** How far the glimpse is from the warden, `t` seconds into its run (scratch: no allocation). */
-function creatureGap(t, x0, pl) {
-  const at = creatureAt(t, x0, CREATURE_AT);
-  return Math.hypot(at.x - pl.x, at.z - pl.z);
-}
-
-/** True when the warden is looking up at (x, y, z): pitched up at least minPitch, within cone of it. */
-function looksUpAt(pl, x, y, z) {
-  const C = ROAD.creature;
-  if (!Number.isFinite(pl.yaw) || !Number.isFinite(pl.pitch) || pl.pitch < C.minPitch) return false;
-  const cp = Math.cos(pl.pitch);
-  const ex = x - pl.x;
-  const ey = y - ((Number.isFinite(pl.y) ? pl.y : 0) + C.eye);
-  const ez = z - pl.z;
-  const d = Math.hypot(ex, ey, ez) || 1;
-  return (-Math.sin(pl.yaw) * cp * ex + Math.sin(pl.pitch) * ey - Math.cos(pl.yaw) * cp * ez) / d >= Math.cos(C.cone);
-}
-
-/**
  * Where the boulder will cross: `ahead` metres in front of the warden up leg 2, never nearer the
  * trigger point than half a metre less, and inside the road.
  */
@@ -450,7 +614,8 @@ const stepsOf = (events) => (events && events.sounds ? events.sounds.filter((e) 
  * highest progress so far; the boulder lets go once as the warden first crosses its trigger
  * point; the bats come out once as the warden first crosses theirs, and the giant bat once
  * after them. Events: roadCrack (it lets go, up the bank), roadThud (it lands on the road: the
- * view's small shake), roadCreature (the glimpse starts its run up the hill), batSwarm (out of the cave), giantBat (the second scare). rng is the run's
+ * view's small shake), batSwarm (out of the cave), giantBat (the second scare). The frame the
+ * boulder is gone the cutaway's latch goes 'due' (keep.js starts it). rng is the run's
  * generator (the giant bat's step, 2 or 3, is drawn once, as the swarm comes out).
  */
 export function stepRoad(road, pl, dt, events, rng = () => 0.5) {
@@ -470,7 +635,6 @@ export function stepRoad(road, pl, dt, events, rng = () => 0.5) {
     aimBoulder(b, pl, on);
     const at = boulderAt(0, b.x);
     events.push({ type: 'roadCrack', x: at.x, y: at.y, z: at.z });
-    if (road.creature) road.creature.x = at.x;
   } else if (b.state === 'falling' && dt > 0) {
     const was = b.t;
     b.t += dt;
@@ -490,34 +654,11 @@ export function stepRoad(road, pl, dt, events, rng = () => 0.5) {
       const at = boulderAt(b.t, b.x);
       events.push({ type: 'roadThud', x: at.x, z: at.z });
     }
-    if (b.t >= ROAD.boulder.gone) { b.state = 'done'; b.t = ROAD.boulder.gone; }
-  }
-
-  // The glimpse: once only, and only for a warden who looks up to where the boulder let go, from
-  // the crack until a few seconds after it is gone. Then it runs, away up the hill; it never comes
-  // toward the warden and touches nothing.
-  const c = road.creature;
-  if (c && c.state === 'ready' && b.state !== 'ready') {
-    if (c.x == null) c.x = b.x;
-    if (dt > 0) c.w += dt;
-    const O = letGoAt(c.x);
-    if (c.w > ROAD.boulder.gone + ROAD.creature.window) c.state = 'done'; // not looked for: never seen
-    else if (!pl.dead && looksUpAt(pl, O.x, O.y, O.z)) {
-      c.state = 'run';
-      c.t = 0;
-      const at = creatureAt(0, c.x, CREATURE_AT);
-      c.d = Math.hypot(at.x - pl.x, at.z - pl.z);
-      events.push({ type: 'roadCreature', x: at.x, y: O.y - ROAD.boulder.radius, z: at.z });
+    if (b.t >= ROAD.boulder.gone) {
+      b.state = 'done';
+      b.t = ROAD.boulder.gone;
+      if (road.cutaway && road.cutaway.state === 'ready') road.cutaway.state = 'due'; // the film, right after the fall
     }
-  } else if (c && c.state === 'run' && dt > 0) {
-    // Its path only ever leads away up the hill, so a warden pressing after it is answered by its
-    // going quicker: never a frame nearer them than the last (a few frames' ground at most).
-    const run = ROAD.creature.run;
-    c.t = Math.min(run, c.t + dt);
-    let d = creatureGap(c.t, c.x, pl);
-    for (let k = 0; k < 8 && d < c.d && c.t < run; k++) { c.t = Math.min(run, c.t + dt); d = creatureGap(c.t, c.x, pl); }
-    c.d = Math.max(c.d || 0, d);
-    if (c.t >= run) { c.state = 'done'; c.t = run; }
   }
 
   const bt = road.bats;
@@ -537,11 +678,13 @@ export function stepRoad(road, pl, dt, events, rng = () => 0.5) {
     if (bt.steps >= bt.need) {
       bt.state = 'giant';
       bt.t = 0;
+      bt.hold = pl.x + BATS_DIR * ROAD.bats.gap; // the road held just in front of them till its second swoop
       events.push({ type: 'giantBat', x: ROAD.bats.cave.x, z: ROAD.bats.cave.z });
     }
   } else if (bt.state === 'giant' && dt > 0) {
     bt.t += dt;
-    if (bt.t >= ROAD.bats.giant) { bt.state = 'done'; bt.t = ROAD.bats.giant; }
+    // its flight, then a moment of quiet after it has gone
+    if (bt.t >= ROAD.bats.giant + ROAD.bats.tail) { bt.state = 'done'; bt.t = ROAD.bats.giant + ROAD.bats.tail; bt.hold = null; }
   }
 }
 

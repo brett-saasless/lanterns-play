@@ -22,8 +22,10 @@ export function needsAutoReload(w) {
   return w.mag === 0 && w.reserve > 0 && !w.reloading;
 }
 
+// ctx.film: a cut scene that is a film (the werewolf cutaway): nothing is played under it, so only
+// SKIP stays on the screen (the stick and the look zone go with fire, so they hide too).
 export function visibleControls(ctx) {
-  const on = ctx.state === 'PLAYING';
+  const on = ctx.state === 'PLAYING' && !ctx.film;
   return {
     fire: on,
     jump: on,
@@ -31,7 +33,7 @@ export function visibleControls(ctx) {
     swap: on && ctx.weaponCount > 1,
     pause: on,
     log: on && !!ctx.inLogRoom,
-    skip: on && !!ctx.sceneSkippable,
+    skip: ctx.state === 'PLAYING' && !!ctx.sceneSkippable,
   };
 }
 

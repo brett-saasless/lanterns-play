@@ -621,6 +621,53 @@ function tagTexture() {
   });
 }
 
+/**
+ * The fighting suit (the second, e.suit 2) as one still figure, for the road's werewolf cutaway
+ * (roadcreature.js): the same cuirass, helm, pike and clawed gauntlet as buildArmour's, posed
+ * standing, the pike upright in its right hand and the clawed left reaching forward (to pull a
+ * door leaf shut). Front -Z, feet at y 0. Returns { body, glints, legs } (geometries: the body vertex
+ * coloured, in one draw call; the two red eye glints for an unlit material; legs: [{ geo, hip }],
+ * each leg about its hip at `hip`, to swing as it steps).
+ */
+export function armourStill() {
+  const seed = 44;
+  const parts = [armourTorso(seed, false), armourHelm(seed, false).translate(0, 2.22, 0)];
+  const seg = (a, b, r, hex) => S.skin([{ at: [a.x, a.y, a.z], r }, { at: [b.x, b.y, b.z], r: r * 0.8 }],
+    { seed: seed + r * 100, sides: 7, detail: 1, noise: 0.18, grain: 2.2, mottle: 0.35, color: hex, color2: 0x24272c, caps: ['round', 'round'] });
+  const cop = (at, dir, k) => { _q.setFromUnitVectors(_y.set(0, 1, 0), _t.copy(dir).normalize()); return S.tint(armourCop(seed).scale(k, k, k).applyQuaternion(_q).translate(at.x, at.y, at.z), IRON, 0.2, seed); };
+  const elbow = V(); const bend = V();
+  // the right hand on the pike's rest grip; the left reaching forward and a little across
+  const hands = [V(0.66, 1.4, -0.08), V(-0.18, 1.42, -0.72)];
+  for (let i = 0; i < 2; i++) {
+    const sh = A_SH[i];
+    bend.set(i ? -0.3 : 0.3, -0.3, 1);
+    _t.subVectors(hands[i], sh);
+    const max = (A_ARM[0] + A_ARM[1]) * 0.985;
+    if (_t.length() > max) hands[i].copy(sh).addScaledVector(_t.normalize(), max);
+    S.ik2(sh, hands[i], A_ARM[0], A_ARM[1], bend, elbow);
+    parts.push(seg(sh, elbow, 0.115, IRON), seg(elbow, hands[i], 0.095, 0x30343a));
+    parts.push(cop(elbow, _d.subVectors(elbow, sh), 1), cop(hands[i], _e.subVectors(hands[i], elbow), 0.72));
+    if (i === 1) {
+      _d.subVectors(hands[1], elbow).normalize();
+      _q.setFromUnitVectors(_z.set(0, 0, -1), _d);
+      const at = _a.copy(hands[1]).addScaledVector(_d, 0.14);
+      parts.push(S.claw({ fingers: 4, length: 0.36, spread: 0.55, curl: 0.9, r: 0.042, color: 0x3c4046, tip: 0xb0b4ba, seed }).applyQuaternion(_q).translate(at.x, at.y, at.z));
+    }
+  }
+  // the legs: each its own geometry about its hip (so the view can swing it as the suit steps)
+  const legs = [];
+  for (let i = 0; i < 2; i++) {
+    const hip = A_HIP[i]; const ankle = V(hip.x * 1.15, 0.08, 0);
+    S.ik2(hip, ankle, A_LEG[0], A_LEG[1], bend.set(0, 0.1, -1), elbow);
+    const leg = S.merge([seg(hip, elbow, 0.13, IRON), seg(elbow, ankle, 0.1, 0x3a3d42), cop(elbow, _d.subVectors(elbow, hip), 1.1),
+      slab(0.16, 0.08, 0.3, ankle.x, 0.04, ankle.z - 0.08, 0x30343a, 0.2)]); // and the sabaton
+    legs.push({ geo: leg.translate(-hip.x, -hip.y, -hip.z), hip: [hip.x, hip.y, hip.z] });
+  }
+  parts.push(pikeGeometry(seed).translate(0.66, 1.4 - PIKE_R, -0.08));
+  const glints = S.merge([new THREE.SphereGeometry(0.022, 8, 6).scale(1.5, 0.7, 1).translate(0.085, 0, 0), new THREE.SphereGeometry(0.018, 8, 6).scale(1.5, 0.7, 1).translate(-0.09, 0.012, 0)]).translate(0, 2.22 + 0.37, -0.285);
+  return { body: S.merge(parts), glints, legs };
+}
+
 function buildArmour(e, cfg, ctx) {
   const M = ctx.M;
   const first = e.suit === 1;

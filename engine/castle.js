@@ -1613,6 +1613,7 @@ export function buildCastle(scene, cfg) {
     return reduced ? flicker(time, seed) : 1 + LIGHT_SWING * (flicker(time, seed) - 1);
   }
 
+  let hiddenForCut = false; // the shell hidden under the werewolf cutaway
   const _cand = [];
   const byDistance = (a, b) => a.d - b.d;
   let stamp = 0;
@@ -1631,7 +1632,12 @@ export function buildCastle(scene, cfg) {
     const cur = zones[zoneNow];
     const under = inRun && sim.waves ? sim.waves.under : null;
     lowerNow = under === 'crypt' || under === 'pit' || (cur.id === 'gallery' && eye.y < cur.y - 0.4);
-    if (was !== zoneNow || dt === 0) show();
+    // the werewolf cutaway: the castle itself is never in its shots (the owner: "most of the castle
+    // remains unseen"; its set stands in for the gate), so its shell is not drawn while it plays
+    const cutting = !!(inRun && sim.waves && sim.waves.scene && sim.waves.scene.kind === 'cutaway');
+    if (was !== zoneNow || dt === 0 || cutting !== hiddenForCut) show();
+    if (cutting) for (const z of zones) z.group.visible = false;
+    hiddenForCut = cutting;
     watchFrameRate(dt);
     flameTime.value = time;
     flameCalm.value = reduced ? 1 : 0;
@@ -1824,6 +1830,7 @@ export function buildCastle(scene, cfg) {
       return { position: scenePos, target: sceneTarget, fov: lerp(48, 62, crane) };
     }
     if (kind === 'triumph') return triumphCamera(sim, sc);
+    if (kind === 'cutaway') return roadView.sceneCamera(sim, sc); // the werewolf cutaway, on the road and its set
     return null;
   }
 

@@ -217,7 +217,11 @@ export const CATALOGUE = f({
   roadThud: e('world', 'source', 'world', 0.6), // it lands once on the road
   batSwarm: e('world', 'source', 'world', 0.5), // the swarm out of the cave, past the warden's head
   giantBat: e('world', 'source', 'world', 0.55), // the one giant bat after the silence
-  roadCreature: e('world', 'source', 'world', 0.3), // the glimpse up the hill: heavy footfalls going away, quiet
+  roadCreature: e('world', 'source', 'world', 0.3), // the werewolf's footfalls going away (the cutaway's run), quiet
+  // The werewolf cutaway (cutaway.js): the film's own sound, centred; nothing here is a strike.
+  cutawayGrowl: e('world', 'centre', 'world', 0.4), // low in its chest, as the close-up lands
+  cutawayDoor: e('world', 'centre', 'world', 0.5), // an oak leaf shuts, heavy
+  cutawayBar: e('world', 'centre', 'world', 0.45), // the bar dropped across the shut doors
   // Issue #29: the ways out of the yard and the cave open in a cut scene (wayout.js). The whole
   // room shakes with each, so both are the room's own sound (centred), under the warden's ceiling;
   // their scenes' starts and ends are sceneStart and sceneEnd above, in each room's own voice.

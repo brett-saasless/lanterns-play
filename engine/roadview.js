@@ -20,11 +20,12 @@ import * as THREE from 'three';
 import * as S from './sculpt.js';
 import { buildTunnel } from './tunnel.js';
 import { buildRoadSurface, buildRoadProps } from './roadsurface.js'; // the owner: variability along the whole road, a few derelicts
-import { createRoadCreature } from './roadcreature.js'; // the second boulder and the glimpse up the bank (P3-6)
+import { createRoadCreature } from './roadcreature.js'; // the second boulder, the rubble, the werewolf and the cutaway's set
+import { cutawayAt } from '../logic/cutaway.js'; // the werewolf cutaway's film (its camera here)
 import { SET } from './court.js';
 import {
   LINE, RECTS, ROAD, LENGTH, stationAt, pointAt, heightAt, onRoad, boulderAt, boulderRockAt, BOULDER_ROCKS, BATS_X, BATS_DIR, BOULDER_X, BOULDER_DIR,
-  SWARM_GUSTS, GIANT_FLAP,
+  SWARM_GUSTS, SWARM_PATH, swarmPoint, GIANT_FLAP, GIANT_PATH, giantAt, BOULDER_THUD,
 } from '../logic/road.js';
 import { roadLight, COURTYARD, KEY_RAISE, along, lum } from '../logic/roadlight.js';
 
@@ -677,8 +678,8 @@ export function createRoadView(root, parts) {
   rocks.frustumCulled = false;
   group.add(rocks);
   const _r = {};
-  const extra = createRoadCreature(group); // the second boulder, half the size, and the creature on the bank
-  const DUST = 260; // more of it, low and wide (the owner, pass 2: "enhance the dust effects")
+  const extra = createRoadCreature(group, { ground, bark }); // the second boulder, the rubble, the werewolf and the cutaway's set
+  const DUST = 420; // more of it, low and wide (the owner, pass 2: "enhance the dust effects"; the cutaway's own haze too)
   const dustPos = new Float32Array(DUST * 3);
   const dustVel = new Float32Array(DUST * 3);
   const dustGeo = new THREE.BufferGeometry();
@@ -703,20 +704,26 @@ export function createRoadView(root, parts) {
   swarm.visible = false;
   swarm.frustumCulled = false;
   group.add(swarm);
-  // Three uneven gusts (road.js SWARM_GUSTS), each bat ~1.4 s from the mouth to gone (~20 m/s),
-  // beating its wings up and down at 9 to 12 Hz (review A7).
+  // Three uneven gusts (road.js SWARM_GUSTS): the first two's bats ~2.8 s from the mouth to gone
+  // (~10 m/s, the owner's half speed) beating their wings at 6 to 8 Hz, the third's ~1.4 s (~20 m/s,
+  // full speed: it catches the second up as they reach the warden) at 9 to 12 Hz (review A7; the art
+  // critic), drawn tighter and darker (its scatter and tint) so it is seen cutting through.
   const flock = [];
   {
     const G = SWARM_GUSTS.gusts;
+    const tint = new THREE.Color();
     let g = 0; let upto = G[0].share;
     for (let i = 0; i < SWARM; i++) {
       while (g + 1 < G.length && i >= Math.round(upto * SWARM)) { g++; upto += G[g].share; }
       const r0 = rnd();
       flock.push({
-        delay: G[g].at + G[g].spread * r0 * Math.sqrt(r0), fly: lerp(SWARM_GUSTS.fly[0], SWARM_GUSTS.fly[1], rnd()),
-        dx: (rnd() - 0.5) * 3.2, dz: (rnd() - 0.5) * 3.4, up: 0.5 + rnd() * 1.4, wob: rnd() * TAU, beat: TAU * (9 + rnd() * 3), s: 0.8 + rnd() * 0.5,
+        g, delay: G[g].at + G[g].spread * r0 * Math.sqrt(r0), fly: lerp(G[g].fly[0], G[g].fly[1], rnd()),
+        dx: (rnd() - 0.5) * G[g].scatter[0], dz: (rnd() - 0.5) * G[g].scatter[1], up: 0.5 + rnd() * 1.4, wob: rnd() * TAU,
+        beat: TAU * lerp(G[g].beat[0], G[g].beat[1], rnd()), s: 0.8 + rnd() * 0.5,
       });
+      swarm.setColorAt(i, tint.setScalar(G[g].tint)); // once: the instance colour multiplies the bat's own (no draw call)
     }
+    swarm.instanceColor.needsUpdate = true;
   }
   const NEAREST = 1.2; // no bat comes nearer the eye than this (review A7): no black shard across the lens
   // The giant bat: a body with a head and ears, and two wings hinged at the shoulders, each with
@@ -744,6 +751,9 @@ export function createRoadView(root, parts) {
     return hinge;
   });
   group.add(giant);
+  // For the browser smoke only (read over the debugging connection; nothing in the game reads it):
+  // the swarm's instances with each bat's gust and timing, and the giant, as drawn.
+  group.userData.bats = { swarm, flock, giant };
 
   const _m = new THREE.Matrix4();
   const _q = new THREE.Quaternion();
@@ -752,6 +762,8 @@ export function createRoadView(root, parts) {
   const _p = new THREE.Vector3();
   const _c = new THREE.Color();
   const _b = {};
+  const _sw = {}; // a small bat's place on its way (swarmPoint)
+  const _ga = {}; const _gb = {}; // the giant's place now and a moment on (giantAt)
   const sunDir = new THREE.Vector3();
   const lightDir = new THREE.Vector3();
   const moonFill = new THREE.Vector3(-0.5, 0.6, 0.8).normalize(); // castle.js's own fill
@@ -772,9 +784,9 @@ export function createRoadView(root, parts) {
   }
 
   let lastBoulderT = -1;
-  let giantOver = null; // where the giant bat passes over the warden: their place as it came out
-  const EYE_UP = 1.6; // the warden's eye over their feet (keepconfig player.eyeHeight)
-  const GIANT_CLEAR = 2.3; // the giant bat's body over the eye as it passes: wingtips (1.7 m, banked) still clear
+  let cutDust = false; // the cutaway's own last dust, raised once as it starts
+  let giantOver = null; // the point the giant bat's flight is laid around: GIANT_PATH.clear over the warden's eye, following them
+  const EYE_UP = GIANT_PATH.eye; // the warden's eye over their feet (keepconfig player.eyeHeight)
   let trailAcc = 0; // the dust trail's part-particles carried from frame to frame
   let roadOn = 1; // the road's light holding (1) or handed to the forecourt's (0): the reveal at the gate
   const MOON_HALO = parts.moonHalo ? parts.moonHalo.opacity : 0;
@@ -898,6 +910,13 @@ export function createRoadView(root, parts) {
       lastBoulderT = b.t;
     } else lastBoulderT = -1;
     rocks.visible = boulder.visible;
+    // the werewolf cutaway opens on the last of the dust: a low, slow haze where the boulder came down
+    const cut = sim && sim.waves && sim.waves.scene && sim.waves.scene.kind === 'cutaway' ? sim.waves.scene : null;
+    if (cut && !cutDust && cut.x != null) {
+      cutDust = true;
+      const L = boulderAt(BOULDER_THUD, cut.x, _b);
+      spray(L.x, L.y - ROAD.boulder.radius, L.z, 240, 0.35, 0.08, 4.0); // dense and slow: it hangs (the art critic)
+    } else if (!cut) cutDust = false;
     if (dustAge < 3) {
       dust.visible = outside;
       if (dt > 0) {
@@ -923,7 +942,6 @@ export function createRoadView(root, parts) {
 
     // ---- the bats ----
     const bt = road && road.bats;
-    const cv = ROAD.bats.cave;
     const roadY = heightAt(ROAD.bats.at);
     swarm.visible = !!bt && bt.state === 'swarm' && outside;
     if (swarm.visible) {
@@ -937,20 +955,14 @@ export function createRoadView(root, parts) {
           continue;
         }
         // out of the mouth, back down the road over the warden's head at the trigger point, then
-        // away off the edge and down the slope: a curve through three points
-        const ax = cv.x; const ay = roadY + 1.6; const az = cv.z + 0.9;
-        const bx = BATS_X + f.dx - BATS_DIR * 0.5; const by = roadY + 2.25 + f.up; const bz = 68 + f.dz * 0.5;
-        const cx = BATS_X - BATS_DIR * 9 + f.dx * 2; const cy = roadY - 2 + f.up; const cz = 84 + f.dz;
-        const a1 = (1 - u) * (1 - u); const a2 = 2 * u * (1 - u); const a3 = u * u;
-        const x = a1 * ax + a2 * bx + a3 * cx + 0.35 * Math.sin(f.wob + u * 7);
-        const y = a1 * ay + a2 * by + a3 * cy + 0.25 * Math.sin(f.wob * 2 + u * 11);
-        const z = a1 * az + a2 * bz + a3 * cz;
-        _p.set(x, y, z);
+        // away off the edge and down the slope (road.js swarmPoint), with a flutter of its own
+        swarmPoint(u, f, _sw);
+        _p.set(_sw.x + 0.35 * Math.sin(f.wob + u * 7), _sw.y + 0.25 * Math.sin(f.wob * 2 + u * 11), _sw.z);
         if (eye) { // held off the eye: pushed out along the line from it
           const d = _p.distanceTo(eye);
           if (d < NEAREST) _p.sub(eye).multiplyScalar(NEAREST / Math.max(d, 1e-3)).add(eye);
         }
-        _e.set(-0.2, Math.atan2(-(cx - ax), -(cz - az)) + Math.sin(f.wob + u * 9) * 0.3, Math.sin(f.wob + u * 5) * 0.4);
+        _e.set(-0.2, Math.atan2(-(SWARM_PATH.away.x + f.dx * 2 - SWARM_PATH.mouth.x), -(SWARM_PATH.away.z + f.dz - SWARM_PATH.mouth.z)) + Math.sin(f.wob + u * 9) * 0.3, Math.sin(f.wob + u * 5) * 0.4);
         _q.setFromEuler(_e);
         _s.set(f.s, f.s, f.s);
         _m.compose(_p, _q, _s);
@@ -964,37 +976,40 @@ export function createRoadView(root, parts) {
       swarm.instanceMatrix.needsUpdate = true;
       flapAt.needsUpdate = true;
     }
-    giant.visible = !!bt && bt.state === 'giant' && outside;
+    giant.visible = !!bt && bt.state === 'giant' && bt.t < ROAD.bats.giant && outside; // gone for the quiet after (ROAD.bats.tail)
     if (!giant.visible) giantOver = null;
     if (giant.visible) {
-      // Out of the cave and right over the warden's head (the owner: "have it fly right over the
-      // head of the player"), close, then away over the slope below: big, slow, heavy wing-beats.
-      // Where the warden stood as it came out is kept, so the pass is over them; it stays well
-      // above the head (its wingtips at least a metre clear), and it never touches anything.
-      const u = clamp(bt.t / ROAD.bats.giant);
-      if (!giantOver) {
-        const px = sim.player ? sim.player.x : BATS_X; const pz = sim.player ? sim.player.z : 68;
-        giantOver = { x: px, z: pz, y: (sim.player ? sim.player.y : roadY) + EYE_UP + GIANT_CLEAR };
+      // The owner (fix/bat-pacing): "Have the large bat swoop around the user twice so it can be
+      // seen and cause dread. Slow by half." Out of the cave, a swoop over the warden's head, a
+      // banking loop all the way round them, a second swoop over the head, and away down the slope
+      // (road.js GIANT_PATH, giantAt), at half its old speed. The flight is laid around the point
+      // GIANT_PATH.clear over the warden's eye, which follows them (eased) if they walk on, so it
+      // circles them wherever they go; it never touches anything.
+      const T = ROAD.bats.giant;
+      const px = sim.player ? sim.player.x : GIANT_PATH.home.x; const pz = sim.player ? sim.player.z : GIANT_PATH.home.z;
+      const py = (sim.player ? sim.player.y : roadY) + EYE_UP + GIANT_PATH.clear;
+      if (!giantOver) giantOver = { x: px, y: py, z: pz };
+      else if (dt > 0) {
+        const k = 1 - Math.exp(-3 * dt);
+        giantOver.x += (px - giantOver.x) * k; giantOver.y += (py - giantOver.y) * k; giantOver.z += (pz - giantOver.z) * k;
       }
       const H = giantOver;
-      const ax = cv.x; const ay = roadY + 1.7; const az = cv.z + 0.9; // the mouth
-      const ex = H.x + (H.x - cv.x) * 0.9; const ey = H.y + 5; const ez = H.z + 16; // away down the slope
-      // a curve through the mouth, the point over the head (at u = 0.5) and away
-      const cx = 2 * H.x - (ax + ex) / 2; const cy = 2 * H.y - (ay + ey) / 2; const cz = 2 * H.z - (az + ez) / 2;
-      const a1 = (1 - u) * (1 - u); const a2 = 2 * u * (1 - u); const a3 = u * u;
-      const x = a1 * ax + a2 * cx + a3 * ex;
-      const y = a1 * ay + a2 * cy + a3 * ey;
-      const z = a1 * az + a2 * cz + a3 * ez;
+      giantAt(bt.t, H, _ga);
+      const x = _ga.x; const y = _ga.y; const z = _ga.z;
       giant.position.set(x, y, z);
-      // facing along its flight (its head is its local -z)
-      const tx = 2 * (1 - u) * (cx - ax) + 2 * u * (ex - cx); const ty = 2 * (1 - u) * (cy - ay) + 2 * u * (ey - cy); const tz = 2 * (1 - u) * (cz - az) + 2 * u * (ez - cz);
+      // facing along its flight (its head is its local -z): the way to where it is a moment on
+      // (or from where it was, at the very end)
+      const ahead = bt.t + 0.06 <= T;
+      giantAt(ahead ? bt.t + 0.06 : bt.t - 0.06, H, _gb);
+      const sg = ahead ? 1 : -1;
+      const tx = (_gb.x - x) * sg; const ty = (_gb.y - y) * sg; const tz = (_gb.z - z) * sg;
       const yaw = Math.atan2(-tx, -tz);
       // banked ~0.6 rad, its wing on the warden's side down, so its spread is seen and not its
-      // edge (review A10): the side found from the eye in the bat's own frame
+      // edge (review A10), and into its turns around them: the side found from the eye in the bat's own frame
       let roll = 0;
       if (eye) {
         const side = (eye.x - x) * Math.cos(yaw) - (eye.z - z) * Math.sin(yaw);
-        roll = -Math.sign(side || 1) * 0.6 * smooth(u / 0.15);
+        roll = -Math.sign(side || 1) * 0.6 * smooth(bt.t / 0.3);
       }
       giant.rotation.set(clamp(Math.atan2(ty, Math.hypot(tx, tz)), -0.4, 0.4), yaw, roll);
       // ~1.6 Hz, wings spread at the start; each downstroke passes level on a cue beat (A9)
@@ -1009,5 +1024,31 @@ export function createRoadView(root, parts) {
     }
   }
 
-  return { group, update };
+  // ---- the werewolf cutaway's camera (logic/cutaway.js) ----
+  const camOut = {};
+  const camPos = new THREE.Vector3();
+  const camTarget = new THREE.Vector3();
+  const camView = { position: camPos, target: camTarget, fov: 50 };
+  /**
+   * The camera for the cutaway scene: { position, target, fov } (castle.js sceneCamera asks).
+   * On the bank the creature stands on this hill, so the close-up rises with the ground under it
+   * (the logic's nominal ground, corrected by camera.follow); nothing on the road goes under the hill.
+   */
+  function sceneCamera(sim, sc) {
+    if (!sc || sc.kind !== 'cutaway') return null;
+    const o = cutawayAt(sc.t || 0, sc, camOut);
+    const c = o.camera;
+    camPos.set(c.px, c.py, c.pz);
+    camTarget.set(c.tx, c.ty, c.tz);
+    if (!o.set) {
+      const lift = (hillAt(o.creature.x, o.creature.z) - o.creature.y) * c.follow;
+      camPos.y += lift;
+      camTarget.y += lift;
+      camPos.y = Math.max(camPos.y, hillAt(camPos.x, camPos.z) + 0.3);
+    }
+    camView.fov = c.fov;
+    return camView;
+  }
+
+  return { group, update, sceneCamera, creature: extra };
 }

@@ -36,6 +36,7 @@ import { seatSentries, sentryKilled, innerDoorOpen, lowerGarlic } from './sentri
 import { createHaunts, stepHaunts, ghostScream, landRaven } from './haunts.js';
 import { reflectionLook } from './reflection.js';
 import { createRoad, settledRoad, stepRoad, roadBlock, footSeat } from './road.js'; // issue #29: the road up from the wood
+import { cutawayDue, startCutaway, stepCutaway } from './cutaway.js'; // the werewolf cutaway, right after the boulder
 
 /** The bridge, then one stage per checkpoint (the castle door to the Count's door). */
 export const STAGES = 7;
@@ -1139,7 +1140,8 @@ function finish(sim, events) {
  * nothing after it until pressed again (A6).
  */
 export function stepKeepScene(sim, input, dt, events) {
-  const used = stepScene(sim, input, dt, events);
+  const w = sim.waves;
+  const used = w && w.scene && w.scene.kind === 'cutaway' ? stepCutaway(sim, input, dt, events) : stepScene(sim, input, dt, events);
   if (used) { sim.waves.pressed = false; lowerGarlic(sim); }
   return used;
 }
@@ -1193,6 +1195,7 @@ export function stepKeep(sim, dt, events, input = {}) {
   settleKills(sim, events);
   for (const ev of events) if (ev.type === 'pickup' && KEEP_NOTICES[ev.kind]) notice(sim, KEEP_NOTICES[ev.kind], events);
   stepRoad(w.road, pl, dt, events, sim.rng); // issue #29: the dark's ratchet, the boulder and the bats
+  if (cutawayDue(sim)) startCutaway(sim, events); // the boulder is gone: the werewolf cutaway, once (logic/cutaway.js)
 
   if (w.leap) events.push(...stepLeap(sim, dt));
   const where = whereOf(sim);
