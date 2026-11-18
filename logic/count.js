@@ -80,6 +80,8 @@ export const PYRE_STAGES = Object.freeze([
   Object.freeze({ stage: 'ash', from: 8.5 }),
 ]);
 
+const PYRE_SHADES = PYRE_STAGES.find((p) => p.stage === 'shades').from;
+
 /** Which curtain opens which way: 0 the cord, 1 the padlock, 2 the nails (UX flow, R14). */
 export const CURTAIN_WAYS = Object.freeze(['cord', 'lock', 'nails']);
 
@@ -488,8 +490,12 @@ export function stepScene(sim, input, dt, events) {
   const w = sim.waves;
   const s = w && w.scene;
   if (!s || !own(SCENE_KINDS, s.kind)) return false;
+  const before = s.t;
   s.left -= dt;
   s.t += dt;
+  // Owner Q12: the demon spirits howl as they claw out of him and escape, once, as the pyre
+  // reaches its shades stage (the cue runs on through the whirl and out of the window).
+  if (s.kind === 'pyre' && before < PYRE_SHADES && s.t >= PYRE_SHADES) events.push({ type: 'shadesHowl' });
   let skip = false;
   if (s.skippable) {
     const fire = !!(input && input.fire);
@@ -506,6 +512,9 @@ export function stepScene(sim, input, dt, events) {
   if (s.kind === 'pyre') {
     if (w.count) w.count.phase = 'ash';
     if (w.done) w.done.dawn = true;
+    // K11: the view hands back to a warden turned to the light, square on to the east windows
+    // (yaw 0 looks down -z), so the camera's ease out of the scene ends on the middle window
+    if (sim.player) { sim.player.yaw = -Math.PI / 2; sim.player.pitch = 0; }
   }
   if (s.kind === 'triumph' && w.count) w.count.cheered = true;
   const ev = { type: 'sceneEnd', kind: s.kind };

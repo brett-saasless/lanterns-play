@@ -22,6 +22,7 @@ import { TAGS } from '../logic/script.js';
 import { poseOf, nextCurtain } from '../logic/count.js';
 import * as MAP from '../logic/keepmap.js';
 import { reflectionOf } from '../logic/reflection.js';
+import { batGeometry, batFlap } from './roadview.js'; // K7: the road's bat, at the swarm's scale
 
 const TAU = Math.PI * 2;
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
@@ -1625,10 +1626,23 @@ function wardenFigure(seed, look) {
     ball(female ? 0.108 : 0.115, 0, 1.69, 0, 0x8f7a68, 0.95, 1.05, 1, 0.2),
     ball(0.13, 0, 1.76, 0.01, 0x24211f, 1.05, 0.5, 1.12, 0.2), // the cap, and its peak
     slab(0.17, 0.016, 0.1, 0, 1.745, -0.15, 0x24211f, 0.2),
-    slab(0.1, 0.03, 0.02, 0, 1.69, -0.1, 0x2c2a28, 0.2), // goggles under the peak
+    // K6: a face, plain as the foreman's (the court figures' register): the goggles pushed up on
+    // the peak, a brow, two eyes in their shadow, a nose, a mouth, a jaw and a chin, the ears
+    slab(0.15, 0.026, 0.03, 0, 1.768, -0.128, 0x2c2a28, 0.15), slab(0.05, 0.03, 0.012, -0.034, 1.768, -0.144, 0x6d7a80, 0.1), slab(0.05, 0.03, 0.012, 0.034, 1.768, -0.144, 0x6d7a80, 0.1),
+    slab(0.13, 0.02, 0.035, 0, 1.722, -0.095, 0x6e5b4c, 0.15), // the brow
+    ...[-1, 1].flatMap((sx) => [
+      ball(0.021, sx * 0.04, 1.699, -0.093, 0x5a4638, 1.2, 0.8, 0.6, 0.1), // the socket's shadow
+      ball(0.0085, sx * 0.04, 1.699, -0.104, 0xc8c0b2, 1.3, 0.75, 0.5, 0.05), ball(0.0065, sx * 0.04, 1.699, -0.11, 0x1a1512, 1, 1, 0.5, 0), // eye, iris
+      ball(0.026, sx * (female ? 0.105 : 0.113), 1.69, 0.0, 0x86705f, 0.5, 1.2, 0.8, 0.15), // the ear
+    ]),
+    ball(0.02, 0, 1.672, -0.112, 0x8a7262, 0.8, 1.5, 1.1, 0.1), // the nose
+    slab(0.044, 0.007, 0.012, 0, 1.636, -0.104, 0x4a3530, 0.1), // the mouth
+    ball(female ? 0.078 : 0.088, 0, 1.63, -0.03, female ? 0x8f7a68 : 0x86705f, 1.08, 0.72, 1.05, 0.15), // the jaw
+    ball(0.032, 0, 1.608, -0.082, 0x8a7464, 1.1, 0.9, 0.9, 0.1), // the chin
     // the yard's lantern at the belt
     slab(0.09, 0.14, 0.09, -0.22, 0.86, -0.12, 0x3a3d42, 0.2), slab(0.06, 0.08, 0.095, -0.22, 0.86, -0.12, 0xffb14a, 0),
   ];
+  if (!female) parts.push(slab(0.07, 0.013, 0.016, 0, 1.651, -0.11, 0x3a2a20, 0.15)); // his moustache
   if (female) {
     parts.push(
       ball(0.12, 0, 1.68, 0.05, HAIR, 1.02, 0.72, 1, 0.15), // hair under the cap, over the ears
@@ -2010,34 +2024,15 @@ function buildCount(ctx) {
 }
 
 function buildBats(ctx, n) {
-  const dark = 0x15110f;
-  const wing = (sx) => {
-    // a membrane: shoulder, wrist, tip, and a scalloped trailing edge
-    const pts = [[0.02, 0, -0.02], [0.16, 0, -0.07], [0.31, 0, 0.0], [0.23, 0, 0.07], [0.2, 0, 0.04], [0.13, 0, 0.1], [0.1, 0, 0.055], [0.03, 0, 0.09]];
-    const pos = new Float32Array(pts.length * 3);
-    pts.forEach((p, i) => { pos[i * 3] = p[0] * sx; pos[i * 3 + 1] = p[1]; pos[i * 3 + 2] = p[2]; });
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.setIndex([0, 1, 6, 1, 4, 6, 1, 2, 4, 2, 3, 4, 4, 5, 6, 0, 6, 7]);
-    geo.computeVertexNormals();
-    return S.tint(geo, dark, 0.25, sx);
-  };
-  const geo = S.merge([
-    S.tint(new THREE.SphereGeometry(0.035, 6, 5).scale(1, 0.9, 1.9), 0x1c1614, 0.25, 1),
-    S.tint(new THREE.SphereGeometry(0.026, 6, 5).translate(0, 0.012, -0.07), 0x1c1614, 0.25, 2),
-    aimed(spike(0.012, 0.045, dark, 4), [0.016, 0.03, -0.07], [0.3, 1, 0]), aimed(spike(0.012, 0.045, dark, 4), [-0.016, 0.03, -0.07], [-0.3, 1, 0]),
-    wing(1), wing(-1),
-  ]);
-  const mat = ctx.M.cloth.clone();
-  const uTime = { value: 0 };
-  mat.onBeforeCompile = (sh) => {
-    sh.uniforms.uTime = uTime;
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime;')
-      .replace('#include <begin_vertex>', `#include <begin_vertex>
-      { float span = max( 0.0, abs( position.x ) - 0.03 );
-        transformed.y += span * 0.95 * sin( uTime * 27.0 + float( gl_InstanceID ) * 1.7 ) - span * span * 1.2; }`);
-  };
-  mat.customProgramCacheKey = () => 'keep-bat';
+  // K7: the road's bat (roadview.js) at the Count's swarm scale: a furred body with ears, wings of
+  // membrane over a short arm and three finger bones, scalloped between them, flapping in the
+  // vertex shader (one draw call). Lit like the room, so the fill and the dawn rim fall on them.
+  const geo = batGeometry(0.5);
+  const flapAt = new THREE.InstancedBufferAttribute(new Float32Array(n * 2), 2);
+  flapAt.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('aFlap', flapAt);
+  const mat = batFlap(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, side: THREE.DoubleSide }), geo.userData.hinge);
+  const beat = Array.from({ length: n }, (_, i) => TAU * (8 + 3 * hash(i, 6)));
   const bats = new THREE.InstancedMesh(geo, mat, n);
   bats.frustumCulled = false;
   bats.visible = false;
@@ -2048,7 +2043,6 @@ function buildBats(ctx, n) {
     /** on: they crowd the warden; gone: they scatter (the dawn has him). */
     update(c, on, gone) {
       const { dt, time, pl } = c;
-      uTime.value = time;
       level = approach(level, on ? 1 : 0, dt, on ? 1.2 : 3);
       if (gone && level > 0.02) flee += dt * 7; else if (on) flee = 0;
       bats.visible = level > 0.02 && !!pl && flee < 14;
@@ -2066,8 +2060,12 @@ function buildBats(ctx, n) {
         _o.scale.setScalar(1.0 + 0.4 * hash(i, 5));
         _o.updateMatrix();
         bats.setMatrixAt(i, _o.matrix);
+        const ph = time * beat[i] + hash(i, 7) * TAU;
+        flapAt.array[i * 2] = 0.1 + 0.8 * Math.sin(ph);
+        flapAt.array[i * 2 + 1] = -0.2 + 0.7 * Math.sin(ph - 1.2);
       }
       bats.instanceMatrix.needsUpdate = true;
+      flapAt.needsUpdate = true;
     },
   };
 }

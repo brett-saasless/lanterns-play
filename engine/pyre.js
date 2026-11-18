@@ -99,9 +99,11 @@ void main() {
     pos.xz = uC.xz + mat2( ca, -sa, sa, ca ) * d * ( 1.0 + w * age * 0.9 );
     size = step( s.z, F ) * ( 0.3 + 0.36 * h1( s.w * 77.0 ) ) * ( 1.0 - 0.55 * ph ) * smoothstep( 0.0, 0.08, ph );
     float fl = 1.0 + ( 1.0 - uCalm ) * 0.25 * sin( uTime * 23.0 + s.x * 50.0 );
-    vec3 c = mix( vec3( 1.0, 0.72, 0.3 ), vec3( 1.0, 0.33, 0.05 ), smoothstep( 0.0, 0.4, ph ) );
+    // K10: orange, laid over what is behind it rather than added to it, so where the tongues pile
+    // up on him the burn (the hands, then inward) stays under the clipping point, never a white blob
+    vec3 c = mix( vec3( 1.0, 0.6, 0.22 ), vec3( 1.0, 0.3, 0.05 ), smoothstep( 0.0, 0.4, ph ) );
     c = mix( c, vec3( 0.4, 0.05, 0.015 ), smoothstep( 0.4, 1.0, ph ) );
-    col = vec4( c * fl, ( 1.0 - ph ) * 0.34 * goneEnv() ); tall = 1.7;
+    col = vec4( c * fl, ( 1.0 - ph ) * 0.7 * goneEnv() ); tall = 1.7; add = 0.0;
   } else if ( aKind < 1.5 ) {
     // smoke: a plume while he burns, then the whirlwind, up and out through the middle window
     float L = 2.4 + 0.8 * s.x; float ph = fract( uT / L + s.y ); float tb = uT - ph * L;
@@ -152,7 +154,7 @@ void main() {
       : 1.5 * exp( -uT * 3.2 ) + 0.9 * exp( -max( 0.0, uT - uStage.x ) * 2.8 ) * step( uStage.x, uT );
     float glow = 0.3 * fireEnv( uT ) * ( 1.0 + ( 1.0 - uCalm ) * 0.12 * sin( uTime * 17.0 ) );
     pos = uC + vec3( 0.0, 0.1, 0.0 ); size = 9.0; soft = 2.0;
-    col = vec4( mix( vec3( 1.0, 0.5, 0.16 ), vec3( 1.0, 0.86, 0.55 ), clamp( burst, 0.0, 1.0 ) ), min( 1.0, burst * 0.5 + glow * 0.55 ) * goneEnv() );
+    col = vec4( mix( vec3( 1.0, 0.5, 0.16 ), vec3( 1.0, 0.8, 0.5 ), clamp( burst, 0.0, 1.0 ) ), min( 0.4, burst * 0.25 + glow * 0.18 ) * goneEnv() ); // K10: a glow, not a flare
   }
   if ( uT < 0.0 ) size = 0.0;
   vCol = col; vMode = vec2( add, soft );
@@ -170,8 +172,11 @@ void main() {
   if ( vMode.y > 0.5 && vMode.y < 1.5 ) a *= 0.45 + 0.75 * n2( vUv * 3.2 + vSeed );
   a *= vCol.a;
   if ( a < 0.0006 ) discard;
-  gl_FragColor = vec4( vCol.rgb * a, a * ( 1.0 - vMode.x ) );
+  // K10: encode, then premultiply (three's own order): premultiplying first made every faint
+  // layer bright in sRGB, so the fire and the smoke summed to white
+  gl_FragColor = vec4( vCol.rgb, 1.0 );
   #include <colorspace_fragment>
+  gl_FragColor = vec4( gl_FragColor.rgb * a, a * ( 1.0 - vMode.x ) );
 }`,
     transparent: true, depthWrite: false, premultipliedAlpha: true,
     blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
@@ -208,13 +213,15 @@ ${GLSL_COMMON}
 void main() {
   float fres = pow( 1.0 - abs( dot( normalize( vN ), normalize( vV ) ) ), 1.6 );
   float n = vnoise( vP * 7.0 + vec3( 0.0, -uT * 1.8, vFx.y ) );
-  float a = vDen * ( 0.13 + 0.6 * fres ) * ( 0.55 + 0.6 * n ) * vFx.x;
+  float a = vDen * ( 0.34 + 0.5 * fres ) * ( 0.6 + 0.5 * n ) * vFx.x; // K10: more body than before, so they read as figures
   a *= 1.0 - smoothstep( 0.2, 1.0, vFx.z + ( n - 0.5 ) * 0.5 ) * 0.85; // torn thin as it goes
   if ( a < 0.004 ) discard;
-  // pale at a third strength in the body, full at the edge; the fire under them warms their undersides
-  vec3 c = uPale * ( 0.34 + 0.8 * fres ) + vec3( 0.5, 0.2, 0.05 ) * clamp( 0.3 - vP.y, 0.0, 1.0 ) * fireEnv( uT ) * 0.5;
-  gl_FragColor = vec4( c * a, a );
+  // K10: Phantom at a third strength, a little more at the edge (never the white of a scribble);
+  // the fire under them warms their undersides
+  vec3 c = uPale * ( 0.33 + 0.24 * fres ) + vec3( 0.5, 0.2, 0.05 ) * clamp( 0.3 - vP.y, 0.0, 1.0 ) * fireEnv( uT ) * 0.5;
+  gl_FragColor = vec4( c, 1.0 );
   #include <colorspace_fragment>
+  gl_FragColor = vec4( gl_FragColor.rgb * a, a ); // encoded, then premultiplied (K10)
 }`,
     transparent: true, depthWrite: false, side: THREE.DoubleSide, vertexColors: true, premultipliedAlpha: true,
     blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
@@ -253,8 +260,9 @@ void main() {
   if ( a < 0.004 ) discard;
   vec3 smoke = vec3( 0.1, 0.092, 0.09 ) * ( 0.35 + 1.0 * body );
   vec3 fire = vec3( 0.95, 0.36, 0.07 ) * pow( 1.0 - vUA.x, 1.4 ) * streak * 0.8 + vec3( 0.6, 0.45, 0.16 ) * smoothstep( 0.6, 1.0, vUA.x ) * 0.35;
-  gl_FragColor = vec4( smoke * a + fire * a, a );
+  gl_FragColor = vec4( smoke + fire, 1.0 );
   #include <colorspace_fragment>
+  gl_FragColor = vec4( gl_FragColor.rgb * a, a ); // encoded, then premultiplied (K10)
 }`,
     transparent: true, depthWrite: false, side: THREE.DoubleSide, premultipliedAlpha: true,
     blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,

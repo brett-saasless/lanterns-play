@@ -432,7 +432,8 @@ function buildGuard(e, cfg, ctx) {
   torso.castShadow = true;
   const hd = S.head({
     size: 0.36, seed, defects: spec.defects, budget: 1500, extras: guardHat(spec),
-    face: { skin: 0xf2d6bd, eye: spec.eye, cheek: { rosy: 0.85 }, skull: { wide: 1.04, tall: 1.0, taper: 0.22 }, ears: { size: 0.9 } },
+    // C2: each guard's wrong thing at twice the strength, so it reads at 8 m, not only at 4.
+    face: { skin: 0xf2d6bd, eye: spec.eye, cheek: { rosy: 0.85 }, skull: { wide: 1.04, tall: 1.0, taper: 0.22 }, ears: { size: 0.9 }, defectScale: 2 },
   });
   hd.group.position.set(0, 2.13, 0.01);
   // The coat's skirt: scarlet, gold at the hem, and darker and wetter the lower it hangs.

@@ -12,6 +12,8 @@ import { COURT } from './logic/courtmap.js';
 import { restoreCheckpoint } from './logic/trail.js';
 import { COPY, CASTLE_COPY } from './logic/script.js';
 import { NEXT, PASSAGE, carryOf, seatCarry, passageOf, poseOf } from './logic/journey.js'; // issue #29: one continuous journey
+import { needsAutoReload, isGhostClick } from './logic/touchmap.js';
+import { carried } from './logic/weapon.js';
 
 const ENGINE_FAIL = 'Could not load the 3D engine. Check your connection and reload.';
 const NO_WEBGL = 'This browser could not start WebGL, which LANTERN YARD needs. Try current Chrome or Safari with hardware acceleration on.';
@@ -25,16 +27,19 @@ const SUBLINES = {
   castle: CASTLE_COPY.subline,
 };
 const SETTINGS_KEY = 'lanternyard.settings';
+const GHOST_MS = 350; // touch: a click this soon after a card, the log or the pause card opens is the lifted finger's, not a tap
 
 function fatal(text) {
   if (window.__lyFatal) window.__lyFatal(text);
 }
 
 function loadSettings() {
-  const d = { sensitivity: 1, reducedFlash: false, muted: false };
+  const d = { sensitivity: 1, touchSensitivity: 1, reducedFlash: false, muted: false };
+  const look = (v) => typeof v === 'number' && v >= 0.2 && v <= 3;
   try {
     const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
-    if (typeof s.sensitivity === 'number' && s.sensitivity >= 0.2 && s.sensitivity <= 3) d.sensitivity = s.sensitivity;
+    if (look(s.sensitivity)) d.sensitivity = s.sensitivity;
+    if (look(s.touchSensitivity)) d.touchSensitivity = s.touchSensitivity; // the look speed on touch, kept apart from the mouse's
     if (typeof s.reducedFlash === 'boolean') d.reducedFlash = s.reducedFlash;
     if (typeof s.muted === 'boolean') d.muted = s.muted;
   } catch { /* defaults */ }
@@ -71,13 +76,13 @@ async function boot() {
     mods = await Promise.all([
       import('./engine/world.js'), import('./engine/actors.js'), import('./engine/viewmodel.js'),
       import('./engine/hud.js'), import('./engine/audio.js'), import('./engine/controls.js'), import('./engine/pages.js'),
-      import('./engine/handover.js'),
+      import('./engine/handover.js'), import('./engine/touchui.js'),
     ]);
   } catch {
     fatal(ENGINE_FAIL);
     return;
   }
-  const [{ buildWorld }, { createActors }, { createViewmodel }, { createHud, snapshotOf }, audio, { createControls }, { createPages }, { createHandover }] = mods;
+  const [{ buildWorld }, { createActors }, { createViewmodel }, { createHud, snapshotOf }, audio, { createControls }, { createPages }, { createHandover }, { createTouchUi }] = mods;
   let castleViews = []; // the names of the castle's views that loaded (read by the smoke seat)
   let keepRules = null; // { cfg, keep }: the castle's config and rules module, once loaded and checked
 
@@ -95,6 +100,17 @@ async function boot() {
   const actors = createActors(scene);
   const vm = createViewmodel(camera.aspect, camera);
   const controls = createControls(canvas);
+  // Touch (layout C): the on-screen controls feed controls.touch; with no touch they stay hidden.
+  const touchUi = createTouchUi({
+    root: document.getElementById('touch'),
+    controls,
+    hooks: {
+      pause: () => pause(),
+      toggleLog: () => { if (state === 'LOG') closeLog(); else if (state === 'PLAYING' && inLogRoom()) openLog(); }, // as Tab
+      modeChanged: () => { if (document.pointerLockElement) document.exitPointerLock(); hud.syncSettings(settings); if (state === 'PLAYING') pause(); }, // the lock goes with the mode: let the browser's go too
+      holdE: (down) => { eHeld = !!down && state === 'PLAYING'; }, // the touch E, as the E key: the cord reads it as `hold`
+    },
+  });
   const pages = createPages();
   const handover = createHandover(renderer); // #29: the fade and the dissolve between levels
 
@@ -103,6 +119,8 @@ async function boot() {
   vm.setReducedFlash(settings.reducedFlash);
   actors.setReducedFlash(settings.reducedFlash);
   world.setReducedFlash(settings.reducedFlash);
+  // The Look speed slider drives whichever look speed is in use: the mouse's, or the touch one.
+  const lookKey = () => (controls.touchMode() ? 'touchSensitivity' : 'sensitivity');
   const hud = createHud(settings, (patch) => {
     Object.assign(settings, patch);
     saveSettings(settings);
@@ -111,7 +129,7 @@ async function boot() {
     actors.setReducedFlash(settings.reducedFlash);
     world.setReducedFlash(settings.reducedFlash);
     hud.syncSettings(settings);
-  });
+  }, lookKey);
 
   const sim = createSim((Date.now() >>> 0) || 1);
   warmRoutes(CONFIG); // the yard creatures' walk grids, built before the first wave (#21)
@@ -124,6 +142,12 @@ async function boot() {
   let titleRoom = 'yard'; // the room shown behind the title (hover or focus); never persisted
   let sceneEase = null; // { pos, quat, t }: the camera easing home after the bloom scene
   let sceneLast = null; // the camera as the bloom scene last placed it
+  // Art pass K11/K12, the castle's death and triumph: the dawn's gold dip that carries the cut into
+  // the pyre ({ t }), and the triumph's last view held under THE END ({ pos, quat, fov }).
+  let goldDip = null;
+  let endHold = null;
+  const DAWN_GOLD = 0xf2c14e;
+  const CASTLE_EASE = 0.75; // seconds: the castle's hand-overs between a scene's camera and the warden's eye (K11)
   let dead = false; // WebGL context lost: the frame loop is over
   let locking = false;
   let jolt = 0;
@@ -150,8 +174,10 @@ async function boot() {
   let frameDt = 0;
   const ear = { x: 0, z: 0, yaw: 0 }; // the listener handed to audio.update each playing frame
 
+  let openedAt = -Infinity; // when a card, the log, the pause card or the won/lost card last opened (the touch ghost-click guard)
   function setState(s) {
     state = s;
+    if (s === 'CARD' || s === 'PAUSED' || s === 'LOG' || s === 'WON' || s === 'LOST') openedAt = performance.now();
     if (s !== 'PLAYING') eHeld = false;
     controls.setActive(s === 'PLAYING');
     hud.showScreen(s.toLowerCase(), sim);
@@ -161,6 +187,20 @@ async function boot() {
   const inLogRoom = () => LOG_ROOMS.includes(runRoom) && sim.cfg.room === runRoom; // log, clue cards, prompt, notice, tray
   let eHeld = false; // E is down and went down in play: the cord reads it as `hold` (the sim wants a fresh press)
   const inView = () => state === 'PLAYING' || state === 'PAUSED' || state === 'CARD' || state === 'LOG';
+  // Touch only: the click a finger makes as it lifts, just after the press that opened a card or the pause card,
+  // or just after a finger left an on-screen control (WebKit aims that click where the finger lifts).
+  // A click from inside the #touch overlay (the lifted finger of a pause or log press) is never a card tap either.
+  const ghostClick = (e) => controls.touchMode() && (isGhostClick(performance.now(), openedAt, touchUi.releasedAt(), GHOST_MS) || !!e?.target?.closest?.('#touch'));
+  const tapCard = () => { if (!ghostClick()) turnCard(); }; // a click on a story or clue card
+  /** Touch only, on a Play or Resume tap: fullscreen, then landscape where the browser allows it. Failures are ignored. */
+  function fullscreenOnTouch() {
+    if (!controls.touchMode() || document.fullscreenElement) return;
+    const lock = () => { try { const p = screen.orientation?.lock?.('landscape'); if (p && p.catch) p.catch(() => {}); } catch { /* no lock here */ } };
+    try {
+      const p = document.documentElement.requestFullscreen?.();
+      if (p && typeof p.then === 'function') p.then(lock, () => {});
+    } catch { /* no fullscreen here */ }
+  }
 
   /** Switches the sim, the scene and the weapon to a room (Engine API, "Choosing a room"). */
   function enterRoom(name) {
@@ -184,6 +224,8 @@ async function boot() {
     pages.reset();
     sceneEase = null;
     sceneLast = null;
+    goldDip = null;
+    endHold = null;
     seenArch = false;
     jolt = 0;
     tremor = 0;
@@ -271,7 +313,7 @@ async function boot() {
     handover.fade(hex, 1); // enterRoom cleared the cover: back up, held until the card is turned away
     // enterRoom cleared the HUD and the pages too: the same card back up at once (one task, no paint between)
     if (after && !now) {
-      pages.card(key, turnCard);
+      pages.card(key, tapCard);
       cardAfter = after;
       setState('CARD');
       audio.setReading(true);
@@ -332,7 +374,7 @@ async function boot() {
   function showCard(key, after, needsLock, open = pages.card) {
     cardKeep();
     document.getElementById('card').classList.remove('daylit'); // N6's daylight only on the journey's court card (journeyOn sets it after)
-    if (!open(key, turnCard)) { after(); return; }
+    if (!open(key, tapCard)) { after(); return; }
     cardAfter = after;
     cardNeedsLock = needsLock;
     hud.hint('');
@@ -513,21 +555,33 @@ async function boot() {
   const roomBtns = { yard: document.getElementById('deploy-yard'), cave: document.getElementById('deploy-cave'), court: document.getElementById('deploy-court') };
   roomBtns.court.textContent = COPY.button;
   const bindRoomBtn = (name, btn) => {
-    btn.addEventListener('click', () => deploy(true, name, false, null));
+    btn.addEventListener('click', () => { fullscreenOnTouch(); deploy(true, name, false, null); });
     btn.addEventListener('mouseenter', () => previewRoom(name));
     btn.addEventListener('focus', () => previewRoom(name));
   };
   for (const [name, btn] of Object.entries(roomBtns)) bindRoomBtn(name, btn);
-  document.getElementById('pausetitle').addEventListener('click', backToTitle);
-  document.getElementById('wontitlebtn').addEventListener('click', backToTitle);
-  document.getElementById('losttitlebtn').addEventListener('click', backToTitle);
-  document.getElementById('resume').addEventListener('click', () => deploy(false));
-  document.getElementById('restart').addEventListener('click', () => deploy(true));
-  document.getElementById('again').addEventListener('click', () => deploy(true));
-  document.getElementById('retry').addEventListener('click', () => (LOG_ROOMS.includes(runRoom) ? deploy(false, runRoom, true) : deploy(true)));
-  document.getElementById('paused').addEventListener('click', (e) => {
-    if (e.target.id === 'paused') deploy(false); // clicking the dimmed view resumes
+  document.getElementById('pausetitle').addEventListener('click', () => { if (!ghostClick()) backToTitle(); });
+  document.getElementById('wontitlebtn').addEventListener('click', () => { if (!ghostClick()) backToTitle(); });
+  document.getElementById('losttitlebtn').addEventListener('click', () => { if (!ghostClick()) backToTitle(); });
+  document.getElementById('resume').addEventListener('click', () => {
+    if (ghostClick()) return;
+    fullscreenOnTouch();
+    deploy(false);
   });
+  document.getElementById('restart').addEventListener('click', () => { if (!ghostClick()) deploy(true); });
+  document.getElementById('again').addEventListener('click', () => { if (!ghostClick()) deploy(true); });
+  document.getElementById('retry').addEventListener('click', () => {
+    if (ghostClick()) return;
+    if (LOG_ROOMS.includes(runRoom)) deploy(false, runRoom, true); else deploy(true);
+  });
+  document.getElementById('paused').addEventListener('click', (e) => {
+    if (e.target.id === 'paused' && !ghostClick()) { fullscreenOnTouch(); deploy(false); } // clicking the dimmed view resumes
+  });
+  // The log's footer under touch: previous, next and close, as A, D and Tab.
+  const logTurn = (dir) => { if (state === 'LOG' && !ghostClick() && pages.turn(sim, dir)) audio.play('page'); };
+  document.getElementById('logprev').addEventListener('click', () => logTurn(-1));
+  document.getElementById('lognext').addEventListener('click', () => logTurn(1));
+  document.getElementById('logclose').addEventListener('click', () => { if (!ghostClick()) closeLog(); });
   for (const btn of Object.values(roomBtns)) btn.disabled = false; // hint is cleared by setState('TITLE') below
 
   /**
@@ -564,7 +618,7 @@ async function boot() {
     const roadBtn = document.getElementById('deploy-road'); // the Road start: the castle's run from the road's foot
     if (roadBtn && typeof keep.enterRoad === 'function') {
       roadBtn.textContent = CASTLE_COPY.road;
-      roadBtn.addEventListener('click', () => deploy(true, 'castle', false, 'road'));
+      roadBtn.addEventListener('click', () => { fullscreenOnTouch(); deploy(true, 'castle', false, 'road'); });
       roadBtn.addEventListener('mouseenter', () => previewRoom('castle'));
       roadBtn.addEventListener('focus', () => previewRoom('castle'));
       roadBtn.disabled = false;
@@ -653,7 +707,7 @@ async function boot() {
 
   // Any loss of lock or focus pauses.
   // With the mouse captured a click is delivered to the canvas, not the card: take it from the document.
-  document.addEventListener('click', () => { if (state === 'CARD') turnCard(); });
+  document.addEventListener('click', (e) => { if (state === 'CARD' && !ghostClick(e)) turnCard(); });
 
   // A card stays up and a click resumes; the log closes into the pause card.
   document.addEventListener('pointerlockchange', () => {
@@ -663,6 +717,12 @@ async function boot() {
   });
   window.addEventListener('blur', pause);
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+  // Touch: turned upright, the game pauses (the rotate screen covers it). Back to landscape it stays
+  // paused: the pause card waits for Resume.
+  try {
+    const portrait = matchMedia('(orientation: portrait)');
+    portrait.addEventListener('change', (e) => { if (e.matches && controls.touchMode()) pause(); });
+  } catch { /* no media queries: nothing to watch */ }
 
   window.addEventListener('resize', () => {
     world.resize();
@@ -735,6 +795,7 @@ async function boot() {
         camera.position.copy(view.position);
         camera.lookAt(view.target);
         setFov(view.fov || FOV);
+        if (sceneEase) easeFrom(sceneEase, view.fov || FOV); // K11: a scene that follows another (the pyre, then the triumph) picks up the ease
         if (sceneLast && sceneLast.fov != null) { sceneLast.pos.copy(camera.position); sceneLast.quat.copy(camera.quaternion); sceneLast.fov = camera.fov; }
         else sceneLast = { pos: camera.position.clone(), quat: camera.quaternion.clone(), fov: camera.fov };
         const q = quake();
@@ -748,6 +809,12 @@ async function boot() {
         placeSceneCamera(bloom);
         return;
       }
+    }
+    if (endHold) { // K12: THE END stands over the triumph's last view, not over the warden's eye and gun
+      camera.position.copy(endHold.pos);
+      camera.quaternion.copy(endHold.quat);
+      setFov(endHold.fov);
+      return;
     }
     const dying = sim.status === 'dying' || sim.status === 'lost';
     const fall = dying ? Math.min(1, 1 - Math.max(0, sim.statusTimer) / sim.cfg.loseBeat) : 0;
@@ -763,15 +830,20 @@ async function boot() {
     camera.rotation.set(pl.pitch - 0.03 * jolt - fall * 0.5, pl.yaw, fall * 0.6);
     if (sceneEase) {
       // Back from the rill: ease from where the scene left the view to the warden's eye.
-      sceneEase.t = Math.min(1, sceneEase.t + frameDt / 0.4);
-      const k = sceneEase.t * sceneEase.t * (3 - 2 * sceneEase.t);
-      const eye = camera.position.clone();
-      const eyeQ = camera.quaternion.clone();
-      camera.position.copy(sceneEase.pos).lerp(eye, k);
-      camera.quaternion.copy(sceneEase.quat).slerp(eyeQ, k);
-      setFov(sceneEase.fov != null ? sceneEase.fov + (FOV - sceneEase.fov) * k : FOV);
-      if (sceneEase.t >= 1) sceneEase = null;
+      easeFrom(sceneEase, FOV);
     } else setFov(FOV);
+  }
+
+  /** Eases the camera from where a scene left it (e: { pos, quat, fov, t }) to where it is placed now (the lens fov). */
+  function easeFrom(e, fov) {
+    e.t = Math.min(1, e.t + frameDt / (runRoom === 'castle' ? CASTLE_EASE : 0.4));
+    const k = e.t * e.t * (3 - 2 * e.t);
+    const eye = camera.position.clone();
+    const eyeQ = camera.quaternion.clone();
+    camera.position.copy(e.pos).lerp(eye, k);
+    camera.quaternion.copy(e.quat).slerp(eyeQ, k);
+    setFov(e.fov != null ? e.fov + (fov - e.fov) * k : fov);
+    if (e.t >= 1 && sceneEase === e) sceneEase = null;
   }
 
   /**
@@ -856,19 +928,25 @@ async function boot() {
     let simDt = 0;
     if (state === 'PLAYING') {
       simDt = dt;
-      const input = controls.snapshot(settings.sensitivity);
+      const input = controls.snapshot(controls.touchMode() ? settings.touchSensitivity : settings.sensitivity);
       // 1 and 2 name a weapon; asking for the one already in hand is no swap.
       if (typeof input.swap === 'string' && sim.weapon.name === input.swap) input.swap = false;
+      // touch has no R: an empty clip reloads by itself, but not on a swap frame (the sim swaps first: the reload would go to the new weapon)
+      if (controls.touchMode() && !input.swap && needsAutoReload(sim.weapon)) input.reload = true;
       input.hold = eHeld; // E held down (the cord); ending a scene is the sim's call, never this file's
       if (theEndShowing()) { // issue #20: nothing is fired or walked behind THE END
         input.fire = false; input.jump = false; input.moveX = 0; input.moveZ = 0; input.interact = false; input.hold = false;
       }
-      const sceneBefore = !!(sim.waves && sim.waves.scene);
+      const sceneBefore = sim.waves && sim.waves.scene ? sim.waves.scene.kind : null;
       fanOut(stepSim(sim, input, dt));
-      if (sceneBefore && !(sim.waves && sim.waves.scene) && sceneLast) {
-        sceneEase = { pos: sceneLast.pos, quat: sceneLast.quat, fov: sceneLast.fov, t: 0 };
+      const sceneNow = sim.waves && sim.waves.scene ? sim.waves.scene.kind : null;
+      if (sceneBefore && !sceneNow && sceneLast) {
+        if (sceneBefore === 'triumph' && runRoom === 'castle') endHold = { pos: sceneLast.pos, quat: sceneLast.quat, fov: sceneLast.fov || FOV };
+        else sceneEase = { pos: sceneLast.pos, quat: sceneLast.quat, fov: sceneLast.fov, t: 0 };
         sceneLast = null;
       }
+      // K11: the third curtain opens and the dawn floods in: the cut to the pyre's camera is carried by a dip through dawn gold
+      if (!sceneBefore && sceneNow === 'pyre' && runRoom === 'castle') { goldDip = { t: 0 }; sceneEase = null; }
       const way = passageOf(sim); // #29: the crater's dark, the shaft's light, as the warden goes through
       if (way) {
         handover.fade(way.way === 'up' ? 0xfff4dc : 0x000000, way.k * way.k);
@@ -879,6 +957,14 @@ async function boot() {
       ear.yaw = sim.player.yaw;
       audio.update(sim, ear); // after the fan-out; moves what is sounding, starts nothing
     }
+    if (goldDip) {
+      goldDip.t += state === 'PLAYING' ? dt : 0;
+      const len = settings.reducedFlash ? 0.9 : 0.55;
+      const k = Math.max(0, 1 - goldDip.t / len);
+      handover.fade(DAWN_GOLD, (settings.reducedFlash ? 0.5 : 0.85) * k * k * (3 - 2 * k));
+      if (k <= 0) goldDip = null;
+    }
+    if (endHold && ((state !== 'PLAYING' && state !== 'PAUSED') || runRoom !== 'castle' || !(sim.waves && sim.waves.count && sim.waves.count.cheered))) endHold = null; // held until the closing card
     jolt = Math.max(0, jolt - dt / 0.18);
     tremor = Math.max(0, tremor - dt);
 
@@ -898,14 +984,24 @@ async function boot() {
     world.update(sim, animDt, time);
     actors.sync(sim, animDt, time, camera.position);
     vm.update(simDt, sim.player, sim.weapon, sim);
+    let usePrompt = ''; // the interact prompt on screen (E  Turn, E  Read, ...): the touch E shows with it
     if (inView()) {
       const court = LOG_ROOMS.includes(sim.cfg.room);
-      hud.render(sim, simDt, court && state === 'PLAYING' && !inScene ? pages.prompt(sim) : '');
+      usePrompt = court && state === 'PLAYING' && !inScene ? pages.prompt(sim) : '';
+      hud.render(sim, simDt, usePrompt);
       if (court) {
         pages.line(sim);
         pages.tray(sim);
       }
     }
+    const cut = sim.waves && sim.waves.scene; // (not `scene`: that is the world's, drawn below)
+    touchUi.setContext({
+      state,
+      hasUsePrompt: !!usePrompt,
+      inLogRoom: inLogRoom(),
+      sceneSkippable: !!cut && cut.skippable !== false, // the bloom, the crater, the vault, the castle's strike: not the pyre or the triumph
+      weaponCount: carried(sim).length, // in hand, the holster (next on Q) and the rack
+    });
 
     renderer.info.reset();
     renderer.clear();
@@ -913,7 +1009,7 @@ async function boot() {
     if (!building) {
       world.prerender(camera); // the gallery's glass redraws its target first (counted in the frame's draw stats)
       renderer.render(scene, camera);
-      if (inView() && !(sim.waves && sim.waves.scene)) {
+      if (inView() && !(sim.waves && sim.waves.scene) && !endHold) {
         renderer.clearDepth();
         renderer.render(vm.scene, vm.camera);
       }

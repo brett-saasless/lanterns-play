@@ -1,4 +1,5 @@
-// Keyboard state, pointer lock and mouse deltas. Produces one input snapshot per frame.
+// Keyboard state, pointer lock, mouse deltas and touch. Produces one input snapshot per frame.
+import { createTouchInput } from './touchinput.js';
 
 const BASE_SENS = 0.0022; // radians per pixel at sensitivity 1.0
 const MAX_EVENT_DELTA = 250; // ignore browser pointer-lock spikes
@@ -16,7 +17,11 @@ export function createControls(target) {
   let swapQueued = null; // true (Q: the other weapon) or a weapon name (1 salt gun, 2 crossbow, 3 halberd, 4 cup, 5 garlic)
   let active = false; // only gather game input while PLAYING
 
-  const isLocked = () => document.pointerLockElement === target;
+  const touch = createTouchInput();
+  let touchOn = false; // touch mode: no pointer lock, a flag stands in for it
+  let touchLocked = false;
+
+  const isLocked = () => (touchOn ? touchLocked : document.pointerLockElement === target);
 
   window.addEventListener('keydown', (e) => {
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
@@ -35,7 +40,7 @@ export function createControls(target) {
   });
   window.addEventListener('keyup', (e) => keys.delete(e.code));
   document.addEventListener('mousemove', (e) => {
-    if (!active || !isLocked()) return;
+    if (touchOn || !active || !isLocked()) return;
     const mx = e.movementX || 0;
     const my = e.movementY || 0;
     if (Math.abs(mx) > MAX_EVENT_DELTA || Math.abs(my) > MAX_EVENT_DELTA) return;
@@ -43,10 +48,10 @@ export function createControls(target) {
     dy += my;
   });
   document.addEventListener('mousedown', (e) => {
-    if (active && isLocked() && e.button === 0) fireHeld = true;
+    if (!touchOn && active && isLocked() && e.button === 0) fireHeld = true;
   });
   document.addEventListener('mouseup', (e) => {
-    if (e.button === 0) fireHeld = false;
+    if (!touchOn && e.button === 0) fireHeld = false;
   });
 
   const k = (...codes) => (codes.some((c) => keys.has(c)) ? 1 : 0);
@@ -61,23 +66,26 @@ export function createControls(target) {
     interactQueued = false;
     swapQueued = null;
     skipQueued = false;
+    touch.clear();
   }
 
   /** Builds the input for this frame and consumes one-shot presses and mouse deltas. */
   function snapshot(sensitivity) {
     const s = BASE_SENS * sensitivity;
+    const t = touch.take(); // t.hold is ignored: the hold goes through main.js's eHeld
+    const stickOn = t.moveX !== 0 || t.moveZ !== 0;
     const inp = {
-      moveX: k('KeyD', 'ArrowRight') - k('KeyA', 'ArrowLeft'),
-      moveZ: k('KeyW', 'ArrowUp') - k('KeyS', 'ArrowDown'),
-      lookDX: dx * s,
-      lookDY: dy * s,
-      fire: fireHeld,
+      moveX: stickOn ? t.moveX : k('KeyD', 'ArrowRight') - k('KeyA', 'ArrowLeft'),
+      moveZ: stickOn ? t.moveZ : k('KeyW', 'ArrowUp') - k('KeyS', 'ArrowDown'),
+      lookDX: (dx + t.dx) * s,
+      lookDY: (dy + t.dy) * s,
+      fire: fireHeld || t.fire,
       reload: reloadQueued,
-      sprint: k('ShiftLeft', 'ShiftRight') === 1,
-      jump: jumpQueued,
-      interact: interactQueued,
-      swap: swapQueued || false,
-      skip: skipQueued,
+      sprint: k('ShiftLeft', 'ShiftRight') === 1 || t.sprint,
+      jump: jumpQueued || t.jump,
+      interact: interactQueued || t.interact,
+      swap: swapQueued || t.swap || false,
+      skip: skipQueued || t.skip,
     };
     dx = 0;
     dy = 0;
@@ -94,6 +102,10 @@ export function createControls(target) {
    * browser's re-lock cooldown right after Esc). Never throws.
    */
   function requestLock() {
+    if (touchOn) {
+      touchLocked = true;
+      return Promise.resolve(true);
+    }
     return new Promise((resolve) => {
       let settled = false;
       const done = (ok) => {
@@ -119,11 +131,25 @@ export function createControls(target) {
   }
 
   function releaseLock() {
+    if (touchOn) {
+      touchLocked = false;
+      return;
+    }
     if (isLocked()) document.exitPointerLock();
   }
 
+  /** Switches touch mode; true only when the mode actually changed. */
+  function setTouchMode(on) {
+    on = !!on;
+    if (on === touchOn) return false;
+    touchOn = on;
+    touchLocked = false;
+    return true;
+  }
+
   return {
-    snapshot, clear, requestLock, releaseLock, isLocked,
+    snapshot, clear, requestLock, releaseLock, isLocked, touch, setTouchMode,
+    touchMode: () => touchOn,
     setActive(v) { active = v; if (!v) clear(); },
   };
 }

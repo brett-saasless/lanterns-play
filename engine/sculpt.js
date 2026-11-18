@@ -1,7 +1,7 @@
 // The shared sculpting kit for organic bodies: lofted, noise-displaced skins with vertex colour,
 // the oversized head with a posable face and its named defects, cloth, wounds and idle motion.
 // Also: eyes that glow (eyeGlow), and three plants as plain geometry: a petalled flower head
-// (flower), a forked fallen branch (branch) and a toadstool (toadstool).
+// (flower), a forked fallen branch (branch), a dead leaf (fallenLeaf) and a toadstool (toadstool).
 //
 // Conventions: metres, Y up, a figure's front is -Z (as the cave's creatures), so +X is the
 // figure's own right. Everything is deterministic for a given seed. No clocks: time is passed in.
@@ -448,11 +448,11 @@ export function pip(suit, size = 0.2, hex) {
 // Each defect edits the face plan. `i` is the eye it lands on (0 the figure's left, 1 its right),
 // `j` the other one, `s` is -1 for left and +1 for right.
 const DEFECT = {
-  eyeLow: (p, i) => { p.eyes[i].lat -= 0.17; },
+  eyeLow: (p, i, j, s, k) => { p.eyes[i].lat -= 0.17 * k; },
   eyeBig: (p, i) => { p.eyes[i].r *= 1.65; p.eyes[i].lon *= 1.08; },
   eyesClose: (p) => { p.eyes[0].lon = -0.23; p.eyes[1].lon = 0.23; },
   eyesWide: (p) => { p.eyes[0].lon = -0.62; p.eyes[1].lon = 0.62; },
-  noPupil: (p, i) => { p.eyes[i].shape = 'none'; },
+  noPupil: (p, i, j, s, k) => { p.eyes[i].shape = 'none'; p.eyes[i].r *= 1 + 0.3 * (k - 1); },
   pupilsMismatched: (p, i, j) => { p.eyes[i].pupil = 0.4; p.eyes[j].pupil = 0.09; },
   pupilsSlit: (p) => { for (const e of p.eyes) e.shape = 'slit'; },
   pupilsPin: (p) => { for (const e of p.eyes) e.pupil = 0.06; },
@@ -462,13 +462,13 @@ const DEFECT = {
   noBlink: (p) => { p.blink.never = true; },
   blinkSideways: (p) => { for (const e of p.eyes) { e.lid = 'side'; e.open = 1.5; } },
   blinkUneven: (p) => { p.blink.uneven = 0.24; },
-  smileWide: (p) => { p.mouth.width = 0.95; p.mouth.smile = Math.max(p.mouth.smile, 0.8); },
+  smileWide: (p, i, j, s, k) => { p.mouth.width = 0.4 + 0.55 * k; p.mouth.smile = Math.max(p.mouth.smile, Math.min(1.3, 0.8 * k)); },
   mouthCrooked: (p, i, j, s) => { p.mouth.crook = 0.95 * s; },
   noMouth: (p) => { p.mouth.none = true; },
   jawHang: (p) => { p.mouth.rest = Math.max(p.mouth.rest, 0.55); },
   teethMany: (p) => { p.mouth.many = true; p.mouth.rest = Math.max(p.mouth.rest, 0.2); },
   fangsFront: (p) => { p.mouth.fangs = 'front'; },
-  fangTips: (p) => { p.mouth.fangs = 'tips'; },
+  fangTips: (p, i, j, s, k) => { p.mouth.fangs = 'tips'; p.mouth.fangLen = k; },
   seam: (p) => { p.seam = true; },
   legInMouth: (p, i, j, s) => { p.mouth.extra = s; },
   headTilt: (p, i, j, s) => { p.tilt = 0.55 * s; },
@@ -491,7 +491,9 @@ export const DEFECTS = Object.freeze(Object.keys(DEFECT));
  * the plan before passing it to head({ face: plan }). Angles on the head are (lon, lat) in
  * radians: lon 0 is straight ahead, positive toward the figure's right; lat positive is up.
  *   opts: seed (1); skin (0xe6c3a8); eye (0x4f6f8c) iris colour; hair (null) hex for painted hair;
- *         defects: string[] from DEFECTS; and optional overrides merged over the defaults BEFORE
+ *         defects: string[] from DEFECTS; defectScale (1) how far each defect goes (2 doubles the
+ *         eye offset, the extra smile width and the fang tips, so they read from a few metres);
+ *         and optional overrides merged over the defaults BEFORE
  *         the defects: skull { wide, tall, deep, taper, cheek, brow, chin, noise, and for the
  *         finer skull muzzle (0) a swell under the eyes, socket (0) how deep the eyes are sunk,
  *         temple (0) hollows at the temples, each a share of the radius },
@@ -518,7 +520,7 @@ export function face(opts = {}) {
     brow: { color: 0x3a2a1e, thick: 0.034, tilt: 0, none: false, ...opts.brow },
     nose: { kind: 'button', lat: -0.13, size: 0.12, length: 0.3, ...opts.nose },
     mouth: {
-      lat: -0.52, width: 0.4, smile: 0.6, crook: 0, lip: 0xa8483e, teeth: 8, toothLen: 0.075, many: false, fangs: null,
+      lat: -0.52, width: 0.4, smile: 0.6, crook: 0, lip: 0xa8483e, teeth: 8, toothLen: 0.075, many: false, fangs: null, fangLen: 1,
       none: false, rest: 0, extra: 0, ...opts.mouth,
     },
     cheek: { rosy: 0.55, color: 0xe2705f, ...opts.cheek },
@@ -533,7 +535,7 @@ export function face(opts = {}) {
     const [name, sideName] = String(d).split(':');
     if (!DEFECT[name]) throw new Error(`sculpt.face: unknown defect "${name}"`);
     const i = sideName === 'R' ? 1 : 0;
-    DEFECT[name](plan, i, 1 - i, i ? 1 : -1);
+    DEFECT[name](plan, i, 1 - i, i ? 1 : -1, opts.defectScale ?? 1);
   }
   return plan;
 }
@@ -815,7 +817,7 @@ export function head(opts = {}) {
       jawParts.push(place(tooth(w * 0.9, 0.05, m.many && t % 2 === 0, true), lon + (m.many ? 0.5 * w : 0), mouthLat(lon) + 0.013, 0.016));
     }
     if (m.fangs === 'front') for (const s of [-1, 1]) fixed.push(place(tooth(0.075, 0.27, true, false), s * 0.065, mouthLat(0) - 0.12, 0.09));
-    if (m.fangs === 'tips') for (const s of [-1, 1]) fixed.push(place(tooth(0.05, 0.12, true, false), s * hw * 0.45, mouthLat(s * hw * 0.45) - 0.045, 0.092));
+    if (m.fangs === 'tips') for (const s of [-1, 1]) fixed.push(place(tooth(0.05 * Math.sqrt(m.fangLen || 1), 0.12 * (m.fangLen || 1), true, false), s * hw * 0.45, mouthLat(s * hw * 0.45) - 0.045, 0.092));
     if (m.extra) {
       const f = frame(m.extra * hw * 0.88, mouthLat(m.extra * hw * 0.88), 0);
       const p1 = f.p.clone().addScaledVector(f.n, 0.11);
@@ -1310,6 +1312,32 @@ function glowTexture() {
   return GLOW_TEX;
 }
 
+let PUFF_TEX = null;
+/**
+ * puffTexture() -> DataTexture. One soft, ragged-edged puff of smoke (white, its alpha falling off
+ * from the middle), shared. Put it on a camera-facing plane or sprite with depthWrite off.
+ */
+export function puffTexture() {
+  if (PUFF_TEX) return PUFF_TEX;
+  const n = 64; const data = new Uint8Array(n * n * 4);
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      const dx = (x - (n - 1) / 2) / (n / 2); const dy = (y - (n - 1) / 2) / (n / 2);
+      const a0 = Math.atan2(dy, dx);
+      const edge = 0.78 + 0.12 * noise(Math.cos(a0) * 1.6, Math.sin(a0) * 1.6, 0, 7) + 0.06 * noise(dx * 4, dy * 4, 1, 7);
+      const k = clamp(1 - Math.hypot(dx, dy) / edge);
+      const a = k * k * (3 - 2 * k) * (0.85 + 0.15 * noise(dx * 6, dy * 6, 2, 7));
+      const i = (y * n + x) * 4;
+      const v = Math.round(255 * (0.9 + 0.1 * k));
+      data[i] = v; data[i + 1] = v; data[i + 2] = v; data[i + 3] = Math.round(255 * clamp(a));
+    }
+  }
+  PUFF_TEX = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);
+  PUFF_TEX.magFilter = THREE.LinearFilter; PUFF_TEX.minFilter = THREE.LinearFilter;
+  PUFF_TEX.needsUpdate = true;
+  return PUFF_TEX;
+}
+
 /**
  * eyeGlow(head, opts) -> { material, sprites, set(level), dispose() }. Eyes that give off light:
  * a patch to the gloss shader, so the iris colour of the head's `features` mesh is also emitted
@@ -1390,6 +1418,8 @@ function bothSides(geo) {
  *         calyx (0x4a5d3a) hex, or null for none; inner (true) the inner whorl; detail (2) 1 to 3,
  *         about 210, 300 or 740 triangles (150, 205 or 485 with inner: false); cup (0.5) how cupped each petal is; droop (0) radians
  *         the whole head nods toward -Z; seed (1);
+ *         whorls (null): [[count, scale, tiltShut, tiltOpen], ...] from the outside in, in place of
+ *         the outer and inner whorl (a rose: three or four, the inner ones staying upright);
  *         morph (false): true also stores the fully open shape as morph target 0 (position and
  *         normal), so mesh.morphTargetInfluences[0] = k opens the head from `open` to 1 (on an
  *         InstancedMesh: setMorphAt). Build with open: 0 for a rose that blooms.
@@ -1408,6 +1438,7 @@ export function flower(opts = {}) {
         const az = (i / count) * TAU + turn + 0.25 * (hash(i, wseed, 1.7) - 0.5);
         const len = S * scale * (1.05 + 0.2 * (hash(i, wseed, 5.3) - 0.5)) * lerp(0.92, 1, open);
         const tilt = lerp(tiltShut, tiltOpen, open) * (1 + 0.18 * (hash(i, wseed, 9.1) - 0.5));
+        const k0 = i / count; // outer petals stand a hair proud of the next
         const sheet = grid(rows, cols, (r, c, out, col) => {
           const u = (c / (cols - 1)) * 2 - 1;
           const vv = r / (rows - 1);
@@ -1426,14 +1457,26 @@ export function flower(opts = {}) {
           const inward = o.cup * w * u * u * lerp(1.15, 0.55, open);
           const ca = Math.cos(wrap); const sa = Math.sin(wrap);
           p.set(sa * (rad - inward) + ca * u * w, y + 0.012 * S * noise(u * 2, v * 3, i, wseed), -ca * (rad - inward) + sa * u * w);
+          if (o.whorls && open < 1) {
+            // A rose's bud: each petal wrapped round the axis (its width an arc, not a flat sheet),
+            // a teardrop that swells and closes to a point, the outer petals lapping the inner.
+            const ba = az + u * (Math.PI / count) * 1.35;
+            const br = S * 0.46 * scale * (0.45 + 1.1 * vv - 1.25 * vv * vv) + 0.006 * S * k0;
+            const by = y0 + S * scale * 0.72 * vv;
+            const bud = _d.set(Math.sin(ba) * br, by, -Math.cos(ba) * br);
+            p.lerp(bud, 1 - sstep(0, 1, open));
+          }
           out.copy(p);
           col.copy(heart).lerp(base, sstep(0.05, 0.55, v)).multiplyScalar(0.94 + 0.1 * hash(i, r * 7 + c, wseed) - 0.1 * u * u);
         });
         parts.push(bothSides(sheet));
       }
     };
-    whorl(n, 1, 0.16, 1.02, o.seed, o.seed);
-    if (o.inner) whorl(Math.max(3, Math.ceil(n / 2)), 0.68, 0.06, 0.5, o.seed + 0.6, o.seed + 31);
+    if (o.whorls) o.whorls.forEach(([count, scale, shut, opened], k) => whorl(count, scale, shut, opened, o.seed + 0.45 * k + (k % 2) * 0.3, o.seed + 31 * k));
+    else {
+      whorl(n, 1, 0.16, 1.02, o.seed, o.seed);
+      if (o.inner) whorl(Math.max(3, Math.ceil(n / 2)), 0.68, 0.06, 0.5, o.seed + 0.6, o.seed + 31);
+    }
     if (o.calyx != null) {
       parts.push(tint(new THREE.ConeGeometry(S * 0.2, S * 0.36, 6, 1, true).rotateX(Math.PI).translate(0, S * 0.18, 0), o.calyx, 0.2, o.seed));
       for (let i = 0; i < 5; i++) {
@@ -1516,6 +1559,35 @@ export function branch(opts = {}) {
   geo.userData.triangles = geo.index.count / 3;
   geo.userData.forks = forks;
   return geo;
+}
+
+/**
+ * fallenLeaf(opts) -> BufferGeometry (indexed, with normal and color). One dead leaf lying on the
+ * ground: a pointed blade folded along its midrib, its edges curled up and the tip lifted, lying
+ * along +Z with its stem end at the origin. Pale and neutral (about white), so an instance colour
+ * gives it its brown; the midrib and the rim are darker. One-sided and light: 12 triangles at the
+ * default, since the wood lays thousands (give it a DoubleSide material).
+ *   opts: length (0.16) metres; width (0.55) as a share of the length; rows (4) along it, more for
+ *         a close-up; curl (0.22) how far the edges lift; twist (0.15); seed (1).
+ */
+export function fallenLeaf(opts = {}) {
+  const o = { length: 0.16, width: 0.55, rows: 4, curl: 0.22, twist: 0.15, seed: 1, ...opts };
+  const L = o.length; const rows = Math.max(3, o.rows | 0); const cols = 3;
+  const g = grid(rows, cols, (r, c, out, col) => {
+    const t = r / (rows - 1); const u = c - 1;
+    // Outline: a short stem end, widest a little past the middle, drawn to a point.
+    const w = r === 0 ? 0.12 : r === rows - 1 ? 0 : Math.sin(Math.PI * Math.min(1, t * 1.08)) ** 0.7;
+    const x = u * w * L * o.width * 0.5;
+    const z = t * L;
+    // Folded at the midrib, the edges curling up, the tip lifting, the blade twisting.
+    const y = L * (o.curl * Math.abs(u) * w + 0.07 * t * t + 0.025 * noise(u * 2, t * 3, 0, o.seed)) + o.twist * x * (t - 0.5);
+    out.set(x, y + 0.003, z);
+    const k = u === 0 ? 0.8 : 1 - 0.12 * sstep(0.7, 1, t);
+    col.setRGB(k, k * 0.97, k * 0.92);
+  });
+  g.computeVertexNormals();
+  g.computeBoundingSphere();
+  return g;
 }
 
 /**

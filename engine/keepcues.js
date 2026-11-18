@@ -1,7 +1,7 @@
 // Synthesis for the castle: a cue for each of the keep's new events, the armour's and the wife's
 // own voices, and the bed that changes by stage (wind on the approach, the hush of stone rooms,
 // a low drone that deepens toward the Count). Called only from audio.js, which owns the gate.
-// The ghost and the shades make no sound, and the Count's scream is one sound effect (noise and
+// The ghost makes no sound; the shades howl once as they escape (owner Q12); the Count's scream is one sound effect (noise and
 // sliding saws), never a voice.
 
 import { CATALOGUE } from '../logic/sounds.js';
@@ -328,7 +328,7 @@ export function createKeepCues(kit) {
       if (word(ev && ev.kind) === 'triumph') {
         triumphSwell(t, L);
       } else if (word(ev && ev.kind) === 'pyre') {
-        burst('bandpass', 900, 0.6, t, 9, L, 2400, 1.2);
+        burst('bandpass', 900, 0.6, t, 7.2, L, 2400, 1.2); // owner Q12: gone by the ash, so the ash lies in quiet
         tone('sawtooth', 700, 1500, t + 0.4, 1.6, L * 0.3, 0.1);
         tone('square', 720, 1380, t + 0.4, 1.4, L * 0.15, 0.1);
       } else {
@@ -347,6 +347,17 @@ export function createKeepCues(kit) {
         burst('bandpass', 1500, 0.8, t, 0.6, L * 0.7, 420, 0.08);
         tone('sine', 196, 147, t, 0.6, L, 0.05);
       }
+    },
+
+    // The art pass (owner Q12): the demon spirits howl as they claw out of the Count (the pyre's
+    // shades stage, 4 s in) and are torn up the whirlwind and out through the window. Two voices a
+    // semitone apart that rise and beat against each other, swelling over a second and a half, and
+    // a whistling wind under them that climbs as they go out. 7 nodes.
+    shadesHowl(t) {
+      const L = lv('shadesHowl');
+      tone('triangle', 196, 311, t, 3.6, L * 0.45, 1.5);
+      tone('sawtooth', 208, 294, t + 0.12, 3.4, L * 0.16, 1.3);
+      burst('bandpass', 620, 6, t + 0.2, 4.1, L * 0.55, 2300, 1.6);
     },
 
     // The dawn: three bells that resolve, where the court's did not.

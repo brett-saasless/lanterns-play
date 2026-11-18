@@ -208,6 +208,9 @@ export const CATALOGUE = f({
   curtainOpen: e('world', 'centre', 'world', 0.4),
   // Issue #8: a stake fired at the Count glances off him and drops by the box (count.js).
   stakeGlance: e('world', 'centre', 'world', 0.35),
+  // The art pass (owner Q12): the shades howl as they are torn out of the Count and up through the
+  // window, a noticeable sound over the fire, under the warden's ceiling (count.js, the pyre's shades stage).
+  shadesHowl: e('world', 'centre', 'world', 0.6),
   // Issue #29: the road up from the wood (road.js). Placed where they happen; nothing here is a
   // creature's strike or tell, and none of it is the warden's pain.
   roadCrack: e('world', 'source', 'world', 0.45), // the boulder lets go, up the bank

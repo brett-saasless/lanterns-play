@@ -87,7 +87,11 @@ export function drawnTool(held, drawn, swapLeft, swapTo) {
   return { apply: held !== drawn ? held : null, swapTo: null };
 }
 
-export function createHud(settings, onSettingsChange) {
+/**
+ * lookKey (optional): the settings key the Look speed slider drives now ('sensitivity' for the
+ * mouse, 'touchSensitivity' in touch mode); the slider writes and shows that one.
+ */
+export function createHud(settings, onSettingsChange, lookKey = () => 'sensitivity') {
   const el = {
     hud: $('hud'), wavenum: $('wavenum'), hostiles: $('hostiles'), wavelab: $('wavelab'), hostlab: $('hostlab'), ammolab: $('ammolab'), mute: $('mutebox'),
     hbar: $('hbar'), hnum: $('hnum'), mag: $('mag'), reserve: $('reserve'), pips: $('pips'),
@@ -136,7 +140,7 @@ export function createHud(settings, onSettingsChange) {
       <label class="label" for="mu${i}">Mute (M)</label>
       <input type="checkbox" id="mu${i}" data-k="muted">`;
     f.addEventListener('input', (e) => {
-      const k = e.target.dataset.k;
+      const k = e.target.dataset.k === 'sensitivity' ? lookKey() : e.target.dataset.k;
       if (!k) return;
       const v = e.target.type === 'checkbox' ? e.target.checked : Number(e.target.value);
       onSettingsChange({ [k]: v });
@@ -146,7 +150,7 @@ export function createHud(settings, onSettingsChange) {
   });
   function syncSettings(s) {
     for (const f of forms) {
-      f.querySelector('[data-k=sensitivity]').value = s.sensitivity;
+      f.querySelector('[data-k=sensitivity]').value = s[lookKey()];
       f.querySelector('[data-k=reducedFlash]').checked = s.reducedFlash;
       f.querySelector('[data-k=muted]').checked = s.muted;
     }

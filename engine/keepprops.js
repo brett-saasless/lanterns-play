@@ -1447,8 +1447,8 @@ export function createKeepprops(scene, cfg, opts = {}) {
       parts.push(box('cloth', 0.26, 0.34, W + 0.3, eastX - 0.2, y0 + Hh + 0.1, c.z, 0x2a0508, 0, 0.3), rod('metal', [eastX - 0.3, y0 + Hh - 0.02, c.z - W / 2 - 0.12], [eastX - 0.3, y0 + Hh - 0.02, c.z + W / 2 + 0.12], 0.02, BRASS));
       // the seam of dawn: a thin gold line where the two halves meet, and along the hem
       const seam = mover(group, [box('lit', 0.012, Hh - 0.1, 0.03, 0, Hh / 2, 0, HUE.dawn, 0, 0), box('lit', 0.012, 0.02, W - 0.2, 0, -0.03, 0, HUE.dawn, 0, 0)], eastX - 0.45, y0, c.z, 0, false);
-      // behind it: the window full of dawn, and the shaft it throws across the box
-      const pane = mover(group, [box('lit', 0.02, Hh - 0.5, W - 0.7, 0, Hh / 2, 0, HUE.dawn, 0, 0)], eastX - 0.06, y0, c.z, 0, false);
+      // behind it (art pass K1): the window itself, with the sunrise and the land beyond it
+      // (castle.js, dawnview.js), no flat gold pane; and the shaft it throws across the box
       // the shaft, where it lies: a pool of gold on the boards from the sill to past the box, fading as it goes
       const sg = new THREE.BufferGeometry();
       const far = bx2 - 2.6; const N = 10;
@@ -1464,7 +1464,7 @@ export function createKeepprops(scene, cfg, opts = {}) {
       const shaft = new THREE.Mesh(sg, M.shaft);
       shaft.renderOrder = 3;
       group.add(shaft);
-      return { c, cg, halves, seam, pane, shaft, open: null, i };
+      return { c, cg, halves, seam, shaft, open: null, i };
     });
     // 0: the cord, tangled on its cleat
     const c0 = COUNT_ROOM.curtains[0];
@@ -1507,7 +1507,6 @@ export function createKeepprops(scene, cfg, opts = {}) {
         for (const h of cu.halves) h.scale.x = -Math.sign(h.position.x) * lerp(1, 0.17, k);
         cu.seam.visible = k < 0.05;
         cu.seam.scale.x = reduced ? 1 : 1 + 0.6 * Math.sin(time * 1.3 + cu.i * 2);
-        cu.pane.visible = k > 0.05;
         cu.shaft.visible = k > 0.05;
       }
       M.shaft.opacity = 0.5 * Math.max(...curtains.map((cu) => smooth(cu.open)));

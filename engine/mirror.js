@@ -1,5 +1,6 @@
 // The Looking-Glass Gallery's mirror: the whole west wall, in real time, on core three (no
-// add-on). One render target at half the canvas (at most 1024 wide), one camera reflected in the
+// add-on). One render target at the whole drawing buffer (at most 2048 wide, multisampled: art
+// pass K6, the one glass in the game must not be the softest thing in it), one camera reflected in the
 // wall's plane with its near plane laid on the glass, and three layers:
 //   layer 0  seen by the eye and by the glass (the room, the true tiles);
 //   layer 1  seen by the eye only (the false tiles, the runner, the sitters in the portraits);
@@ -25,11 +26,12 @@ export const EYE_MASK = (1 << LAYER_BOTH) | (1 << LAYER_EYE);
 export const GLASS_MASK = (1 << LAYER_BOTH) | (1 << LAYER_GLASS);
 
 export const MIRROR_TUNE = Object.freeze({
-  scale: 0.5, // of the canvas, each way
-  maxWidth: 1024,
+  scale: 1, // of the drawing buffer (canvas times devicePixelRatio), each way
+  maxWidth: 2048,
+  samples: 4, // MSAA on the target, so the tiles, the tracery and the warden have no stair-steps
   lowFps: 45,
   lowHold: 3, // seconds under lowFps before a step down
-  levels: 3, // 0: half; 1: quarter; 2: quarter, every second frame
+  levels: 3, // 0: full; 1: half; 2: half, every second frame
   near: 14, // metres outside the gallery within which the glass is drawn once, if it never has been
   freeAt: 30, // metres outside at which the target is freed
   far: 70, // the reflected camera's far plane: the gallery is 32 m long
@@ -142,7 +144,7 @@ export function createMirror({ renderer, scene, castle, camera }) {
     const want = targetSize(size.x, size.y, state.level);
     if (target && target.width === want.width && target.height === want.height) return;
     if (target) target.dispose();
-    target = new THREE.WebGLRenderTarget(want.width, want.height, { type: THREE.HalfFloatType, samples: 0, depthBuffer: true });
+    target = new THREE.WebGLRenderTarget(want.width, want.height, { type: THREE.HalfFloatType, samples: MIRROR_TUNE.samples, depthBuffer: true });
     target.texture.name = 'mirror';
     material.uniforms.tDiffuse.value = target.texture;
     stats.width = want.width; stats.height = want.height;

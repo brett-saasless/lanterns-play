@@ -196,8 +196,55 @@ export function createActors(scene) {
   const canMat = new THREE.MeshStandardMaterial({ color: 0x23423c, roughness: 0.4, metalness: 0.5 });
   const glassMat = new THREE.MeshBasicMaterial({ color: PALETTE.glass });
   const saltMat = new THREE.MeshBasicMaterial({ color: SALT });
+  // C4 (the Rose Court and its wood): the pickups are things left lying in a Victorian garden,
+  // standing still on the ground: a stoppered stoneware jar of physic with a paper label, and a
+  // salt crock with a wooden lid and a chalked band. No halo, no ring: only a faint lantern-warm
+  // rim (#FFC66B, low) at the lip, so a searching eye can still find one in the wood's grey.
+  const courtKit = {
+    jar: new THREE.LatheGeometry([[0, 0], [0.13, 0], [0.155, 0.04], [0.16, 0.16], [0.14, 0.24], [0.075, 0.29], [0.07, 0.33], [0.085, 0.345], [0, 0.345]].map(([x, y]) => new THREE.Vector2(x, y)), 18),
+    cork: new THREE.CylinderGeometry(0.055, 0.05, 0.07, 10),
+    label: new THREE.CylinderGeometry(0.162, 0.162, 0.09, 18, 1, true, -0.9, 1.8),
+    crock: new THREE.LatheGeometry([[0, 0], [0.19, 0], [0.215, 0.05], [0.225, 0.2], [0.2, 0.3], [0.205, 0.32], [0, 0.32]].map(([x, y]) => new THREE.Vector2(x, y)), 20),
+    crockLid: new THREE.CylinderGeometry(0.17, 0.2, 0.05, 18),
+    knob: new THREE.SphereGeometry(0.035, 8, 6),
+    chalk: new THREE.CylinderGeometry(0.227, 0.227, 0.05, 20, 1, true),
+    rim: new THREE.TorusGeometry(1, 0.012, 5, 22),
+  };
+  const ware = new THREE.MeshStandardMaterial({ color: 0x8a7a64, roughness: 0.55, metalness: 0 }); // salt-glazed stoneware
+  const jarWare = new THREE.MeshStandardMaterial({ color: 0x5a6e66, roughness: 0.35, metalness: 0 }); // a dark green glaze
+  const corkMat = new THREE.MeshStandardMaterial({ color: 0x9a7a52, roughness: 0.9 });
+  const paperMat = new THREE.MeshStandardMaterial({ color: 0xe8e0cc, roughness: 0.95, side: THREE.DoubleSide });
+  const lidMat = new THREE.MeshStandardMaterial({ color: 0x6a5038, roughness: 0.85 });
+  const warmRim = new THREE.MeshStandardMaterial({ color: 0x4a3a28, emissive: 0xffc66b, emissiveIntensity: 0.35, roughness: 0.6 });
+  function courtPickup(p) {
+    const item = new THREE.Group();
+    if (p.kind === 'ammo') {
+      const lid = new THREE.Mesh(courtKit.crockLid, lidMat); lid.position.y = 0.345;
+      const knob = new THREE.Mesh(courtKit.knob, lidMat); knob.position.y = 0.385;
+      const band = new THREE.Mesh(courtKit.chalk, paperMat); band.position.y = 0.17;
+      const rim = new THREE.Mesh(courtKit.rim, warmRim); rim.rotation.x = Math.PI / 2; rim.scale.setScalar(0.205); rim.position.y = 0.322;
+      item.add(new THREE.Mesh(courtKit.crock, ware), lid, knob, band, rim);
+    } else {
+      const cork = new THREE.Mesh(courtKit.cork, corkMat); cork.position.y = 0.36;
+      const label = new THREE.Mesh(courtKit.label, paperMat); label.position.y = 0.13;
+      const rim = new THREE.Mesh(courtKit.rim, warmRim); rim.rotation.x = Math.PI / 2; rim.scale.setScalar(0.085); rim.position.y = 0.345;
+      item.add(new THREE.Mesh(courtKit.jar, jarWare), cork, label, rim);
+    }
+    item.traverse((m) => { if (m.isMesh) m.castShadow = true; });
+    item.rotation.set(0, (p.id * 2.399) % 6.283, 0);
+    item.scale.setScalar(1.35); // big enough to find at a glance, small enough to be a thing in a garden
+    return item;
+  }
+
   function buildPickup(p) {
     const g = new THREE.Group();
+    if (room === 'court') {
+      const item = courtPickup(p);
+      g.add(item);
+      g.position.set(p.x, p.y || 0, p.z);
+      scene.add(g);
+      return { g, item, still: true };
+    }
     const item = new THREE.Group();
     const cave = room === 'cave'; // in the cave only foxfire and salt glow
     if (p.kind === 'ammo') {
@@ -538,6 +585,7 @@ export function createActors(scene) {
       pseen.add(p.id);
       // Cave pickups carry their chamber: ones behind a sealed veil are not drawn.
       v.g.visible = p.chamber == null || !sim.waves || p.chamber >= sim.waves.index;
+      if (v.still) continue; // the court's pickups lie still, as things do
       v.item.rotation.y = time * 1.2 + p.id;
       v.item.position.y = 0.45 + Math.sin(time * 2 + p.id) * 0.06;
     }

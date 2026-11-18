@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>LANTERN YARD</title>
 <link rel="icon" href="data:,">
 <!-- The pin and its hash move together: whoever changes the three version below regenerates
@@ -121,7 +121,7 @@
   .deploylabel { font-size: 13px; margin: 0 0 8px; opacity: 0.8; }
   .enter { font-size: 12px; opacity: 0.7; }
   #paused { background: rgba(11, 26, 29, 0.7); }
-  #fatal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: var(--teal); z-index: 10; }
+  #fatal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: var(--teal); z-index: 60; } /* above #rotate (50): a fatal error stays readable on an upright phone */
   #fatal.on { display: flex; }
   #fatal p { font-size: 20px; max-width: 34em; line-height: 1.5; letter-spacing: 0.03em; }
   #fatal code { font-family: var(--mono); color: var(--amber); }
@@ -168,8 +168,9 @@
   #hud.scene, body.scene #lowhp, body.scene #dmg, body.scene #dirarc { display: none !important; }
   /* Issue #20: THE END, after the triumph and before the closing card. Outside #hud, so a scene does not hide it. */
   #theend { position: absolute; left: 0; right: 0; top: 38%; text-align: center; pointer-events: none; z-index: 2;
-    font-family: Georgia, "Times New Roman", serif; font-size: clamp(40px, 9vw, 96px); letter-spacing: 0.3em; text-transform: uppercase;
-    color: #f4e2b0; text-shadow: 0 0 24px rgba(255, 196, 96, 0.55), 0 2px 6px rgba(0, 0, 0, 0.8); opacity: 0; transition: opacity 1.2s ease-out; }
+    font-family: Georgia, "Times New Roman", serif; font-size: clamp(28px, 4.8vw, 64px); letter-spacing: 0.22em; text-transform: uppercase;
+    /* art pass K12: set in dark ink over the one clear field of the middle window's dawn sky (the triumph ends square on to it) */
+    padding-left: 0.22em; color: #2b1c0e; text-shadow: 0 0 22px rgba(255, 244, 214, 0.9), 0 0 4px rgba(255, 240, 205, 0.8); opacity: 0; transition: opacity 1.2s ease-out; }
   #theend.on { opacity: 1; }
   #hud.dim.reading { opacity: 1; }
   #hud.reading > :not(#clue-card) { opacity: 0.35; }
@@ -178,6 +179,7 @@
     padding: 36px 40px 44px; display: none; background: rgba(232, 226, 208, 0.12); -webkit-backdrop-filter: brightness(0.3) blur(3px); backdrop-filter: brightness(0.3) blur(3px); border: 1px solid var(--chalk); cursor: pointer; z-index: 2;
     /* a deckled lower edge */
     clip-path: polygon(0 0, 100% 0, 100% 96%, 96% 99%, 90% 96.5%, 82% 99.5%, 74% 97%, 66% 99%, 58% 96.5%, 50% 99.5%, 42% 97%, 34% 99%, 26% 96.5%, 18% 99.5%, 10% 97%, 4% 99%, 0 96%); }
+  #clue-card.on { display: block; } /* restored: dropped in e6db9ad (2026-11-15), which left every clue card invisible, on desktop too */
   #clue-body { margin: 0; font-family: var(--hand); font-style: italic; font-size: 19px; line-height: 30px; color: var(--chalk); white-space: pre-line; }
   #clue-logged { position: absolute; top: 72px; right: 56px; font: 700 12px var(--label); letter-spacing: 0.14em; text-transform: uppercase;
     color: var(--chalk); opacity: 0; transition: opacity 0.3s; pointer-events: none; }
@@ -185,6 +187,127 @@
   #notice-line { position: absolute; left: 50%; top: calc(50% + 124px); transform: translateX(-50%); max-width: 46ch; text-align: center;
     font-family: var(--hand); font-style: italic; font-size: 17px; line-height: 24px; color: var(--chalk); opacity: 0; transition: opacity 0.3s; pointer-events: none; }
   #notice-line.on { opacity: 0.95; }
+  /* Touch (layout C). Everything below is scoped to html.touch, #touch or #rotate: with no touch class the page is unchanged. */
+  #touch { display: none; }
+  #rotate { display: none; }
+  html.touch, html.touch body { height: 100vh; height: 100dvh; overscroll-behavior: none; } /* vh first: a browser without dvh keeps the vh line */
+  html.touch #view, #touch { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; overscroll-behavior: none; }
+  html.touch #touch[data-state="PLAYING"] { display: block; }
+  #touch { position: fixed; inset: 0; height: 100vh; height: 100dvh; z-index: 2; pointer-events: none; -webkit-tap-highlight-color: transparent;
+    --sat: env(safe-area-inset-top, 0px); --sar: env(safe-area-inset-right, 0px); --sab: env(safe-area-inset-bottom, 0px); --sal: env(safe-area-inset-left, 0px);
+    /* The vh sizes come first. A custom property takes any value, so a later dvh line would always win and turn invalid
+       where dvh is unknown: the dvh sizes replace these only inside @supports. */
+    --stick: clamp(110px, 38vh, 170px); --fire: clamp(110px, 40vh, 180px); --jump: clamp(56px, 18vh, 80px); --ctx: clamp(52px, 16vh, 72px); --small: clamp(44px, 12vh, 52px);
+    font-family: var(--label); color: var(--chalk); }
+  @supports (height: 100dvh) {
+    #touch { --stick: clamp(110px, 38dvh, 170px); --fire: clamp(110px, 40dvh, 180px); --jump: clamp(56px, 18dvh, 80px); --ctx: clamp(52px, 16dvh, 72px); --small: clamp(44px, 12dvh, 52px); }
+  }
+  #touch [hidden] { display: none !important; }
+  #touch > [data-touch] { position: absolute; pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+    display: flex; align-items: center; justify-content: center; text-align: center; border-radius: 50%;
+    background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.44); font-weight: 700; letter-spacing: 0.08em; font-size: 15px; }
+  #touch > [data-touch].on { background: rgba(255, 255, 255, 0.3); }
+  #touch > [data-touch="look"] { left: 40%; right: 0; top: 0; bottom: 0; border-radius: 0; background: none; border: 0; } /* the whole right side; every button sits above it */
+  #touch > [data-touch="stick"] { left: calc(24px + var(--sal)); bottom: calc(16px + var(--sab)); width: var(--stick); height: var(--stick);
+    background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.33); }
+  #touch > [data-touch="stick"] i { width: 42%; height: 42%; border-radius: 50%; background: rgba(255, 255, 255, 0.33); pointer-events: none; }
+  #touch > [data-touch="fire"] { right: calc(20px + var(--sar)); bottom: calc(16px + var(--sab)); width: var(--fire); height: var(--fire);
+    background: rgba(214, 87, 74, 0.6); border-color: #ffb0a8; font-size: 22px; letter-spacing: 0.14em; }
+  #touch > [data-touch="fire"].on { background: rgba(214, 87, 74, 0.85); }
+  #touch > [data-touch="jump"] { right: calc(20px + var(--sar) + var(--fire) + 14px); bottom: calc(10px + var(--sab)); width: var(--jump); height: var(--jump); }
+  #touch > [data-touch="e"] { right: calc(20px + var(--sar) + (var(--fire) - var(--ctx)) / 2); bottom: calc(16px + var(--sab) + var(--fire) + 12px);
+    width: var(--ctx); height: var(--ctx); border-style: dashed; border-color: #c9a25c; background: rgba(201, 162, 92, 0.2); font-size: 22px; }
+  #touch > [data-touch="swap"], #touch > [data-touch="pause"], #touch > [data-touch="log"], #touch > [data-touch="skip"] {
+    width: var(--small); height: var(--small); font-size: 12px; background: rgba(255, 255, 255, 0.1); }
+  #touch > [data-touch="swap"] { right: calc(20% + var(--sar)); top: 30%; }
+  #touch > [data-touch="pause"] { left: 50%; top: calc(10px + var(--sat)); margin-left: calc(var(--small) / -2); }
+  #touch > [data-touch="log"] { right: calc(20% + var(--sar)); top: calc(10px + var(--sat)); }
+  #touch > [data-touch="skip"] { left: calc(50% + var(--small)); top: calc(10px + var(--sat)); width: auto; padding: 0 16px; border-radius: 26px; }
+  #rotate { position: fixed; inset: 0; z-index: 50; align-items: center; justify-content: center; padding: 24px; text-align: center;
+    background: var(--bilge); color: var(--chalk); font-family: var(--label); font-size: 24px; letter-spacing: 0.06em;
+    pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; overscroll-behavior: none; }
+  @media (orientation: portrait) { html.touch #rotate { display: flex; } }
+  /* Keyboard-only words are hidden under touch, not rewritten; the log's footer gets buttons instead. */
+  html.touch .keyhint { display: none; }
+  .touchonly { display: none; }
+  html.touch .book .foot .touchonly { display: inline-block; font-size: 14px; padding: 10px 16px; }
+  html.touch .book .foot #logprev { margin-left: auto; } /* where the hidden key hint sat */
+  html.touch .settings input[type=checkbox] { width: 28px; height: 28px; } /* Reduced flash and Mute, big enough for a thumb */
+  /* iOS Safari ignores user-scalable=no: no pinch or double-tap zoom on a card (play is touch-action: none, so a zoom
+     could not be undone there); panning stays, so a card too tall for the screen still scrolls. */
+  html.touch .screen { touch-action: pan-x pan-y; }
+  /* A phone held sideways (short screen, touch only; a short desktop window has no html.touch and is unchanged).
+     iOS notch: viewport-fit=cover lets the page run under the notch and the home bar, so the HUD plates and every
+     card keep env(safe-area-inset-*) clear (the --sa* values; 0 where there is no notch), as the control rows do.
+     Every card fits the screen with no scroll; buttons stay at least 44 px tall; body text stays 13 px or more. */
+  html.touch { --sat: env(safe-area-inset-top, 0px); --sar: env(safe-area-inset-right, 0px); --sab: env(safe-area-inset-bottom, 0px); --sal: env(safe-area-inset-left, 0px); }
+  @media (max-height: 480px) {
+    /* HUD: health top-left under the wave plate, ammo top-right left of the log and swap buttons (the stick and FIRE own the bottom corners) */
+    html.touch .plate { padding: 4px 10px; }
+    html.touch #wavebox { top: calc(8px + var(--sat)); left: calc(8px + var(--sal)); gap: 12px; }
+    html.touch #wavebox .num { font-size: 16px; margin-left: 6px; }
+    html.touch #healthbox { top: calc(44px + var(--sat)); left: calc(8px + var(--sal)); bottom: auto; gap: 8px; }
+    html.touch #hbar { gap: 2px; }
+    html.touch #hbar i { width: 7px; height: 14px; }
+    html.touch #hnum { font-size: 20px; }
+    html.touch #ammobox { top: calc(8px + var(--sat)); right: calc(8px + var(--sar)); bottom: auto; }
+    html.touch #ammobox .row { gap: 6px; }
+    html.touch #mag { font-size: 20px; }
+    html.touch #reserve { font-size: 14px; }
+    html.touch #ammolab { letter-spacing: 0.06em; }
+    html.touch #pips { gap: 2px; margin-top: 4px; }
+    html.touch #pips i { width: 5px; height: 10px; }
+    html.touch #tray { left: calc(8px + var(--sal)); top: calc(82px + var(--sat)); bottom: auto; }
+    html.touch #mutebox { top: auto; right: auto; left: 50%; transform: translateX(-50%); bottom: calc(8px + var(--sab)); }
+    html.touch #tick { top: calc(70px + var(--sat)); right: calc(12px + var(--sar)); }
+    html.touch #clue-logged { top: calc(72px + var(--sat)); right: calc(40px + var(--sar)); }
+    html.touch #banner { font-size: 30px; }
+    /* the spoken line sits between the stick and FIRE, above jump; the prompt and the notice line move up to meet it */
+    html.touch #speech { bottom: calc(84px + var(--sab)); max-width: min(44ch, calc(100vw - 360px)); }
+    html.touch #speech .said { font-size: 16px; line-height: 21px; }
+    html.touch #prompt { top: calc(50% + 40px); }
+    html.touch #notice-line { top: calc(50% + 66px); }
+    /* Cards: inside the safe area with an 8 px margin, tighter padding, smaller headings */
+    html.touch .screen { padding: calc(8px + var(--sat)) calc(8px + var(--sar)) calc(8px + var(--sab)) calc(8px + var(--sal)); }
+    html.touch .card { width: min(560px, 100%); max-height: 100%; padding: 16px 24px; }
+    html.touch .screen h1 { font-size: 40px; margin: 0 0 8px; }
+    html.touch .screen h2 { font-size: 28px; margin: 0 0 10px; }
+    html.touch .sub { font-size: 15px; margin: 0 0 12px; }
+    html.touch .settings { gap: 6px 16px; margin: 0 0 12px; }
+    html.touch .btns { gap: 8px; }
+    html.touch button { font-size: 14px; letter-spacing: 0.1em; padding: 0 16px; min-height: 44px; }
+    html.touch .hint { font-size: 13px; margin: 6px 0 0; }
+    html.touch .stats { grid-template-columns: repeat(4, max-content); gap: 4px 16px; margin: 0 0 12px; }
+    html.touch .stats dd { font-size: 16px; }
+    /* The title in two columns: the name, words and settings on the left, the five rooms on the right */
+    html.touch #title .card { width: min(760px, 100%); display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 24px; align-content: center; }
+    html.touch #title h1 { grid-column: 1; grid-row: 1; }
+    html.touch #title .sub { grid-column: 1; grid-row: 2; }
+    html.touch #title .settings { grid-column: 1; grid-row: 3; margin: 0; }
+    html.touch #title .deploylabel { grid-column: 2; grid-row: 1; align-self: end; }
+    html.touch #title .btns { grid-column: 2; grid-row: 2 / span 2; display: grid; grid-template-columns: 1fr 1fr; align-content: start; }
+    html.touch #title .btns button { width: 100%; }
+    html.touch #title .hint { grid-column: 1 / -1; grid-row: 4; }
+    /* Story cards, the log and the clue card: the same leaves, set closer */
+    html.touch .book { width: min(760px, 100%); gap: 12px 20px; padding: 16px 20px; }
+    html.touch .book.tall { min-height: 0; }
+    html.touch .book .leaf { font-size: 16px; line-height: 23px; }
+    html.touch .book .leaf p { margin: 0 0 8px; }
+    html.touch .book .doc { padding: 12px 14px; }
+    html.touch .book .doc.label { padding-top: 24px; }
+    html.touch .book .doc.ticket { font-size: 13px; }
+    html.touch .book .foot { align-items: center; gap: 8px; }
+    html.touch .book .foot .touchonly { padding: 0 14px; }
+    html.touch #clue-card { width: min(560px, calc(100vw - 16px - var(--sal) - var(--sar))); padding: 18px 24px 26px; max-height: calc(100% - 16px - var(--sat) - var(--sab)); }
+    html.touch #clue-body { font-size: 16px; line-height: 24px; }
+    /* A safety net, not the layout: a card that still does not fit (an iPhone's toolbars take height) scrolls instead of being cut off */
+    html.touch .card, html.touch .book, html.touch #clue-card { overflow-y: auto; }
+  }
+  /* An iPhone in Safari with its toolbars up (about 320 to 350 px tall): the leaves a little closer still */
+  @media (max-height: 350px) {
+    html.touch .book { row-gap: 8px; padding-top: 12px; padding-bottom: 12px; }
+    html.touch .book .leaf { line-height: 21px; }
+  }
 </style>
 </head>
 <body>
@@ -227,7 +350,7 @@
   <div class="card">
     <h1>LANTERN<br><span class="lamp">YARD</span></h1>
     <p class="sub" id="titlesub">Night shift. Three surges. Hold the yard.</p>
-    <dl class="controls">
+    <dl class="controls keyhint">
       <dt>W A S D</dt><dd>Move (arrows work too)</dd>
       <dt>MOUSE</dt><dd>Look</dd>
       <dt>CLICK</dt><dd>Fire (hold to repeat)</dd>
@@ -242,7 +365,7 @@
     </dl>
     <div class="settings" data-settings></div>
     <div class="label deploylabel">Deploy to</div>
-    <div class="btns"><button id="deploy-yard" disabled>Yard</button><button id="deploy-cave" disabled>Cave</button><button id="deploy-court" disabled></button><button id="deploy-road" disabled></button><button id="deploy-castle" disabled></button><span class="enter label">or press Enter</span></div>
+    <div class="btns"><button id="deploy-yard" disabled>Yard</button><button id="deploy-cave" disabled>Cave</button><button id="deploy-court" disabled></button><button id="deploy-road" disabled></button><button id="deploy-castle" disabled></button><span class="enter label keyhint">or press Enter</span></div>
     <p class="hint" id="titlehint">Lighting the yard</p>
   </div>
 </section>
@@ -250,7 +373,7 @@
 <section id="paused" class="screen">
   <div class="card">
     <h2>Shift paused</h2>
-    <dl class="controls">
+    <dl class="controls keyhint">
       <dt>W A S D</dt><dd>Move</dd><dt>CLICK</dt><dd>Fire</dd><dt>R</dt><dd>Reload</dd>
       <dt>SHIFT</dt><dd>Sprint</dd><dt>SPACE</dt><dd>Jump</dd><dt>M</dt><dd>Mute</dd>
       <dt class="courtkeys">E</dt><dd class="courtkeys">Interact</dd>
@@ -268,7 +391,7 @@
     <h2 id="wontitle">Yard secured</h2>
     <p class="sub" id="wonsub">All three surges held. The tide is turning.</p>
     <dl class="stats" id="wonstats"></dl>
-    <div class="btns"><button id="again">Play again</button><button id="wontitlebtn" class="secondary">Back to title</button><span class="enter label">or press Enter</span></div>
+    <div class="btns"><button id="again">Play again</button><button id="wontitlebtn" class="secondary">Back to title</button><span class="enter label keyhint">or press Enter</span></div>
     <p class="hint" id="wonhint"></p>
   </div>
 </section>
@@ -278,7 +401,7 @@
     <h2>Warden down</h2>
     <p class="sub" id="lostsub">The yard fell on surge 1.</p>
     <dl class="stats" id="loststats"></dl>
-    <div class="btns"><button id="retry">Try again</button><button id="losttitlebtn" class="secondary">Back to title</button><span class="enter label">or press Enter</span></div>
+    <div class="btns"><button id="retry">Try again</button><button id="losttitlebtn" class="secondary">Back to title</button><span class="enter label keyhint">or press Enter</span></div>
     <p class="hint" id="losthint"></p>
   </div>
 </section>
@@ -287,7 +410,7 @@
   <div class="card book" role="dialog" aria-label="Story card">
     <div class="leaf" id="cardlog"></div>
     <div class="leaf doc" id="carddoc"></div>
-    <div class="foot"><span class="hint" id="cardhint"></span><span class="enter label">Enter, E, Space or click</span></div>
+    <div class="foot"><span class="hint" id="cardhint"></span><span class="enter label keyhint">Enter, E, Space or click</span></div>
   </div>
 </section>
 
@@ -295,11 +418,13 @@
   <div class="card book tall" role="dialog" aria-label="Warden's log">
     <div class="leaf" id="logdoc"></div>
     <div class="leaf" id="logentries"></div>
-    <div class="foot"><span class="label">Warden's log</span><span class="num" id="logpage"></span><span class="enter label">A D turn pages, Tab closes</span></div>
+    <div class="foot"><span class="label">Warden's log</span><span class="num" id="logpage"></span><span class="enter label keyhint">A D turn pages, Tab closes</span><button id="logprev" class="secondary touchonly">previous</button><button id="lognext" class="secondary touchonly">next</button><button id="logclose" class="touchonly">close</button></div>
   </div>
 </section>
 
 <div id="fatal"><p id="fatalmsg"></p></div>
+<div id="touch" aria-hidden="true"></div>
+<div id="rotate" role="alert">Turn your phone sideways to play.</div>
 
 <script>
   // Classic script: runs even where modules cannot, so a disk-opened page is never blank.

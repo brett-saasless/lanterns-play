@@ -385,7 +385,7 @@ const BAT = { bone: 0x3a2e27, skin: 0x4a392f, fur: 0x5c4a3d, ear: 0x33261f, fing
  * arm (turns at the shoulder), 2 the hand (turns at the wrist too), signed by its side. The hinge
  * lines are left in userData.hinge. Small, dark and quick: never cute.
  */
-function batGeometry(span = 0.46) {
+export function batGeometry(span = 0.46) {
   const h = span / 2;
   const sx = h * 0.13; const wx = h * 0.5; const hy = 0.01; // the shoulder's and the wrist's hinge lines
   const pos = []; const nor = []; const col = []; const part = [];
@@ -450,7 +450,7 @@ function batGeometry(span = 0.46) {
  * the wrist; up is positive) and each vertex's `aWing` says which of them turn it. Normals turn
  * with the wing, so the light on it changes through the beat.
  */
-function batFlap(mat, hinge) {
+export function batFlap(mat, hinge) {
   const f = (k) => k.toFixed(5);
   const fold = `
 attribute float aWing;

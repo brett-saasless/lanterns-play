@@ -389,7 +389,9 @@ export function registerBeasts(actors, scene, opts = {}) {
     stain(hd.skull, at(0.2, -0.46, 0.08), 0.2 * size, BLOOD, 0.7);
     stain(hd.jaw, at(0.05, -0.72, 0.05), 0.42 * size, BLOOD, 0.9);
     stain(hd.jaw, at(-0.22, -1.0, 0.05), 0.26 * size, BLOOD, 0.8);
-    const glow = S.eyeGlow(hd, { color: EMBER, strength: 0.6, size: 0.26, opacity: 0.5 }); // pinpricks: a small hot point, not a disc
+    // Pinpricks, a hot point rather than a disc; C2: twice as bright and wide, so they read from the
+    // far end of his table.
+    const glow = S.eyeGlow(hd, { color: EMBER, strength: 1.2, size: 0.52, opacity: 0.85 });
     return { hd, glow };
   }
 

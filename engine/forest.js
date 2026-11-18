@@ -17,6 +17,7 @@ import { MAZE, mazeBoxes, deadEnds, stageAt, corridor, routeOf, trailMarks } fro
 import * as S from './sculpt.js';
 import { buildTunnel } from './tunnel.js'; // #29 (G29a): the wood's end, a short tunnel of trees and brambles
 import { daylight, mats, G, part, limb, bake, instanced, matrixOf, greyAt, PAL, TITLE_LOOP } from './court.js';
+import { woodGreen, pathTone, floorTone, leafTone, LEAF_TONES } from '../logic/courtlook.js';
 
 const _sky = { rain: 1, cloud: 1, sun: 0 }; // #28: scratch, so the frame allocates nothing
 
@@ -42,16 +43,54 @@ export const wetAt = (z) => clamp((-140 - z) / 20);
  */
 export function groundTone(x, z, walled, out = new THREE.Color()) {
   const d = greyAt(z);
-  if (walled) out.setHex(0x4f9a46).lerp(_c2.setHex(0x5e5a4c), Math.min(1, d * 1.15));
-  else out.setHex(0xe6d9b2).lerp(_c2.setHex(0xa39680), d);
+  out.setHex(walled ? floorTone(d) : pathTone(d)); // C6, C7: logic/courtlook.js
   const n = 1 + 0.07 * S.noise(x * 0.7, 0, z * 0.7, 3) + 0.04 * S.noise(x * 2.3, 1, z * 2.3, 5);
   return out.multiplyScalar(n);
 }
 
+// C6: a tiling grit-and-earth detail map multiplied over the ground's vertex colour, so no stretch
+// of path reads as a flat plane (luma sd 4 or more at play distance). Grey, about 0.93 on average.
+let GRIT = null;
+function gritTexture() {
+  if (GRIT) return GRIT;
+  const n = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = n;
+  const g = c.getContext('2d');
+  const img = g.createImageData(n, n);
+  const r = makeRng(0x6a17);
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      // Tiling noise: sample a torus so the edges meet.
+      const a = (x / n) * Math.PI * 2; const b = (y / n) * Math.PI * 2;
+      const f = (k, s) => S.noise(Math.cos(a) * k, Math.sin(a) * k + Math.cos(b) * k, Math.sin(b) * k, s);
+      const v = 0.93 + 0.05 * f(1.2, 1) + 0.035 * f(3.1, 2) + 0.025 * f(7.3, 3) + 0.03 * (r() - 0.5);
+      const i = (y * n + x) * 4;
+      const k = Math.round(255 * Math.max(0.78, Math.min(1, v)));
+      img.data[i] = k; img.data[i + 1] = k; img.data[i + 2] = Math.round(k * 0.985); img.data[i + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  // Grit: small pale stones and dark crumbs.
+  for (let i = 0; i < 900; i++) {
+    const dark = r() < 0.55;
+    g.fillStyle = dark ? `rgba(120,112,100,${0.25 + r() * 0.35})` : `rgba(255,252,244,${0.2 + r() * 0.3})`;
+    g.beginPath();
+    g.ellipse(r() * n, r() * n, 0.6 + r() * 1.6, 0.5 + r() * 1.1, r() * 3, 0, Math.PI * 2);
+    g.fill();
+  }
+  GRIT = new THREE.CanvasTexture(c);
+  GRIT.wrapS = GRIT.wrapT = THREE.RepeatWrapping;
+  GRIT.colorSpace = THREE.SRGBColorSpace;
+  GRIT.anisotropy = 8;
+  return GRIT;
+}
+
 // A tree one metre tall, clipped and Victorian: a stem and a ball, a cone, or two balls.
-function victorianTree(kind) {
+// `d` is the zone's greying (C7): its leaves grey with the light, as the sky does.
+function victorianTree(kind, d = 0) {
   const parts = [part(G.cyl(0.035, 0.05, 0.5, 6), 0x7a5a3c, { at: [0, 0.25, 0], vary: 0.2 })];
-  const leaf = [0x57b04e, 0x3f9a45, 0x6ab650][kind];
+  const leaf = woodGreen([0x57b04e, 0x3f9a45, 0x6ab650][kind], d);
   if (kind === 0) parts.push(part(G.ico(0.3, 1), leaf, { at: [0, 0.68, 0], lump: 0.035, vary: 0.25, freq: 6 }));
   else if (kind === 1) parts.push(part(G.cone(0.24, 0.75, 9), leaf, { at: [0, 0.66, 0], vary: 0.25 }));
   else {
@@ -117,10 +156,12 @@ export function buildForest(scene, cfg) {
   // ---- shared geometry ---------------------------------------------------------------------
   const white = 0xffffff;
   const geo = {
-    clip: part(G.box(1.3, 1.6, 1.3, 2, 2, 2), 0x3d9444, { at: [0, 0.8, 0], lump: 0.09, vary: 0.3, freq: 1.6 }),
-    wild: part(G.ball(1, 6, 4), 0x66755a, { at: [0, 0.7, 0], lump: 0.22, vary: 0.35, freq: 1.7 }),
+    // The clipped hedge block and the Victorian trees are built once per zone, their green greyed
+    // to the zone's depth (C7: the objects grey with the light, not just the sky).
+    clip: (d) => part(G.box(1.3, 1.6, 1.3, 2, 2, 2), woodGreen(0x3d9444, d), { at: [0, 0.8, 0], lump: 0.09, vary: 0.3, freq: 1.6 }),
+    wild: (d) => part(G.ball(1, 6, 4), woodGreen(0x66755a, d), { at: [0, 0.7, 0], lump: 0.22, vary: 0.35, freq: 1.7 }),
     rock: part(G.ico(1, 0), 0xb4b1a8, { at: [0, 0.45, 0], scale: [1, 0.72, 1], lump: 0.2, vary: 0.25, freq: 1.5, seed: 4 }),
-    vict: [0, 1, 2].map(victorianTree),
+    vict: (d) => [0, 1, 2].map((k) => victorianTree(k, d)),
     haunt: [0, 1, 2].map((k) => hauntedTree(rng, k)),
     // A border flower: the rose's petals, smaller, hanging its head on a bent stem. White, so
     // the instance colour is the flower's own (it darkens the stem, which reads as a stem).
@@ -129,7 +170,7 @@ export function buildForest(scene, cfg) {
       part(limb([0, 0.13, -0.012], [0, 0.2, -0.05], 0.005, 0.004, 4), 0x9fd08a, { vary: 0.2 }),
       part(S.flower({ size: 0.075, open: 0.8, petals: 6, color: white, calyx: 0x9fd08a, inner: false, detail: 1, droop: 0.95, seed: 5 }), null, { at: [0, 0.2, -0.05] }),
     ]),
-    leaf: part(G.plane(0.2, 0.13), white, { vary: 0 }),
+    leaf: S.fallenLeaf({ seed: 3 }), // C7: a lobed, curled dead leaf, not a flat card
     // A fallen branch that forks three times (the kit's): never a straight pointed stick.
     twig: S.branch({ length: 1.25, forks: 3, r: 0.032, color: 0x8a7a66, color2: 0x4e4438, lift: 0.3, seed: 4 }),
     // One fallen rose petal, cupped, lying on the ground; and one pale toadstool.
@@ -182,6 +223,7 @@ export function buildForest(scene, cfg) {
     if (pd < pit.r) y -= pd <= pit.r / 2 ? pit.depth : pit.depth * (pit.r - pd) / (pit.r / 2);
     return y;
   };
+  const groundMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, map: gritTexture() });
   for (const zn of zones.slice(1)) {
     const near = boxes.filter((b) => b.maxZ > zn.minZ - 1 && b.minZ < zn.maxZ + 1);
     // A metre grid; half a metre in the zone that holds the pit, so its bowl is round.
@@ -190,6 +232,7 @@ export function buildForest(scene, cfg) {
     const rows = Math.round((zn.maxZ - zn.minZ) / step) + 1;
     const pos = new Float32Array(xs.length * rows * 3);
     const col = new Float32Array(xs.length * rows * 3);
+    const uv = new Float32Array(xs.length * rows * 2);
     const idx = [];
     for (let j = 0; j < rows; j++) {
       const z = zn.maxZ - j * step;
@@ -197,6 +240,7 @@ export function buildForest(scene, cfg) {
         const x = xs[i];
         const o = (j * xs.length + i) * 3;
         pos[o] = x; pos[o + 1] = groundY(x, z); pos[o + 2] = z;
+        uv[(j * xs.length + i) * 2] = x / 2.4; uv[(j * xs.length + i) * 2 + 1] = z / 2.4; // one tile of grit every 2.4 m
         const wall = Math.abs(x) > 28 || near.some((b) => inBox(b, x, z, 0.1));
         groundTone(x, z, wall, _c);
         if (pos[o + 1] < -0.2) _c.multiplyScalar(0.55); // the pit's sides are bare earth
@@ -210,9 +254,10 @@ export function buildForest(scene, cfg) {
     const gg = new THREE.BufferGeometry();
     gg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     gg.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    gg.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     gg.setIndex(idx);
     gg.computeVertexNormals();
-    const mesh = new THREE.Mesh(gg, M.matte);
+    const mesh = new THREE.Mesh(gg, groundMat);
     mesh.receiveShadow = true;
     zn.group.add(mesh);
   }
@@ -291,7 +336,6 @@ export function buildForest(scene, cfg) {
 
   // ---- ground cover: flower borders, then dead leaves and fallen branches ---------------------
   const FLOWERS = [0xff6f91, 0xffd166, 0xf8f4e3, 0xb388eb, 0xff9f1c];
-  const LEAVES = [0x9a6a3a, 0x7c5a34, 0xa87a40, 0x6e5636];
   for (const b of boxes) {
     if (b.maxZ > MAZE.z0 - 0.5 || greyAt(b.z) > 0.9) continue;
     const per = 2 * (b.w + b.d) + 2.4;
@@ -314,7 +358,23 @@ export function buildForest(scene, cfg) {
       const z = rr(zn.minZ, zn.maxZ);
       if (rng() > greyAt(z) * 1.3 + 0.03 || (walled(x, z) && rng() < 0.75)) continue;
       if (Math.hypot(x - pit.x, z - pit.z) < pit.r + 0.4) continue; // the mat over the pit is props.js
-      zn.leaf.push({ m: matrixOf([x, 0.02 + rng() * 0.02, z], [rr(-0.3, 0.3), rr(0, 6), rr(-0.3, 0.3)], rr(0.8, 1.6)), c: new THREE.Color(pick(LEAVES)).multiplyScalar(rr(0.8, 1.2)) });
+      zn.leaf.push({ m: matrixOf([x, 0.02 + rng() * 0.02, z], [rr(-0.3, 0.3), rr(0, 6), rr(-0.3, 0.3)], rr(0.8, 1.6)), c: new THREE.Color(leafTone(pick(LEAF_TONES), greyAt(z))).multiplyScalar(rr(0.8, 1.2)) });
+    }
+    // Litter blown into drifts against the walls' feet, from the first band on (C6: band 1's path
+    // has the later bands' litter too), on its own generator so the wood's scatter is as it was.
+    const lr = makeRng(0x1eaf + zn.index * 101);
+    const drifts = Math.round((zn.index === 1 ? 70 : 30 + 40 * d) * area);
+    for (let k = 0; k < drifts; k++) {
+      const cx = -26 + lr() * 52;
+      const cz = zn.minZ + lr() * (zn.maxZ - zn.minZ);
+      if (walled(cx, cz) || !walled(cx, cz, 1.2) || cz > MAZE.z0 - 0.5) continue; // just off a wall's foot
+      const n = 5 + Math.floor(lr() * 10);
+      for (let i = 0; i < n; i++) {
+        const a = lr() * 6.283; const r = 0.7 * Math.sqrt(lr());
+        const x = cx + Math.cos(a) * r; const z = cz + Math.sin(a) * r;
+        if (Math.hypot(x - pit.x, z - pit.z) < pit.r + 0.4) continue;
+        zn.leaf.push({ m: matrixOf([x, 0.004 + i * 0.0015, z], [(lr() - 0.5) * 0.4, lr() * 6.283, (lr() - 0.5) * 0.4], 0.7 + lr() * 0.6), c: new THREE.Color(leafTone(LEAF_TONES[Math.floor(lr() * LEAF_TONES.length)], greyAt(z))).multiplyScalar(0.8 + lr() * 0.35) });
+      }
     }
     for (let i = 0; i < 90 * d * area; i++) {
       const x = rr(-28, 28);
@@ -438,7 +498,7 @@ export function buildForest(scene, cfg) {
     const n = Math.round(w / 2);
     for (let i = 0; i < n; i++) {
       const h = rr(2.9, 3.3);
-      zones[2].solid.push(part(G.box(w / n + (i < n - 1 ? 0.06 : 0), h, 1.5, 2, 2, 2), 0x3d9444, { at: [DISPLAY.minX + (i + 0.5) * (w / n), h / 2, HT.stand.minZ - 0.95], vary: 0.3, lump: i < n - 1 ? 0.1 : 0.04, seed: i, freq: 0.9 }));
+      zones[2].solid.push(part(G.box(w / n + (i < n - 1 ? 0.06 : 0), h, 1.5, 2, 2, 2), woodGreen(0x3d9444, greyAt(HT.stand.minZ)), { at: [DISPLAY.minX + (i + 0.5) * (w / n), h / 2, HT.stand.minZ - 0.95], vary: 0.3, lump: i < n - 1 ? 0.1 : 0.04, seed: i, freq: 0.9 }));
     }
   }
   // The Caterpillar's toadstool is drawn with the creature (beasts.js), as is the Rabbit's chair.
@@ -478,9 +538,7 @@ export function buildForest(scene, cfg) {
       zn.group.add(shaft);
     }
   }
-  for (const p of cfg.pads) {
-    if (p.stage >= 1 && p.stage <= 5) zones[p.stage].decal.push({ ring: part(new THREE.RingGeometry(0.82, 0.96, 24).rotateX(-Math.PI / 2), 0xe8e2d0, { at: [p.x, 0.014, p.z], vary: 0 }) });
-  }
+  // C4: no rings round the pads; the pickups are things lying in the wood (actors.js draws them).
   // #29 (G29a, the owner): past the last gate the trees do not stop. The way goes into a short
   // tunnel of trees and brambles, shut at its far end: the end line is ten metres in, where the
   // castle's card is read and the level changes. The thicket either side of it is dead trees close
@@ -513,10 +571,12 @@ export function buildForest(scene, cfg) {
   const lanternMat = new THREE.MeshBasicMaterial({ vertexColors: true });
   for (const zn of zones.slice(1)) {
     const g = zn.group;
-    instanced(g, geo.clip, M.matte, zn.clip, true);
-    instanced(g, geo.wild, M.matte, zn.wild, false);
+    const zd = greyAt((zn.minZ + zn.maxZ) / 2);
+    if (zn.clip.length) instanced(g, geo.clip(zd), M.matte, zn.clip, true);
+    const vict = zn.vict.some((l) => l.length) ? geo.vict(zd) : null;
+    if (zn.wild.length) instanced(g, geo.wild(zd), M.matte, zn.wild, false);
     instanced(g, geo.rock, M.matte, zn.rock, false);
-    zn.vict.forEach((list, i) => instanced(g, geo.vict[i], M.matte, list, true));
+    zn.vict.forEach((list, i) => list.length && instanced(g, vict[i], M.matte, list, true));
     zn.haunt.forEach((list, i) => instanced(g, geo.haunt[i], M.matte, list, i < 2)); // the small bare ones cast nothing worth a pass
     instanced(g, geo.flower, M.matte, zn.flower, false, false);
     instanced(g, geo.leaf, M.leaf, zn.leaf, false, false);
@@ -572,7 +632,7 @@ export function buildForest(scene, cfg) {
   driftMesh.visible = false;
   group.add(driftMesh);
   const drift = Array.from({ length: DRIFT }, (_, i) => ({ x: 0, y: -5, z: 0, o: i * 1.7, v: 0.5 + (i % 5) * 0.12 }));
-  for (let i = 0; i < DRIFT; i++) driftMesh.setColorAt(i, _c.setHex(LEAVES[i % LEAVES.length]));
+  for (let i = 0; i < DRIFT; i++) driftMesh.setColorAt(i, _c.setHex(leafTone(LEAF_TONES[i % LEAF_TONES.length], 0.6)));
 
   const dummy = new THREE.Object3D();
   let zoneNow = -1;

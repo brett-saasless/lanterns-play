@@ -20,6 +20,7 @@ import { TAGS, READS } from '../logic/script.js';
 import * as S from './sculpt.js';
 import { daylight, mats, G, part, limb, bake, PAL, FOUNTAIN } from './court.js';
 import { groundTone } from './forest.js';
+import { LANTERN_LIGHT, poolAt } from '../logic/courtlook.js';
 
 const SMOKE = 40; // puffs over the Caterpillar's glade (the frame budget's cap)
 const MOTES = 28; // one-shot droplets, splinters and leaves
@@ -195,11 +196,16 @@ export function createProps(scene, cfg) {
       }
     }
   });
-  const bushMesh = inst(s0.group, part(G.ico(1, 1), PAL.hedge, { lump: 0.14, vary: 0.3, freq: 1.8 }), M.matte, bushes.length, true);
+  // C3: each bush is four leafy lobes, not one faceted ball.
+  const bushGeo = S.merge([[0.36, 0.1, 0.12], [-0.34, 0.05, 0.2], [0.05, 0.02, -0.38], [-0.02, 0.32, 0.02]].map(([x, y, z], k) => part(G.ball(0.64 - 0.04 * k, 11, 8), PAL.hedge, { at: [x, y, z], lump: 0.1, vary: 0.45, freq: 5.5, seed: k })));
+  const bushMesh = inst(s0.group, bushGeo, M.matte, bushes.length, true);
   // Roses: a whorl of petals on a calyx, shut and white when dry; watered, they open (the
   // kit's morph target, weighted per head), redden from the roots up, stand a little taller
   // and glisten. One instanced mesh of heads per bed (the budget allows two), over the bushes.
-  const roseGeo = S.flower({ size: 1, open: 0, petals: 7, color: 0xffffff, heart: 0xd0d0d0, detail: 2, morph: true, cup: 0.7, seed: 3 });
+  // C3: three whorls of cupped petals round a calyx: shut, a tight bud the sepals clasp; open, a
+  // cup whose outer petals spread and inner ones stay upright, as a rose's do.
+  const roseGeo = S.flower({ size: 1, open: 0, color: 0xffffff, heart: 0xc8c4bc, detail: 2, morph: true, cup: 0.85, seed: 3,
+    whorls: [[6, 0.95, 0.1, 1.1], [5, 0.78, 0.04, 0.62], [4, 0.58, 0.0, 0.26]] });
   const _up = new THREE.Vector3(0, 1, 0);
   const _dir = new THREE.Vector3();
   const _spin = new THREE.Quaternion();
@@ -226,7 +232,7 @@ export function createProps(scene, cfg) {
     bushMesh.instanceMatrix.needsUpdate = true;
     roseBeds.forEach((bed, bi) => {
       const lv = bedLevel[bi];
-      bed.material.roughness = 0.62 - 0.32 * lv; // a watered rose glistens
+      bed.material.roughness = 0.62 - 0.22 * lv; // a watered rose glistens (C3: a sheen, not glass)
       // A little light of its own, so a head holds its colour in shade (an open one shows its
       // underside from below). The red comes in only as the flush ends, so mid-flush the bed's
       // colour is each head's own and the flush is seen to climb from the roots.
@@ -452,9 +458,18 @@ export function createProps(scene, cfg) {
   ]), M.metal, lamps.length, true);
   const glassMesh = inst(s3, G.box(0.19, 0.28, 0.19), new THREE.MeshBasicMaterial({ color: 0xffffff }), lamps.length);
   const chainMesh = inst(s3, G.cyl(0.012, 0.012, 1, 4).translate(0, -0.5, 0), new THREE.MeshStandardMaterial({ color: IRON, roughness: 0.5, metalness: 0.6 }), lamps.length);
-  const poolMesh = inst(s3, G.disc(1, 28), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), lamps.length);
+  // C5: the pool fades from its middle to nothing at the lantern radius (logic/courtlook.js
+  // poolAt), a glow on the litter rather than a flat disc of light.
+  const poolGeo = new THREE.RingGeometry(0, 1, 28, 8).rotateX(-Math.PI / 2);
+  {
+    const q = poolGeo.attributes.position;
+    const col = new Float32Array(q.count * 3);
+    for (let i = 0; i < q.count; i++) col.fill(poolAt(Math.hypot(q.getX(i), q.getZ(i))) / poolAt(0), i * 3, i * 3 + 3);
+    poolGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  }
+  const poolMesh = inst(s3, poolGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), lamps.length);
   const lampLights = lamps.map(() => {
-    const l = new THREE.PointLight(PAL.lantern, 0, 11, 1.5);
+    const l = new THREE.PointLight(PAL.lantern, 0, LANTERN_LIGHT.distance, LANTERN_LIGHT.decay); // C5: inverse-square, to 6 m
     l.position.set(0, -20, 0);
     group.add(l); // always in the scene, so the light count never changes
     return l;
@@ -494,7 +509,9 @@ export function createProps(scene, cfg) {
   stages[4].group.add(ember);
   const smokeR = cfg.caterpillar ? cfg.caterpillar.smokeRadius : 7;
   const clearTime = cfg.caterpillar ? cfg.caterpillar.clearTime : 2;
-  const smokeMesh = inst(stages[4].group, G.ico(1, 1), new THREE.MeshStandardMaterial({ color: 0x8a8496, roughness: 1, transparent: true, opacity: 0.26, depthWrite: false }), SMOKE);
+  // C8: soft camera-facing puffs with a ragged radial falloff (the kit's puffTexture), drifting
+  // slowly round the glade; never solid blobs.
+  const smokeMesh = inst(stages[4].group, new THREE.PlaneGeometry(2.6, 2.6), new THREE.MeshBasicMaterial({ color: 0x8e8a98, map: S.puffTexture(), transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide }), SMOKE);
   const puffs = Array.from({ length: SMOKE }, (_, i) => ({ a: rr(0, 6.283), r: Math.sqrt((i + 0.5) / SMOKE) * smokeR * 0.95, y: rr(0.3, 2.0), s: rr(1.1, 2.3), o: rr(0, 9), w: rr(0.05, 0.16) * (rnd() < 0.5 ? -1 : 1) }));
   let smoke = 1;
   let smokeLift = 0;
@@ -793,9 +810,9 @@ export function createProps(scene, cfg) {
       put(chainMesh, i, l.x, l.chainY, l.z, 1, len, 1, 0, 0, l.state === 'hung' ? -sw : Math.sin(time * 2 + i) * 0.08);
       const lit = l.state === 'down' && l.at <= 0.2 ? fl : 0;
       put(poolMesh, i, l.x, 0.02, l.z, lit > 0 ? lanternR : 0.001);
-      poolMesh.setColorAt(i, _c.copy(LANTERN).multiplyScalar(0.2 * lit));
-      lampLights[i].position.set(lx, l.at + 0.25, l.z);
-      lampLights[i].intensity = stages[3].group.visible ? (l.state === 'down' ? 26 : 7) * fl : 0;
+      poolMesh.setColorAt(i, _c.copy(LANTERN).multiplyScalar(poolAt(0) * lit));
+      lampLights[i].position.set(lx, l.at + (l.state === 'hung' ? 0.25 : LANTERN_LIGHT.lift), l.z); // C5: a fallen one's light sits above its glass, so the floor beside it is lit, not blown
+      lampLights[i].intensity = stages[3].group.visible ? (l.state === 'down' ? LANTERN_LIGHT.down : LANTERN_LIGHT.hung) * fl : 0;
     });
     for (const m of [frameMesh, glassMesh, chainMesh, poolMesh]) m.instanceMatrix.needsUpdate = true;
     glassMesh.instanceColor.needsUpdate = true;
@@ -855,7 +872,10 @@ export function createProps(scene, cfg) {
       puffs.forEach((p, i) => {
         const a = p.a + time * p.w;
         const bob = Math.sin(time * 0.6 + p.o) * 0.25;
-        put(smokeMesh, i, home.x + Math.cos(a) * p.r, p.y + bob + smokeLift, home.z + Math.sin(a) * p.r, p.s * smoke * (1 + 0.1 * Math.sin(time + p.o)), p.s * smoke * 0.7, p.s * smoke);
+        const px = home.x + Math.cos(a) * p.r; const pz = home.z + Math.sin(a) * p.r;
+        const face = Math.atan2(at.x - px, at.z - pz); // turned to the eye
+        const sz = p.s * smoke * (1 + 0.12 * Math.sin(time * 0.4 + p.o));
+        put(smokeMesh, i, px, p.y + bob + smokeLift, pz, sz, sz * 0.75, sz, face, 0, p.o);
       });
       smokeMesh.instanceMatrix.needsUpdate = true;
     }

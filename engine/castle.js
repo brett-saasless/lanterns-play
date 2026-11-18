@@ -21,6 +21,7 @@ import * as ST from './stone.js';
 import * as KM from '../logic/keepmap.js';
 import * as KEEP from '../logic/keep.js';
 import { createRoadView } from './roadview.js'; // issue #29: the road up from the wood, and its evening
+import { buildDawnView, DAWN_SUN } from './dawnview.js'; // art pass K1: the sunrise out of the Count's windows
 
 const HUE = ST.STONE;
 const INSET = 0; // walls stand just outside a zone's clear floor, as keepmap.js builds them
@@ -34,7 +35,12 @@ const LOW_FPS_HOLD = 3;
 const SHADOW_SIZES = [0, 1024, 2048];
 const POOL = 5; // point lights shared among the flames
 const CRYPT_AMBIENT = 2.6; // the crypt's air after a fall: lighter than it was (1.4), under the tea room's 3.2 (#22)
-const FIRELIGHT = 0xffd8bc; // what a flame throws: paler than the flame, so lit stone is not painted orange
+const FIRELIGHT = 0xd8c8bc; // what a flame throws (art pass K4, owner Q11 'orange flames, cool stone'): a pale, nearly neutral light under the flame's own orange, so the stone is lit, not warmed
+const FIRE_SHARE = 0.85; // K4: the flames' light at about 70% of what the cream light gave, so the stone keeps its cool cast and nothing clips
+const PASSAGE_FIRE = 1.2; // K2: a passage's torches keep their old strength: they and the moon slit are all its light
+// K3 (owner Q5, colder and darker upward): on the upper storey the moon-silver air takes over the
+// stone and the fires' share of it falls, so the dawn gold is the only warmth up there
+const COLD = { fire: 0.45, hemi: 0x8aa2b6, ground: 0x4a5668, hemiK: 3.2 };
 export const TITLE_LOOP = 96; // seconds for one pass of the title fly-through
 
 
@@ -46,18 +52,21 @@ export const TITLE_LOOP = 96; // seconds for one pass of the title fly-through
 const toR = (r) => ({ x0: r.minX, x1: r.maxX, z0: r.minZ, z1: r.maxZ });
 const WIN = (rect, side, c, w, h, sill, more = {}) => ({ rect, side, c, w, h, sill, ...more });
 const PASSAGE = { kind: 'passage', h: 3.0, ceil: { kind: 'vault', rise: 0.8, bay: 4 }, floor: 'flagWorn' };
+// K2: where each passage's moon slit is cut: [rect, wall, along], on a stretch with no torch, across
+// from the wives' painting and the banners the torches had to leave dark
+const SLIT = (rect, side, c) => [WIN(rect, side, c, 0.5, 1.7, 1.1, { rise: 0.25, lights: 1, slit: true })];
 
 function makePlan() {
   const zones = [
     { id: 'outside', kind: 'outside', y: 0, h: 0, rects: [], from: ['approach', 'bridge', 'forecourt'] },
     { id: 'hall', kind: 'room', h: 5, ceil: { kind: 'vault', rise: 3, along: 'z', bays: 3 }, floor: 'flag' },
-    { id: 'cor1', ...PASSAGE },
+    { id: 'cor1', ...PASSAGE, windows: SLIT(1, 's', 8.4) },
     { id: 'tea', kind: 'room', h: 6, ceil: { kind: 'beams', n: 7 }, floor: 'flag',
       windows: KM.WINDOWS.tea.map((w) => WIN(0, 'e', w.z, 1.5, 3.8, 1.3)) },
-    { id: 'cor2', ...PASSAGE },
+    { id: 'cor2', ...PASSAGE, windows: SLIT(1, 's', 3.5) },
     { id: 'gallery', kind: 'room', h: 6, ceil: { kind: 'vault', rise: 3.6, along: 'z', bays: 8 }, floor: 'marbleDark',
       windows: KM.WINDOWS.gallery.map((w) => WIN(0, 'e', w.z, 1.7, 4.6, 0.9)) },
-    { id: 'cor3', ...PASSAGE },
+    { id: 'cor3', ...PASSAGE, windows: SLIT(1, 's', 7.5) },
     { id: 'walk', kind: 'room', h: 6.5, ceil: { kind: 'vault', rise: 5, along: 'x', bays: 5 }, floor: 'flag',
       windows: KM.WINDOWS.walk.map((w) => WIN(0, 'e', w.z, 10, 9.6, 1.4, { rise: 4.2, lights: 4 })) },
     { id: 'stairs', kind: 'room', h: 9.2, ceil: { kind: 'slab' }, floor: 'flag' },
@@ -66,9 +75,9 @@ function makePlan() {
     { id: 'passage', ...PASSAGE },
     { id: 'nursery', kind: 'room', h: 4.4, ceil: { kind: 'beams', n: 5 }, floor: 'flag',
       windows: KM.WINDOWS.nursery.map((w) => WIN(0, 'w', w.z, 1.4, 3.2, 1.1)) },
-    { id: 'countway', ...PASSAGE },
+    { id: 'countway', ...PASSAGE, windows: SLIT(0, 'e', -148.6) },
     { id: 'count', kind: 'room', h: 6, ceil: { kind: 'beams', n: 8 }, floor: 'flag',
-      windows: KM.COUNT_ROOM.curtains.map((c) => WIN(0, 'e', c.z, 1.8, 4.2, 0.9)) },
+      windows: KM.COUNT_ROOM.curtains.map((c) => WIN(0, 'e', c.z, 1.8, 4.2, 0.9, { lights: 1 })) }, // K12: one light each, so the dawn is one clear field
   ];
   for (const z of zones) {
     if (z.from) continue;
@@ -330,15 +339,18 @@ function flameBuilder() {
         return { u, r: size * 0.3 * Math.sin(Math.PI * Math.pow(u, 0.62)) * (1 - 0.35 * u) + (k === 0 ? size * 0.05 : 0), y: u * size * 1.25 };
       };
       const colour = (u) => {
-        if (u < 0.25) return base.setRGB(0.3, 0.26, 0.34).lerp(tipC.setRGB(0.8, 0.62, 0.3), u / 0.25);
-        if (u < 0.6) return base.setRGB(0.8, 0.62, 0.3).lerp(tipC.setRGB(0.75, 0.3, 0.06), (u - 0.25) / 0.35);
-        return base.setRGB(0.75, 0.3, 0.06).lerp(tipC.setRGB(0.18, 0.02, 0), (u - 0.6) / 0.4);
+        // K4 (owner Q11): orange flames, a #FFB060 core to a #FF8A3C body and a red tip. Drawn
+        // over what is behind them, not added to it, so a flame against lit stone stays orange
+        // and never clips to white
+        if (u < 0.25) return base.setRGB(0.55, 0.2, 0.05).lerp(tipC.setRGB(1.0, 0.45, 0.13), u / 0.25);
+        if (u < 0.6) return base.setRGB(1.0, 0.45, 0.13).lerp(tipC.setRGB(1.0, 0.25, 0.045), (u - 0.25) / 0.35);
+        return base.setRGB(1.0, 0.25, 0.045).lerp(tipC.setRGB(0.55, 0.06, 0.005), (u - 0.6) / 0.4);
       };
       const put = (rg, s) => {
         const a = (s / sides) * TAU;
         pos.push(x + Math.cos(a) * rg.r, y + rg.y, z + Math.sin(a) * rg.r);
         const c = colour(rg.u);
-        col.push(c.r, c.g, c.b);
+        col.push(c.r, c.g, c.b, rg.u < 0.55 ? 0.92 : 0.92 * (1 - (rg.u - 0.55) / 0.45) ** 1.5); // the tip thins to nothing
         aux.push(phase, rg.u, size);
       };
       for (let k = 0; k < rings; k++) {
@@ -353,7 +365,7 @@ function flameBuilder() {
     build() {
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
       g.setAttribute('aFlame', new THREE.Float32BufferAttribute(aux, 3));
       return g;
     },
@@ -377,19 +389,25 @@ export function buildCastle(scene, cfg) {
   const rugMats = new Map();
   const rugMatFor = (aspect) => {
     const key = Math.round(aspect * 4) / 4;
-    if (!rugMats.has(key)) rugMats.set(key, new THREE.MeshStandardMaterial({ map: rugTexture(key), color: 0xb4b0b0, roughness: 1, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    if (!rugMats.has(key)) rugMats.set(key, new THREE.MeshStandardMaterial({ map: rugTexture(key), color: 0xb07070, // K14: darker, so the hearth light leaves it dried red, not salmon
+       roughness: 1, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     return rugMats.get(key);
   };
   const glassMat = new THREE.MeshStandardMaterial({
     map: glassTexture(), color: 0x8fa6c8, roughness: 0.12, metalness: 0.35, transparent: true, opacity: 0.42, depthWrite: false, side: THREE.DoubleSide,
   });
+  const dawnGlass = glassMat.clone(); // K1: the Count's windows, which clear as the dawn comes up so the view shows
   const litMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: true }); // lit windows seen from outside
   const windowMats = [0, 1, 2, 3].map(() => litMat.clone()); // #29: the front's windows in four sets (finish)
   const darkMat = new THREE.MeshBasicMaterial({ color: 0x080b12, fog: false });
+  // K9: the far crags graded into the night air: under the horizon's sky by about 15 values and in
+  // its hue, not the near roofs' black (the road's evening grades them with the roofs, as before)
+  const RIDGE = 0x1a2234;
+  const ridgeMat = new THREE.MeshBasicMaterial({ color: RIDGE, fog: false, toneMapped: false }); // drawn as the grade it is
   const flameTime = { value: 0 };
   const flameCalm = { value: 0 };
   const flameMat = new THREE.MeshBasicMaterial({
-    vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false, side: THREE.DoubleSide,
+    vertexColors: true, transparent: true, depthWrite: false, fog: false, toneMapped: false, side: THREE.DoubleSide, // K4: normal blending (see flameBuilder)
   });
   flameMat.onBeforeCompile = (sh) => {
     sh.uniforms.uTime = flameTime;
@@ -414,7 +432,7 @@ export function buildCastle(scene, cfg) {
   // ---- zones ----
   const zones = PLAN.zones.map((z, i) => ({
     ...z, index: i, group: new THREE.Group(), neighbours: new Set(),
-    stone: [], worn: [], floorParts: {}, fit: [], cloth: [], rug: [], glass: [], lit: [], dark: [],
+    stone: [], worn: [], floorParts: {}, fit: [], cloth: [], rug: [], glass: [], lit: [], dark: [], ridge: [],
     flames: flameBuilder(), halos: [], fires: [], leaves: [],
   }));
   const byId = Object.fromEntries(zones.map((z) => [z.id, z]));
@@ -436,10 +454,12 @@ export function buildCastle(scene, cfg) {
   // ---- fittings shared by every zone ----
 
   /** A flame that gives light: where it burns and how strong (1 = a torch). */
-  function fire(z, x, y, zz, power, size) {
+  function fire(z, x, y, zz, power, size, lx = x, lz = zz) {
     z.flames.add(x, y, zz, size);
     z.halos.push(x, y + size * 0.5, zz);
-    z.fires.push({ x, y: y + size * 0.6, z: zz, power, seed: x * 1.3 + zz * 0.7 });
+    // (lx, lz): where its light is thrown from. K4: a wall flame's light stands out from the wall, so
+    // the stone right behind the flame is not burnt to white under it and the pool is softer
+    z.fires.push({ x: lx, y: y + size * 0.6, z: lz, power, seed: x * 1.3 + zz * 0.7, cold: coldZone(z), passage: z.kind === 'passage' });
   }
 
   /** A torch in an iron bracket on a wall face at (x, z), burning `out` from it along n. */
@@ -450,7 +470,7 @@ export function buildCastle(scene, cfg) {
     z.fit.push(box(x + n[0] * 0.02, y - 0.05, zz + n[1] * 0.02, 0.16, 0.34, 0.03, 0x14110f, ry, 0.05));
     z.fit.push(cyl(ox, y - 0.32, oz, 0.035, 0.055, 0.5, 0x2a1c12, 6));
     z.fit.push(cyl(ox, y + 0.16, oz, 0.07, 0.085, 0.1, 0x100d0b, 8));
-    fire(z, ox, y + 0.2, oz, 1, 0.42);
+    fire(z, ox, y + 0.2, oz, 1, 0.42, x + n[0] * 0.8, zz + n[1] * 0.8);
   }
 
   /** A candle on a small sconce. */
@@ -460,7 +480,7 @@ export function buildCastle(scene, cfg) {
     z.fit.push(box(x + n[0] * 0.08, y, zz + n[1] * 0.08, 0.03, 0.03, 0.18, 0x6b5326, ry, 0.05));
     z.fit.push(cyl(ox, y, oz, 0.06, 0.045, 0.03, 0x8a6d36, 8));
     z.fit.push(cyl(ox, y + 0.03, oz, 0.022, 0.02, 0.16, 0xd8d0b8, 6, 0.03));
-    fire(z, ox, y + 0.19, oz, power, 0.13);
+    fire(z, ox, y + 0.19, oz, power, 0.13, x + n[0] * 0.55, zz + n[1] * 0.55);
   }
 
   /** A carved chimneypiece on a wall, with logs burning in it. Returns where the fire is. */
@@ -490,18 +510,23 @@ export function buildCastle(scene, cfg) {
     }
     z.halos.push(at.x + n[0] * 0.2, at.y + 0.3, at.z + n[1] * 0.2);
     // the fire's own glow on its chimneypiece and the floor before it (the key light throws the shadows)
-    z.fires.push({ x: at.x + n[0] * 1.1, y: at.y + 0.75, z: at.z + n[1] * 1.1, power: 1.5, seed: x + zz });
+    // K4: up and out from the mouth, so it pools on the floor and leaves no white slab on the hearth stone
+    z.fires.push({ x: at.x + n[0] * 1.4, y: at.y + 1.45, z: at.z + n[1] * 1.4, power: 1.3, seed: x + zz, cold: coldZone(z) });
     return { x: at.x, y: at.y + 0.35, z: at.z, n };
   }
 
   /** The key light for a room with a fire: a spot at the hearth's mouth, thrown across the room. */
-  function fireKey(h, reach, power = 150) {
+  function fireKey(h, reach, power = 150, cold = false) {
+    // K4: thrown from a little out of the mouth and up, with a soft edge, so the hearth's jambs
+    // and slab cut no hard white wedge on the floor; K3: weaker on the cold upper storey
     return {
-      kind: 'fire', pos: [h.x + h.n[0] * 0.5, h.y + 0.25, h.z + h.n[1] * 0.5],
+      kind: 'fire', pos: [h.x + h.n[0] * 0.9, h.y + 0.7, h.z + h.n[1] * 0.9],
       target: [h.x + h.n[0] * reach, h.y - 0.9, h.z + h.n[1] * reach],
-      intensity: power, angle: 1.25, penumbra: 0.6, decay: 1.6, distance: reach * 3.2, color: FIRELIGHT, seed: h.x + h.z,
+      intensity: power * FIRE_SHARE * (cold ? COLD.fire : 1), angle: 1.25, penumbra: 1, decay: 1.6, distance: reach * 3.2, color: FIRELIGHT, seed: h.x + h.z,
     };
   }
+  /** True for a zone on the upper storey (K3: the cold rooms). */
+  function coldZone(z) { return z.y >= KM.UPPER - 0.01; }
 
   /** Oak beams under a flat ceiling. */
   function beams(z, r, y, alongX, n) {
@@ -691,18 +716,21 @@ export function buildCastle(scene, cfg) {
     const parts = [];
     const lights = q.window.lights || (w > 3 ? 4 : 2);
     const lw = w / lights;
+    if (q.window.slit) { slitFill(z, q, op, from, to, y0); return; } // K2: an open slit, no tracery, no glass
     // mullions to the springing, a sub-arch over each light, and an eye in the head
     for (let i = 1; i < lights; i++) parts.push(ST.block(-w / 2 + i * lw, 0, 0, 0.11, spring + rise * (i === lights / 2 ? 0.55 : 0.2), 0.16, 0xf1f3f5));
-    for (let i = 0; i < lights; i++) {
+    for (let i = 0; i < lights && lights > 1; i++) {
       const sub = ST.surround({ at: -w / 2 + (i + 0.5) * lw, w: lw - 0.1, h: lw * 0.62, y: spring - lw * 0.1, rise: lw * 0.62 }, { profile: [[0, -0.07], [0.08, -0.07], [0.08, 0.07], [0, 0.07], [0, -0.07]] });
       // only the arch of it: the jambs are the mullions
       parts.push(sub);
     }
-    const eyeR = Math.min(w * 0.17, rise * 0.3);
-    const eye = new THREE.TorusGeometry(eyeR, 0.05, 5, 16);
-    eye.deleteAttribute('uv');
-    eye.translate(0, spring + rise * 0.52, 0);
-    parts.push(ST.paint(eye, 0xf1f3f5));
+    if (lights > 1) { // a one-light window (the Count's) is a plain lancet: no eye in its head
+      const eyeR = Math.min(w * 0.17, rise * 0.3);
+      const eye = new THREE.TorusGeometry(eyeR, 0.05, 5, 16);
+      eye.deleteAttribute('uv');
+      eye.translate(0, spring + rise * 0.52, 0);
+      parts.push(ST.paint(eye, 0xf1f3f5));
+    }
     if (hh > 5) parts.push(ST.block(0, spring * 0.5, 0, w, 0.12, 0.16, 0xf1f3f5)); // a transom on a great window
     const g = S.merge(parts);
     g.translate(op.at, y0 + (op.y || 0), 0);
@@ -722,6 +750,25 @@ export function buildCastle(scene, cfg) {
     pane.translate(op.at, y0 + (op.y || 0), 0.1);
     pane.applyMatrix4(ST.wallMatrix(from, to));
     z.glass.push(pane);
+  }
+
+  /**
+   * K2: a passage's moon slit. The opening stays open to the night; a pale moonlit haze fills its
+   * outer end (so the slit reads as moon-silver from down the passage), and the zone's key light
+   * is the moon through it (buildPassage): one spot already in the fixed set, no light added.
+   */
+  function slitFill(z, q, op, from, to, y0) {
+    const w = q.w; const hh = q.h;
+    const g = new THREE.PlaneGeometry(w + 0.1, hh + 0.1);
+    g.deleteAttribute('uv');
+    g.translate(op.at, y0 + (op.y || 0) + hh / 2, -0.45); // wall space z (+ into the room): at the outer face
+    g.applyMatrix4(ST.wallMatrix(from, to));
+    const moon = new THREE.Color(HUE.moon);
+    const col = new Float32Array(12);
+    for (let i = 0; i < 4; i++) { const k = i < 2 ? 0.62 : 0.4; col[i * 3] = moon.r * k; col[i * 3 + 1] = moon.g * k; col[i * 3 + 2] = moon.b * k; }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    g.computeVertexNormals();
+    z.lit.push(g);
   }
 
   // ---- doors ----
@@ -770,6 +817,7 @@ export function buildCastle(scene, cfg) {
 
   // ---- the zones ----
   const keys = {}; // zone id -> its key light
+  let dawnView = null; // K1: the view out of the Count's windows (built with the room)
   const surfaces = cfg && cfg.surfaces ? cfg.surfaces.zones.filter((q) => q.shape === 'rect') : [];
   const inZone = (z, x, zz) => z.rects.some((r) => x >= r.x0 - 0.01 && x <= r.x1 + 0.01 && zz >= r.z0 - 0.01 && zz <= r.z1 + 0.01);
 
@@ -826,7 +874,7 @@ export function buildCastle(scene, cfg) {
     keys.hall = fireKey(h, 6, 120);
     rugsOf(z);
     for (const sx of [-2.6, 2.6]) { const p = onFace(r, 'n', sx); torch(z, p.x, p.z, p.n, 2.5); }
-    z.ambient = 3.2;
+    z.ambient = 4.2; // K4: a cooler fill under the paler fire, so the hall's stone keeps its ashlar grey
   }
 
   function buildPassage(z) {
@@ -858,6 +906,17 @@ export function buildCastle(scene, cfg) {
       const north = Math.abs(b.z - r.z0) < Math.abs(b.z - r.z1);
       banner(z, b.x, north ? r.z0 : r.z1, north ? [0, 1] : [0, -1], z.y + z.h - 0.05, i + 3);
     });
+    // K2: the moon through the slit is the passage's key: thrown down across the floor to the
+    // far wall's foot, through the slit's own shadow, so it lands as a slit of silver
+    for (const w of z.windows || []) {
+      if (!w.slit) continue;
+      const f = onFace(z.rects[w.rect], w.side, w.c);
+      const midY = z.y + w.sill + w.h / 2;
+      keys[z.id] = {
+        kind: 'moon', pos: [f.x - f.n[0] * 4.6, midY + 3.6, f.z - f.n[1] * 4.6], target: [f.x + f.n[0] * 1.6, z.y, f.z + f.n[1] * 1.6],
+        intensity: 9, angle: 0.5, penumbra: 0.5, decay: 0, distance: 0, color: HUE.moon,
+      };
+    }
     // the carved grin over the arch into the room ahead
     KM.CORRIDOR.grins.forEach((g, i) => {
       const d = PLAN.doors.find((q) => q.axis === 'x' && q.zones.includes(z.id) && Math.abs(q.c - g.x) < 1.5 && Math.abs(q.mid - g.z) < 1.5);
@@ -1030,7 +1089,7 @@ export function buildCastle(scene, cfg) {
     shell(z);
     const f = onFace(r, 'n', r.x1 - 5);
     const h = hearth(z, f.x, f.z, f.n, 2.4, 2.3);
-    keys.mirror = fireKey(h, 10, 220);
+    keys.mirror = fireKey(h, 10, 220, true);
     rugsOf(z);
     for (const [side, c] of [['e', r.z0 + 4.8], ['w', r.z1 - 1.5]]) { const p = onFace(r, side, c); sconce(z, p.x, p.z, p.n, z.y + 2.6); }
     z.ambient = 3.2;
@@ -1041,7 +1100,7 @@ export function buildCastle(scene, cfg) {
     shell(z);
     const f = onFace(r, 'e', (r.z0 + r.z1) / 2 - 0.5);
     const h = hearth(z, f.x, f.z, f.n, 1.8, 1.9);
-    keys.nursery = fireKey(h, 8, 150);
+    keys.nursery = fireKey(h, 8, 150, true);
     rugsOf(z);
     z.ambient = 3.2;
   }
@@ -1051,7 +1110,7 @@ export function buildCastle(scene, cfg) {
     shell(z);
     const f = onFace(r, 'w', KM.COUNT_ROOM.boxAt.z);
     const h = hearth(z, f.x, f.z, f.n, 3.0, 2.5);
-    keys.count = fireKey(h, 14, 170);
+    keys.count = fireKey(h, 14, 170, true);
     rugsOf(z);
     for (const c of [r.x0 + 4, r.x1 - 4]) { const p = onFace(r, 'n', c); sconce(z, p.x, p.z, p.n, z.y + 2.2); }
     // dawn, when it comes, comes through the three east windows
@@ -1060,6 +1119,9 @@ export function buildCastle(scene, cfg) {
       kind: 'dawn', pos: [r.x1 + 40, z.y + 9, mid], target: [(r.x0 + r.x1) / 2, z.y, mid],
       intensity: 4.2, angle: 0.36, penumbra: 0.3, decay: 0, distance: 0, color: HUE.dawn,
     };
+    // K1: and beyond the glass, the sunrise over the land, and the castle below (dawnview.js)
+    dawnView = buildDawnView({ x: r.x1 + 1, y: z.y, z: mid });
+    z.group.add(dawnView.mesh);
     z.ambient = 2.8;
   }
 
@@ -1238,7 +1300,7 @@ export function buildCastle(scene, cfg) {
       g.deleteAttribute('uv'); g.deleteAttribute('normal');
       g.rotateY(rr() * 3).translate(Math.cos(a) * rad, hh / 2 - 1.5, Math.sin(a) * rad - 30);
       if (Math.sin(a) * rad - 30 > 40) { g.dispose(); continue; } // #29: the south is the road's hillside now
-      z.dark.push(g);
+      z.ridge.push(g);
     }
     // the moon over the whole approach
     keys.outside = {
@@ -1268,8 +1330,9 @@ export function buildCastle(scene, cfg) {
       }
     } else if (z.lit.length) add(new THREE.Mesh(S.merge(z.lit), litMat), false, false);
     if (z.dark.length) add(new THREE.Mesh(S.merge(z.dark.map((g) => { g.computeVertexNormals(); return S.tint(g, 0xffffff); })), darkMat), true, false);
+    if (z.ridge.length) add(new THREE.Mesh(S.merge(z.ridge.map((g) => { g.computeVertexNormals(); return S.tint(g, 0xffffff); })), ridgeMat), false, false);
     if (z.glass.length) {
-      const m = add(new THREE.Mesh(mergeMapped(z.glass), glassMat), false, false);
+      const m = add(new THREE.Mesh(mergeMapped(z.glass), z.id === 'count' ? dawnGlass : glassMat), false, false);
       m.renderOrder = 2;
     }
     if (!z.flames.empty) {
@@ -1282,7 +1345,7 @@ export function buildCastle(scene, cfg) {
       halo.renderOrder = 4;
       z.group.add(halo);
     }
-    z.stone = z.worn = z.fit = z.cloth = z.rug = z.glass = z.lit = z.dark = null;
+    z.stone = z.worn = z.fit = z.cloth = z.rug = z.glass = z.lit = z.dark = z.ridge = null;
     z.floorParts = null;
     z.group.visible = false;
   }
@@ -1309,6 +1372,7 @@ export function buildCastle(scene, cfg) {
   const skyMat = new THREE.ShaderMaterial({
     uniforms: {
       moon: { value: moonDir.clone() }, dawn: { value: 0 }, glow: { value: 0 }, dusk: { value: 0 }, sunDir: { value: new THREE.Vector3(0, -1, 0) },
+      sunUp: { value: DAWN_SUN.clone() }, // K1: the rising sun over the Count's windows (dawnview.js lights the land from it)
       // #29 (the colour script): the road's evening sky, set by roadview.js from logic/roadlight.js
       uZenith: { value: new THREE.Color() }, uAhead: { value: new THREE.Color() }, uBehind: { value: new THREE.Color() },
       uBelt: { value: new THREE.Color() }, uBeltK: { value: 0 }, uShadowBand: { value: new THREE.Color() }, uShadowTop: { value: 0 },
@@ -1316,7 +1380,7 @@ export function buildCastle(scene, cfg) {
     },
     vertexShader: 'varying vec3 vDir;\nvoid main() {\n  vDir = position;\n  gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );\n}',
     fragmentShader: [
-      'uniform vec3 moon;', 'uniform float dawn;', 'uniform float glow;', 'uniform float dusk;', 'uniform vec3 sunDir;', 'varying vec3 vDir;',
+      'uniform vec3 moon;', 'uniform float dawn;', 'uniform float glow;', 'uniform float dusk;', 'uniform vec3 sunDir;', 'uniform vec3 sunUp;', 'varying vec3 vDir;',
       'uniform vec3 uZenith;', 'uniform vec3 uAhead;', 'uniform vec3 uBehind;', 'uniform vec3 uBelt;', 'uniform float uBeltK;',
       'uniform vec3 uShadowBand;', 'uniform float uShadowTop;', 'uniform vec3 uSunGlow;',
       'void main() {',
@@ -1327,7 +1391,6 @@ export function buildCastle(scene, cfg) {
       '  c = mix( c, vec3( 0.004, 0.006, 0.012 ), smoothstep( -0.02, -0.25, d.y ) );',
       '  float m = max( dot( d, moon ), 0.0 );',
       '  c += vec3( 0.10, 0.13, 0.18 ) * pow( m, 24.0 ) + vec3( 0.03, 0.04, 0.06 ) * pow( m, 3.0 );',
-      '  float east = smoothstep( -0.1, 0.9, d.x ) * smoothstep( 0.45, -0.02, d.y ) * smoothstep( -0.2, 0.0, d.y );',
       // #27: before dawn, from the Knight's Walk on: an ember line on the eastern horizon and the
       // night just above it greying to deep blue. No sun, and far under the Count's room's dawn.
       '  float eastward = smoothstep( -0.2, 0.85, d.x );',
@@ -1355,8 +1418,24 @@ export function buildCastle(scene, cfg) {
       '    ev = mix( ev, uAhead * 0.3, smoothstep( 0.0, -0.22, d.y ) );',
       '    c = mix( c, ev, dusk );',
       '  }',
-      '  c = mix( c, vec3( 0.95, 0.52, 0.13 ), dawn * east );',
-      '  c += dawn * vec3( 0.10, 0.07, 0.05 ) * smoothstep( -0.1, 0.5, d.y );',
+      // K1: the dawn as a sky, not a fill: pale gold at the horizon rising to a pale blue-gold, the
+      // sun low in the east-south-east with its glow, and thin streaks of cloud lit from beneath
+      '  if ( dawn > 0.001 ) {',
+      '    float el = d.y;',
+      '    vec3 ds = mix( vec3( 1.0, 0.6, 0.24 ), vec3( 1.0, 0.7, 0.38 ), smoothstep( 0.0, 0.12, el ) );',
+      '    ds = mix( ds, vec3( 0.62, 0.6, 0.6 ), smoothstep( 0.12, 0.4, el ) );',
+      '    ds = mix( ds, vec3( 0.24, 0.36, 0.62 ), smoothstep( 0.38, 0.95, el ) );',
+      '    ds = mix( ds, vec3( 0.86, 0.66, 0.42 ), smoothstep( 0.0, -0.12, el ) );',
+      '    float s = max( dot( d, sunUp ), 0.0 );',
+      '    ds += vec3( 1.0, 0.45, 0.12 ) * 0.22 * pow( s, 5.0 ) + vec3( 1.0, 0.75, 0.4 ) * 0.3 * pow( s, 90.0 );',
+      '    float az = atan( d.z, d.x );',
+      '    float band = smoothstep( 0.025, 0.06, el ) * smoothstep( 0.26, 0.11, el );',
+      '    float streak = ( 0.5 + 0.5 * sin( az * 19.0 + 2.2 * sin( az * 6.0 ) + el * 30.0 ) ) * ( 0.5 + 0.5 * sin( el * 75.0 + az * 3.0 ) );',
+      '    float cl = band * smoothstep( 0.45, 0.85, streak );',
+      '    ds = mix( ds, vec3( 1.0, 0.56, 0.36 ) * ( 0.85 + 0.3 * pow( s, 3.0 ) ), cl * 0.6 );',
+      '    ds = mix( ds, vec3( 1.0, 0.98, 0.9 ), smoothstep( 0.99955, 0.9998, s ) );',
+      '    c = mix( c, ds, dawn );',
+      '  }',
       '  gl_FragColor = vec4( c, 1.0 );',
       '  #include <colorspace_fragment>',
       '}',
@@ -1527,6 +1606,13 @@ export function buildCastle(scene, cfg) {
     return 1 + 0.15 * Math.sin(time * 11.3 + seed) + 0.09 * Math.sin(time * 27.1 + seed * 2.3) + 0.07 * Math.sin(time * 2.9 + seed * 0.7);
   }
 
+  // K5: the flames keep the full flicker (the halo and the flame meshes); the room's light swings only about +/-8%,
+  // so the hall stops pumping. The full flicker's peak swing is 0.31.
+  const LIGHT_SWING = 0.08 / 0.31;
+  function lightFlicker(time, seed) {
+    return reduced ? flicker(time, seed) : 1 + LIGHT_SWING * (flicker(time, seed) - 1);
+  }
+
   const _cand = [];
   const byDistance = (a, b) => a.d - b.d;
   let stamp = 0;
@@ -1576,7 +1662,7 @@ export function buildCastle(scene, cfg) {
     const glow = w && w.index >= WALK_STAGE ? 1 : 0;
     glowLevel = dt === 0 || !inRun ? glow : glowLevel + (glow - glowLevel) * Math.min(1, dt * 0.35);
     skyMat.uniforms.glow.value = glowLevel;
-    sky.userData.starMat.opacity = 1 - 0.85 * dawnLevel - 0.12 * glowLevel;
+    sky.userData.starMat.opacity = Math.max(0, 1 - dawnLevel - 0.12 * glowLevel);
     moonMat.opacity = 1 - 0.7 * dawnLevel;
 
     // the key light: fade out, move, fade in
@@ -1603,7 +1689,7 @@ export function buildCastle(scene, cfg) {
       }
     } else if (want) keyState.level += (1 - keyState.level) * k;
     const ks = keyState.spec;
-    key.intensity = ks ? ks.intensity * clamp(keyState.level) * (ks.kind === 'fire' ? flicker(time, ks.seed || 0) : 1) : 0;
+    key.intensity = ks ? ks.intensity * clamp(keyState.level) * (ks.kind === 'fire' ? lightFlicker(time, ks.seed || 0) : 1) : 0;
     if (ks && ks.kind === 'fire' && !reduced) {
       // the fire's shadows breathe: the light itself shifts a hand's breadth
       key.position.set(ks.pos[0] + 0.05 * Math.sin(time * 7.1), ks.pos[1] + 0.06 * Math.sin(time * 9.7 + 1), ks.pos[2] + 0.05 * Math.sin(time * 5.3 + 2));
@@ -1651,15 +1737,22 @@ export function buildCastle(scene, cfg) {
     for (let i = 0; i < POOL; i++) {
       const s = pool[i];
       if (s.at && s.at.stamp === stamp) s.level = Math.min(1, s.level + dt * 2.5);
-      s.l.intensity = s.at ? 12 * s.at.power * clamp(s.level) * flicker(time, s.at.seed) : 0;
+      // K4: the flames' share; a passage's torches keep more of it, the pools that make a passage readable (K2)
+      s.l.intensity = s.at ? 12 * (s.at.passage ? PASSAGE_FIRE : FIRE_SHARE) * (s.at.cold ? COLD.fire : 1) * s.at.power * clamp(s.level) * lightFlicker(time, s.at.seed) : 0;
     }
     haloMat.opacity = 0.26 * (reduced ? 1 : 0.9 + 0.1 * Math.sin(time * 9.1) + 0.06 * Math.sin(time * 23.3));
 
     // the air of the zone: how much the night itself lights, how thick the dark is
     const amb = (lowerNow && cur.cryptAmbient != null ? cur.cryptAmbient : cur.ambient == null ? 0.2 : cur.ambient);
     const mixK = dt === 0 ? 1 : Math.min(1, dt * 2);
-    hemi.intensity += (amb * (1 + 0.6 * dawnLevel) - hemi.intensity) * mixK;
-    hemi.color.setHex(0x6f86b4).lerp(_gold, dawnLevel * 0.8);
+    const cold = coldZone(cur); // K3: the upper storey's air is moon-silver
+    // (the moon-silver lift gives way as the dawn comes, so the Count's room takes the gold cast it always had: no flood)
+    hemi.intensity += (amb * (cold ? lerp(COLD.hemiK, 1, clamp(dawnLevel * 2)) : 1) * (1 + 0.6 * dawnLevel) - hemi.intensity) * mixK;
+    hemi.color.setHex(0x6f86b4);
+    if (cold) hemi.color.setHex(COLD.hemi);
+    hemi.color.lerp(_gold, dawnLevel * 0.8);
+    dawnGlass.opacity = 0.42 - 0.39 * dawnLevel; // K1: the glass clears as the sun comes up, so it lays no veil on the view
+    if (dawnView) dawnView.setLevel(dawnLevel);
     fill.intensity += ((cur.outside ? 1.1 : 0) - fill.intensity) * mixK;
     fog.density += ((cur.outside ? 0.0055 : 0.022) - fog.density) * mixK;
     fog.color.setHex(HUE.night).lerp(_gold, dawnLevel * 0.25);
@@ -1668,8 +1761,12 @@ export function buildCastle(scene, cfg) {
     fill.color.setHex(HUE.moon);
     hemi.groundColor.setHex(0x45536f);
     roadView.update(sim, dt, time, !!inRun, !!cur.outside, eye); // #29: on the road the evening has the last word
+    if (cold) hemi.groundColor.setHex(COLD.ground);
+    // K9: the crags sit a grade over the roofs' black, in the night sky's hue (on the road, over its evening grade)
+    ridgeMat.color.copy(darkMat.color).add(_ridgeLift);
   }
   const _gold = new THREE.Color(HUE.dawn);
+  const _ridgeLift = new THREE.Color(RIDGE).sub(new THREE.Color(0x080b12));
 
   // ---- the title fly-through: over the bridge, in at the door and through every room ----
   const path = new THREE.CatmullRomCurve3(PLAN.fly.map((p) => new THREE.Vector3(p[0], p[1], p[2])), false, 'centripetal', 0.5);
@@ -1708,17 +1805,23 @@ export function buildCastle(scene, cfg) {
       return { position: scenePos, target: sceneTarget };
     }
     if (kind === 'pyre') {
-      const r = byId.count.rects[0];
-      const cx = (r.x0 + r.x1) / 2; const cz = (r.z0 + r.z1) / 2;
+      // K10: close on him while he burns (he stands about half the frame's height), then crane up
+      // with the whirlwind from 5 s so the shades go out through the dawn in frame, then settle on
+      // the ash in the still gold. A longer lens than the warden's.
       const y = byId.count.y;
+      const bx = KM.COUNT_ROOM.boxAt.x; const bz = KM.COUNT_ROOM.boxAt.z;
+      const win = KM.COUNT_ROOM.curtains[KM.MIDDLE_CURTAIN];
       const pl = sim && sim.player;
-      // start from the warden's side of the room, keep the windows behind the box
-      const side = pl && pl.z > cz ? 1 : -1;
-      const push = smooth(q / 0.8);
-      scenePos.set(lerp(r.x0 + 4.5, cx - 5.5, push), y + lerp(2.0, 2.5, push), cz + side * lerp(5.5, 2.5, push));
-      const out = smooth((q - 0.82) / 0.18); // the last moments: up and out to the light
-      sceneTarget.set(lerp(cx, r.x1, out), y + lerp(1.2, 3.0, out), cz);
-      return { position: scenePos, target: sceneTarget };
+      const side = pl && pl.z > bz ? 1 : -1; // from the warden's side of the room
+      const push = smooth(t / 5);
+      const crane = smooth((t - 4.2) / 3.0);
+      const settle = smooth((t - 8.3) / 1.5);
+      scenePos.set(lerp(bx - 4.3, bx - 3.8, push), y + lerp(1.85, 2.0, push), bz + side * lerp(3.1, 2.7, push));
+      scenePos.x = lerp(scenePos.x, bx - 5.2, crane); scenePos.y = lerp(scenePos.y, y + 3.4, crane); scenePos.z = lerp(scenePos.z, bz + side * 3.8, crane);
+      sceneTarget.set(bx, y + lerp(2.15, 2.25, push), bz);
+      sceneTarget.x = lerp(sceneTarget.x, win.x - 4, crane); sceneTarget.y = lerp(sceneTarget.y, y + 3.9, crane); sceneTarget.z = lerp(sceneTarget.z, win.z, crane);
+      sceneTarget.x = lerp(sceneTarget.x, bx + 1.5, settle); sceneTarget.y = lerp(sceneTarget.y, y + 1.0, settle); sceneTarget.z = lerp(sceneTarget.z, bz, settle);
+      return { position: scenePos, target: sceneTarget, fov: lerp(48, 62, crane) };
     }
     if (kind === 'triumph') return triumphCamera(sim, sc);
     return null;
@@ -1731,22 +1834,23 @@ export function buildCastle(scene, cfg) {
    * starts from where the warden faced, so there is no cut from the warden's eye.
    */
   function triumphCamera(sim, sc) {
-    const r = byId.count.rects[0];
     const y = byId.count.y;
+    const r = byId.count.rects[0];
     const pl = sim && sim.player;
-    const px = pl && Number.isFinite(pl.x) ? pl.x : r.x1 - 2; const pz = pl && Number.isFinite(pl.z) ? pl.z : (r.z0 + r.z1) / 2;
-    const total = sc.total || 8;
-    const t = sc.t != null ? sc.t : total - (sc.left || 0);
-    const turn = smooth(clamp(t / 3.2));
     const win = KM.COUNT_ROOM.curtains[KM.MIDDLE_CURTAIN];
-    // The look starts where the warden was looking (no cut), level, a few metres out.
-    const yaw = pl && Number.isFinite(pl.yaw) ? pl.yaw : 0;
-    const box = { x: px - Math.sin(yaw) * 4, z: pz - Math.cos(yaw) * 4 };
-    // The warden steps back into the room from the sill, so the window is seen whole, not the cloth.
-    const back = smooth(clamp(t / 2.5));
-    scenePos.set(lerp(px, win.x - 4.6, back), y + 1.65 + 0.15 * turn, lerp(pz, win.z, back));
-    sceneTarget.set(lerp(box.x, win.x, turn), y + lerp(0.9, 2.7, turn), lerp(box.z, win.z, turn));
-    return { position: scenePos, target: sceneTarget };
+    const px = pl && Number.isFinite(pl.x) ? pl.x : win.x - 2; const pz = pl && Number.isFinite(pl.z) ? pl.z : win.z;
+    const t = sc.t != null ? sc.t : (sc.total || 8) - (sc.left || 0);
+    // The look starts where the warden was looking (no cut), level, from the warden's eye.
+    const yaw = pl && Number.isFinite(pl.yaw) ? pl.yaw : -Math.PI / 2;
+    const eyeY = y + 1.65;
+    // K12: the warden goes up to the middle window and the look rises into it, square on, so by
+    // THE END (4 s) the window's sky and the sunrise over the land fill most of the frame
+    const go = smooth(clamp(t / 4.2));
+    const lift = smooth(clamp((t - 0.6) / 4.6));
+    const sill = r.x1 - 1.3; // close to the window's inner face, so its light fills the frame
+    scenePos.set(lerp(px, sill, go), lerp(eyeY, y + 1.75, go), lerp(pz, win.z, go));
+    sceneTarget.set(lerp(px - Math.sin(yaw) * 4, r.x1 + 6, go), lerp(eyeY, y + 1.75 + 6 * 0.17, lift), lerp(pz - Math.cos(yaw) * 4, win.z, go));
+    return { position: scenePos, target: sceneTarget, fov: lerp(75, 50, smooth(clamp(t / 4.6))) };
   }
 
   /** Draw calls (meshes) and triangles each zone adds when it is on screen. */

@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { COURT, MAZE, routeOf, stageAt } from '../logic/courtmap.js';
 import { weatherNow } from '../logic/weather.js';
+import { SUN_LIGHT, SUN_SEEN, SKY_DITHER, greyAt, depthOf, LEAF_TONES } from '../logic/courtlook.js';
 import * as S from './sculpt.js';
 
 const _sky = { rain: 1, cloud: 1, sun: 0 }; // #28: scratch, so the frame allocates nothing
@@ -23,7 +24,10 @@ export const PAL = {
 
 // Light, sky and fog at the three stations of the level: the court, the wood's edge, the far end.
 // Intensities are three r170 units, the block-outs' own; the far end's come from cfg.light.
-const SUN_DIR = new THREE.Vector3(-38, 46, 26).normalize();
+// C1 (logic/courtlook.js): the light comes from behind the warden at the spawn; the sun is drawn
+// ahead of him, where every shadow points.
+const SUN_DIR = new THREE.Vector3(...SUN_LIGHT);
+const SUN_SHOWN = new THREE.Vector3(...SUN_SEEN);
 const COURT_LIGHT = { sun: 2.6, sky: 0.75, exposure: 1.05, fog: 0.004 };
 const EDGE_LIGHT = { sun: 2.4, sky: 0.9, exposure: 1.08, fog: 0.006 };
 const TONES = {
@@ -48,14 +52,7 @@ export const TITLE_LOOP = 120; // seconds for the title fly-through of the whole
 const clamp = (k, a = 0, b = 1) => Math.max(a, Math.min(b, k));
 const lerp = (a, b, k) => a + (b - a) * k;
 
-/** How far into the wood z is, 0 at its first row to 1 at the last. */
-export const depthOf = (z) => clamp((MAZE.z0 - z) / (MAZE.cell * MAZE.rows));
-/** The greying curve: fast to grey by the second gate, then creeping (the third block-out's). */
-export function greyAt(z) {
-  const t = depthOf(z);
-  const a = Math.min(1, t / 0.45);
-  return 0.78 * a * a * (3 - 2 * a) + 0.22 * Math.max(0, (t - 0.45) / 0.55);
-}
+export { greyAt, depthOf }; // the greying curve lives in logic/courtlook.js
 
 // ---- the kit ----------------------------------------------------------------------------------
 
@@ -259,6 +256,8 @@ export function daylight(scene, cfg) {
       '  }',
       '  gl_FragColor = vec4( c, 1.0 );',
       '  #include <colorspace_fragment>',
+      '  // C9: about one display level of noise, so the long gradient never bands.',
+      '  gl_FragColor.rgb += ( skyHash( gl_FragCoord.xy ) - 0.5 ) * ' + (SKY_DITHER * 2).toFixed(6) + ';',
       '}',
     ].join('\n'),
     side: THREE.BackSide, depthWrite: false, fog: false,
@@ -267,7 +266,7 @@ export function daylight(scene, cfg) {
   dome.renderOrder = -10;
   dome.frustumCulled = false;
   sky.add(dome);
-  const sunAt = SUN_DIR.clone().multiplyScalar(SKY_RADIUS * 0.86);
+  const sunAt = SUN_SHOWN.clone().multiplyScalar(SKY_RADIUS * 0.86); // C1: where the shadows point, not where the light is
   const setAt = SET_SUN.clone().multiplyScalar(SKY_RADIUS * 0.86); // #28: where the sun sets
   const discMat = new THREE.MeshBasicMaterial({ color: 0xfff6c8, fog: false, toneMapped: false, transparent: true, depthWrite: false });
   const disc = new THREE.Mesh(new THREE.SphereGeometry(14, 20, 12), discMat);
@@ -987,13 +986,14 @@ export function buildCourt(scene, cfg) {
     }
   }
 
-  // The sundial. Its gnomon casts no shadow of its own: the one it shows is a decal, laid toward the sun.
+  // The sundial. Its gnomon casts no shadow of its own: the one it shows is a decal, laid toward the
+// drawn sun, the way every real shadow in the court runs (C1).
   const gnomon = [];
   const decals = [];
   for (const b of boxOf('sundial')) {
     solid.push(part(G.cyl(0.3, 0.4, b.h, 10), PAL.stone, { at: [b.x, b.h / 2, b.z], vary: 0.25 }));
     metal.push(part(G.cyl(0.52, 0.52, 0.06, 20), PAL.gold, { at: [b.x, b.h + 0.03, b.z] }));
-    const toSun = Math.atan2(SUN_DIR.x, SUN_DIR.z); // heading of the sun on the ground
+    const toSun = Math.atan2(SUN_SHOWN.x, SUN_SHOWN.z); // heading of the drawn sun on the ground: the shadow lies toward it
     gnomon.push(part(G.box(0.03, 0.34, 0.5), PAL.gold, { at: [b.x, b.h + 0.2, b.z], rot: [0.6, toSun, 0] }));
     const sx = Math.sin(toSun);
     const sz = Math.cos(toSun);
@@ -1061,20 +1061,18 @@ export function buildCourt(scene, cfg) {
   glow.push(part(G.disc(cr.r - 0.2, 18), 0x050505, { at: [cr.x, 0.3, cr.z], vary: 0 }));
   for (let i = 0; i < 9; i++) solid.push(part(G.ico(rr(0.12, 0.3), 0), 0x3a342e, { at: [cr.x + rr(-2.6, 2.6), 0.08, cr.z + rr(-2.3, 2.0)], rot: [rr(0, 3), rr(0, 3), 0], vary: 0.3 }));
   const SMOKE = 10;
-  const smokeMesh = new THREE.InstancedMesh(G.ico(1, 1), new THREE.MeshStandardMaterial({ color: 0x4a4a4a, transparent: true, opacity: 0.3, depthWrite: false, roughness: 1 }), SMOKE);
+  const smokeMesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(2.4, 2.4), new THREE.MeshBasicMaterial({ color: 0x55534f, map: S.puffTexture(), transparent: true, opacity: 0.4, depthWrite: false }), SMOKE); // soft puffs facing the eye, as the Caterpillar's
   smokeMesh.frustumCulled = false;
   group.add(smokeMesh);
   const smokeAt = Array.from({ length: SMOKE }, () => rnd() * 9);
 
-  // Dead leaves on the lawn, and the pad rings.
+  // Dead leaves on the lawn (the kit's fallen leaf, dull browns). No rings round the pads: the
+  // pickups are things lying in the garden, not markers (C4).
   const leaves = [];
   for (let i = 0; i < 130; i++) {
-    leaves.push({ m: matrixOf([rr(-19, 19), 0.02, rr(-19, 19)], [rr(-0.2, 0.2), rr(0, 6), rr(-0.2, 0.2)], rr(0.8, 1.5)), c: new THREE.Color(rnd() < 0.5 ? PAL.rust : PAL.hedgeDead) });
+    leaves.push({ m: matrixOf([rr(-19, 19), 0.004, rr(-19, 19)], [rr(-0.15, 0.15), rr(0, 6.283), rr(-0.15, 0.15)], rr(0.7, 1.25)), c: new THREE.Color(LEAF_TONES[i % LEAF_TONES.length]).multiplyScalar(rr(0.85, 1.15)) });
   }
-  instanced(group, part(G.plane(0.18, 0.12), 0xffffff, { vary: 0 }), M.leaf, leaves, false, false);
-  for (const p of cfg.pads) {
-    if (p.stage === 0) decals.push(part(new THREE.RingGeometry(0.82, 0.96, 24).rotateX(-Math.PI / 2), 0xe8e2d0, { at: [p.x, 0.012, p.z], vary: 0 }));
-  }
+  instanced(group, S.fallenLeaf({ seed: 2 }), M.leaf, leaves, false, false);
 
   group.add(bake(solid, M.matte), bake(flat, M.matte, false, true), bake(metal, M.metal), bake(glow, M.glow, false, false));
   group.add(bake(gnomon, M.metal, false, false), bake(decals, M.decal, false, true));
@@ -1091,6 +1089,7 @@ export function buildCourt(scene, cfg) {
       const o = smokeAt[i];
       const k = ((time * 0.35 + o) % 9) / 9;
       dummy.position.set(cr.x + Math.sin(o * 3 + k * 4) * 0.9, 0.5 + k * 8, cr.z + Math.cos(o) * 0.5 - k * 1.6);
+      dummy.rotation.set(0, Math.atan2(rig.eye.x - dummy.position.x, rig.eye.z - dummy.position.z), o, 'YXZ');
       dummy.scale.setScalar((0.35 + k * 1.3) * (1 - k * k * 0.5) * Math.min(1, k * 8));
       dummy.updateMatrix();
       smokeMesh.setMatrixAt(i, dummy.matrix);
