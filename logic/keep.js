@@ -75,7 +75,7 @@ const finite = (n) => typeof n === 'number' && Number.isFinite(n);
 const isObj = (o) => !!o && typeof o === 'object' && !Array.isArray(o);
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 const inRect = (r, x, z, pad = 0) => x >= r.minX - pad && x <= r.maxX + pad && z >= r.minZ - pad && z <= r.maxZ + pad;
-const clockRules = (cfg) => ({ stopped: cfg.clocks.stopped, right: cfg.clocks.right, minute: 45 });
+const clockRules = (cfg) => ({ stopped: cfg.clocks.stopped, right: cfg.clocks.right, minute: 0 });
 
 function freshItems() {
   return { garlic: 0, cup: 'none', ticket: false, stakes: 0 };

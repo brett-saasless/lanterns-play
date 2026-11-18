@@ -1022,7 +1022,7 @@ export function buildCourt(scene, cfg) {
   posts.south.arms.forEach((a, i) => solid.push(armOf(a.suit, a.toward, posts.south, 2.45 - i * 0.42, true, i)));
   solid.push(part(G.ball(0.1, 8, 6), PAL.gold, { at: [posts.south.x, 2.75, posts.south.z] }));
 
-  // A tree with a stopped pocket watch hung in it: a quarter to something, the hour hand gone.
+  // A tree with a stopped pocket watch hung in it: stopped on the hour, the hour hand gone.
   for (const b of boxOf('tree')) {
     solid.push(part(G.cyl(0.26, 0.42, 3.4, 9), PAL.wood, { at: [b.x, 1.7, b.z], vary: 0.3 }));
     solid.push(part(G.ico(2.1, 2), 0x3f9a45, { at: [b.x, 4.6, b.z], scale: [1, 0.85, 1], lump: 0.3, vary: 0.3, freq: 0.9 }));
@@ -1033,7 +1033,7 @@ export function buildCourt(scene, cfg) {
     metal.push(part(G.cyl(0.14, 0.14, 0.035, 18), PAL.gold, { at: [b.x, wy, wz], rot: [Math.PI / 2, 0, 0] }));
     metal.push(part(G.torus(0.03, 0.008, 4, 8), PAL.gold, { at: [b.x, wy + 0.165, wz] }));
     glow.push(part(G.cyl(0.115, 0.115, 0.01, 18), 0xf3eedf, { at: [b.x, wy, wz + 0.02], rot: [Math.PI / 2, 0, 0], vary: 0 }));
-    glow.push(part(G.box(0.095, 0.012, 0.004), 0x17181b, { at: [b.x - 0.047, wy, wz + 0.028], vary: 0 })); // the minute hand, at nine
+    glow.push(part(G.box(0.012, 0.095, 0.004), 0x17181b, { at: [b.x, wy + 0.047, wz + 0.028], vary: 0 })); // the minute hand, at twelve
   }
 
   // A door in the west hedge the size of a hatbox.

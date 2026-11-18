@@ -1263,7 +1263,7 @@ function buildTeaSet(ctx) {
   const armGeo = S.merge([
     S.skin([{ at: [0, 0, 0.1], r: 0.17 }, { at: [0.05, -0.1, -0.7], r: 0.14 }, { at: [0, -0.26, -1.3], r: 0.1 }, { at: [0, -0.3, -1.5], r: 0.11 }],
       { seed: 9, sides: 9, detail: 3, budget: 420, noise: 0.1, rough: 0.5, color: 0x2a2420, color2: 0x4a3f36, mottle: 0.3 }),
-    S.claw({ fingers: 4, length: 0.46, spread: 0.6, curl: 1.0, r: 0.05, color: 0x2a2420, tip: BONE, seed: 9 }).translate(0, -0.3, -1.56),
+    S.claw({ ...MAP.WEREWOLF_CLAW, color: 0x2a2420, tip: BONE, seed: 9 }).translate(0, -0.3, -1.56),
   ]);
   arm.add(mesh(armGeo, M.skin, true));
   arm.position.set(wall.x - Math.sin(wyaw) * 0.08, 1.5, wall.z - Math.cos(wyaw) * 0.08);

@@ -1,6 +1,6 @@
 // Tea for the Dead's five clocks (R7, G5). Every stopped clock's minute hand already stands at
-// a quarter to and never moves; E moves the hour hand on one hour, round again after twelve.
-// Renfield's hour is "a quarter to nine", so the right setting is hour 8 (8:45). A right clock
+// twelve and never moves; E moves the hour hand on one hour, round again after twelve.
+// Renfield's hour is midnight, so the right setting is hour 12 (12:00). A right clock
 // ticks; E on a ticking clock still moves it on (it stops), so there is nothing to lock and
 // nothing to fail. When all five tick they strike together, once per game; after that the
 // clocks cannot be moved. No timer: nothing here steps with time. State lives in
@@ -13,8 +13,8 @@ export const CLOCK_NAMES = Object.freeze(['longcase', 'mantel', 'carriage', 'poc
 /** The design's numbers: the stopped hours (none of them right), the right hour, the minute. */
 export const CLOCK_RULES = Object.freeze({
   stopped: Object.freeze([3, 11, 6, 1, 5]),
-  right: 8,
-  minute: 45,
+  right: 12,
+  minute: 0,
 });
 
 /**
@@ -94,8 +94,8 @@ export function setClock(clocks, i, events = [], done = {}, rules) {
 }
 
 /**
- * How a face reads at hour h, for the view: the minute hand always at a quarter to, the hour
- * hand three quarters of the way from h to the next hour. Turns are fractions of a full turn
+ * How a face reads at hour h, for the view: the minute hand always at twelve, the hour
+ * hand exactly on h. Turns are fractions of a full turn
  * clockwise from twelve.
  */
 export function faceOf(h, rules) {

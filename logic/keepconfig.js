@@ -97,7 +97,7 @@ export const CASTLE_CONFIG = deepFreeze({
   cover: { pieces: 8, within: 4, far: 8, farCount: 3 }, // the Hatter's rule (keepmap.js COVER)
 
   werewolf: { reach: 1.8, tell: 0.4, damage: 15, every: 1.5 },
-  clocks: { stopped: [3, 11, 6, 1, 5], right: 8 },
+  clocks: { stopped: [3, 11, 6, 1, 5], right: 12 },
   board: { leap: 0.5, minPieces: 4, strikes: { pawn: 12.5, knight: 25, bishop: 25, rook: 37.5, queen: 50, king: 25 } },
   stock: { saltMag: 6, saltReserve: 12, stakes: 6 }, // the salt box; the stake bundle
 

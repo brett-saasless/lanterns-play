@@ -353,10 +353,13 @@ export const CLOCKS = f([
   { id: 'wall', x: 31.6, z: -28.4 }, // beside the werewolf, just outside its reach
 ]);
 
+// The mantel clock is MANTEL_CLOCK_K times its first size (the owner: twice as big); its case and arch stand 0.55 m tall at 1.
+const MANTEL_TOP = 1.5; // just under the warden's eye (1.65), so the shelf never hides the clock face from the one setting it
+const MANTEL_CLOCK_K = 2;
 export const TEA = f({
   table: aabb(20, 24, -36, -28, 0.8, 'table'),
-  fireplace: aabb(12, 12.8, -33.4, -30.6, 1.6, 'hearth'),
-  mantelTop: 2.78, // the chimneypiece's shelf (castle.js builds it, the mantel clock stands on it: #17)
+  fireplace: aabb(12, 12.8, -33.4, -30.6, 1.3, 'hearth'),
+  mantelTop: MANTEL_TOP, mantelClockK: MANTEL_CLOCK_K, // the chimneypiece's shelf (castle.js builds it, the mantel clock stands on it: #17)
   sideboard: aabb(12, 13, -39.6, -37, 1, 'sideboard'),
   ghost: { x: 21, z: -28.4 }, // seated, the carriage clock in front of her
   skeleton: { x: 24.3, z: -34.6 }, // the Beefeater, seated
@@ -364,10 +367,13 @@ export const TEA = f({
   werewolf: { x: 31.8, z: -32, gouge: { x: 30.9, z: -32 } }, // the painting, and the centre of its gouges
   candelabras: [{ x: 20.4, z: -30.5 }, { x: 23.6, z: -33.5 }],
   // y: the top of each clock (keepprops.js), where the raven sits; the rules' dodge test and the view both read it
-  ravenPerches: [{ x: 19.8, y: 2.33, z: -25.2, on: 'longcase' }, { x: 12.7, y: 2.78 + 0.55, z: -32, on: 'mantel' }, { x: 21, y: 1.1, z: -29.2, on: 'carriage' },
+  ravenPerches: [{ x: 19.8, y: 2.33, z: -25.2, on: 'longcase' }, { x: 12.7, y: MANTEL_TOP + 0.55 * MANTEL_CLOCK_K, z: -32, on: 'mantel' }, { x: 21, y: 1.1, z: -29.2, on: 'carriage' },
     { x: 23.6, y: 1.0, z: -34.6, on: 'pocket' }, { x: 31.6, y: 2.14, z: -28.4, on: 'wall' }],
   drawer: { x: 13.7, z: -38.3 }, // ajar, salt in it (PADS)
 });
+
+/** The werewolf's claws: the arm (keepcast.js) and the scores it leaves in the flags (clawrake.js) both read this, so they cannot drift apart. */
+export const WEREWOLF_CLAW = f({ fingers: 4, length: 0.46, spread: 0.6, curl: 1.0, r: 0.05 });
 
 // ---- the gallery and the crypt (R8, R12) ----------------------------------------------------
 

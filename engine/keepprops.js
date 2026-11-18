@@ -1,5 +1,5 @@
 // The castle's things, drawn from sim state every frame so a restored checkpoint shows exactly
-// what the state says: the tea room's five clocks (minute hands at a quarter to, the hour hand
+// what the state says: the tea room's five clocks (minute hands at twelve, the hour hand
 // where the rules put it, a right clock ticking, all five shivering as they strike) and its set
 // table (a rotting boar's head with flies, wilted flowers, mouldy bread, a steaming turkey, two
 // candelabras, the spilled and broken wine bottle); the gallery's sixty marble tiles and its red
@@ -33,6 +33,7 @@ import { isTrue, TILE_COUNT } from '../logic/gallery.js';
 import { CLOCK_RULES, CLOCK_NAMES, faceOf, createClocks } from '../logic/clocks.js';
 import { createCount, poseOf, triumphStage } from '../logic/count.js';
 import { READS, ENTRIES } from '../logic/script.js';
+import { rakeScores, stripMesh, RAKE_Y } from '../logic/clawrake.js';
 
 /** The three layers (design, Decisions): seen by both cameras, by the eye only, by the glass only. */
 export const LAYER_BOTH = 0;
@@ -281,14 +282,31 @@ function litDialMaterial(dial) {
   return new THREE.MeshStandardMaterial({ map: dial, roughness: 0.35, metalness: 0, emissive: 0xffffff, emissiveMap: dial, emissiveIntensity: 0.28 });
 }
 
-/** One claw score in the flags (#16): a pale fan of torn stone, and the dark groove down it. */
-function gougeScore(rand, a, gx, gz) {
-  const w = 0.04 + rand() * 0.035; const l = 0.3 + rand() * 0.4; const turn = -a + Math.PI / 2 + (rand() - 0.5) * 0.5;
-  const rim = new THREE.PlaneGeometry(w * 2.2, l * 1.06);
-  rim.rotateX(-Math.PI / 2).rotateY(turn).translate(gx, 0.005, gz);
-  const groove = new THREE.PlaneGeometry(w * 0.7, l);
-  groove.rotateX(-Math.PI / 2).rotateY(turn).translate(gx, 0.007, gz);
-  return [part('decal', S.tint(rim, 0xb9b2a4, 0.15)), part('decal', S.tint(groove, 0x0b0b0d, 0.2))];
+const RAKE_RIM = new THREE.Color(0xb9b2a4); const RAKE_GROOVE = new THREE.Color(0x050506);
+
+/** A flat decal strip (clawrake.js stripMesh) with a vertex colour per ring: shade[i] scales the colour, or none. */
+function rakeStrip(left, right, y, color, shade) {
+  const m = stripMesh(left, right, y); const n = m.positions.length / 3;
+  const col = new Float32Array(n * 3); const nor = new Float32Array(n * 3);
+  for (let v = 0; v < n; v++) {
+    const k = shade ? shade[Math.min(shade.length - 1, v >> 1)] : 1;
+    col[v * 3] = color.r * k; col[v * 3 + 1] = color.g * k; col[v * 3 + 2] = color.b * k; nor[v * 3 + 1] = 1;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(m.positions), 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.setIndex(m.index);
+  return g;
+}
+
+/** One paw print in the flags (#16): torn pale rim, then flakes, then the dark groove, for each talon that landed. */
+function clawRakeParts(rake) {
+  const out = [];
+  for (const s of rake.scores) out.push(part('decal', rakeStrip(s.rimL, s.rimR, RAKE_Y.rim, RAKE_RIM, s.shade)));
+  for (const s of rake.scores) for (const c of s.chips) out.push(part('decal', rakeStrip([c[0], c[2]], [c[1], c[1]], RAKE_Y.chip, RAKE_RIM, null)));
+  for (const s of rake.scores) out.push(part('decal', rakeStrip(s.grooveL, s.grooveR, RAKE_Y.groove, RAKE_GROOVE, null)));
+  return out;
 }
 
 // Words cut into stone with a nail: pale, uneven strokes.
@@ -729,7 +747,7 @@ export function createKeepprops(scene, cfg, opts = {}) {
       group.add(q);
       q.updateMatrix();
       dials.push(face(r * 2, r * 2, 0, 0, 1, 1, true).applyMatrix4(q.matrix));
-      // the minute hand: at a quarter to, for good (G5)
+      // the minute hand: at twelve, for good (G5)
       const min = [box('metal', r * 0.045 * bold, r * 0.86, 0.004, 0, r * 0.36, 0.008, 0x0c0c0e, 0, 0), ball('metal', r * 0.07 * bold, 0, 0, 0.011, BRASS, 1, 1, 0.5, 0, 8)];
       const a = -TAU * faceOf(1, rules).minuteTurn;
       for (const p of min) { p.g.applyMatrix4(_m.makeRotationZ(a)); p.g.applyMatrix4(q.matrix); parts.push(p); }
@@ -759,12 +777,16 @@ export function createKeepprops(scene, cfg, opts = {}) {
     // The mantel clock, on the fireplace: an arched case with a little pendulum in a window.
     {
       const c = at('mantel'); const my = MANTEL_TOP; // on the chimneypiece's shelf, not in its mouth (#17)
+      const K = TEA.mantelClockK; // twice its first size: the shelf is low now, and the clock is what the warden reads
       const body = [box('polish', 0.36, 0.06, 0.2, 0, 0.03, 0, OAK_LIGHT, 0, 0.2), box('polish', 0.3, 0.34, 0.16, 0, 0.23, 0, 0x1a1210, 0, 0.2)];
       body.push(part('polish', S.tint(new THREE.CylinderGeometry(0.15, 0.15, 0.16, 18, 1, false, 0, Math.PI).rotateX(Math.PI / 2).rotateZ(Math.PI / 2).translate(0, 0.4, 0), 0x1a1210, 0.2)));
       for (const sd of [-1, 1]) body.push(cyl('metal', 0.012, 0.012, 0.3, sd * 0.165, 0.06, 0.07, BRASS, 6), ball('metal', 0.02, sd * 0.13, 0.015, 0.07, BRASS, 1, 0.6, 1, 0.1, 6));
+      for (const p of body) p.g.scale(K, K, K);
       parts.push(...place(body, c.x - 0.1, my, c.z, Math.PI / 2));
-      works(1, 0.115, c.x - 0.1 + 0.083, my + 0.38, c.z, Math.PI / 2);
-      const pend = mover(group, [rod('metal', [0, 0, 0], [0, -0.1, 0], 0.003, BRASS, 4), ball('metal', 0.022, 0, -0.11, 0, BRASS, 1, 1, 0.4, 0.1, 8)], c.x - 0.1 + 0.084, my + 0.24, c.z, Math.PI / 2, false);
+      works(1, 0.115 * K, c.x - 0.1 + 0.083 * K, my + 0.38 * K, c.z, Math.PI / 2);
+      const pendParts = [rod('metal', [0, 0, 0], [0, -0.1, 0], 0.003, BRASS, 4), ball('metal', 0.022, 0, -0.11, 0, BRASS, 1, 1, 0.4, 0.1, 8)];
+      for (const p of pendParts) p.g.scale(K, K, K);
+      const pend = mover(group, pendParts, c.x - 0.1 + 0.084 * K, my + 0.24 * K, c.z, Math.PI / 2, false);
       clocks[1].swing = pend; clocks[1].amp = 0.35;
     }
     // The carriage clock, on the table in front of the ghost: brass pillars, a handle, the balance on top.
@@ -942,16 +964,23 @@ export function createKeepprops(scene, cfg, opts = {}) {
       }
       for (const dz of [-0.9, 0.9]) parts.push(box('polish', 0.02, 0.5, 0.6, s.maxX - 0.005, 0.37, sz + dz * 0.75, OAK_LIGHT, 0, 0.25));
     }
-    // the gouges: a ring of claw scores in the flags round the logic's centre (TEA.werewolf.gouge), at the arm's reach
+    // the gouges: paw prints raked into the flags round the logic's centre (TEA.werewolf.gouge), at the arm's reach.
+    // Each lands where the claws came down and is dragged back toward the painting; the talons are the arm's own (#16).
     {
-      const gc = TEA.werewolf.gouge; const reach = (cfg.werewolf && cfg.werewolf.reach) || 1.8;
-      const rand = S.rng(41);
-      for (let i = 0; i < 44; i++) {
-        const a = (i / 44) * TAU + (rand() - 0.5) * 0.08;
+      const gc = TEA.werewolf.gouge; const wf = TEA.werewolf; const reach = (cfg.werewolf && cfg.werewolf.reach) || 1.8;
+      const rand = S.rng(41); const placed = [];
+      const PRINTS = 11;
+      for (let i = 0; i < PRINTS; i++) {
+        const a = (i / PRINTS) * TAU + (rand() - 0.5) * 0.35;
         const r = reach * (0.9 + rand() * 0.1);
         const gx = gc.x + Math.cos(a) * r; const gz = gc.z + Math.sin(a) * r;
-        if (gx > room.maxX - 0.05 || gx < room.minX + 0.05 || gz > room.maxZ - 0.05 || gz < room.minZ + 0.05) continue; // the wall stands there
-        parts.push(...gougeScore(rand, a, gx, gz)); // raked toward the middle (#16: pale torn stone round a dark groove)
+        const dir = Math.atan2(wf.z - gz, wf.x - gx) + (rand() - 0.5) * 0.7; // toward the painting, never quite the same way twice
+        const fingers = i % 4 === 3 ? [[0, 1, 2], [1, 2, 3], [1, 2]][i % 3] : [0, 1, 2, 3]; // some prints are only two or three claws
+        const rake = rakeScores(rand, gx, gz, dir, fingers, 0.9 + rand() * 0.2);
+        if (rake.reach.some(([x, z]) => x > room.maxX - 0.05 || x < room.minX + 0.05 || z > room.maxZ - 0.05 || z < room.minZ + 0.05)) continue; // the wall stands there
+        if (placed.some(([x, z]) => Math.hypot(x - gx, z - gz) < 0.5)) continue; // prints that overlap would blend
+        placed.push([gx, gz]);
+        parts.push(...clawRakeParts(rake));
       }
     }
     bake(group, parts);

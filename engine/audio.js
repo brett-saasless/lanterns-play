@@ -834,7 +834,7 @@ function stopTick() {
 function followClocks(sim) {
   const w = sim && sim.waves;
   if (!w || !w.clocks || !Array.isArray(w.clocks.hours)) return;
-  const right = (sim.cfg && sim.cfg.clocks && sim.cfg.clocks.right) || 8;
+  const right = (sim.cfg && sim.cfg.clocks && sim.cfg.clocks.right) || 12;
   const all = !!(w.done && w.done.clocks);
   for (let i = 0; i < CLOCKS; i++) {
     setTick(i, all || w.clocks.hours[i] === right);

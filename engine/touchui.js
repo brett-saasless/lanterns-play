@@ -1,17 +1,18 @@
 // The touch overlay (layout C): builds the on-screen controls in `root` and drives controls.touch.
 // Thin DOM glue only: the stick maths and which buttons show live in logic/touchmap.js.
 import { visibleControls, stickFromPoint } from '../logic/touchmap.js';
+import { ICONS } from './touchicons.js';
 
 // [data-touch value, label]. The look zone comes first so every button sits above it.
 const PARTS = [
   ['look', ''],
   ['stick', ''],
-  ['fire', 'FIRE'],
-  ['jump', 'jump'],
+  ['fire', ''],
+  ['jump', ''],
   ['e', 'E'],
-  ['swap', 'swap'],
+  ['swap', ''],
   ['pause', 'II'],
-  ['log', 'log'],
+  ['log', ''],
   ['skip', 'SKIP'],
 ];
 
@@ -27,6 +28,7 @@ export function createTouchUi({ root, controls, hooks }) {
     const el = document.createElement('div');
     el.dataset.touch = name;
     if (label) el.textContent = label;
+    if (ICONS[name]) { el.innerHTML = ICONS[name]; el.ariaLabel = name; } // a picture, not a word
     if (name === 'stick') el.appendChild(document.createElement('i'));
     root.appendChild(el);
     els[name] = el;

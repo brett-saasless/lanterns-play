@@ -212,8 +212,10 @@
     background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.33); }
   #touch > [data-touch="stick"] i { width: 42%; height: 42%; border-radius: 50%; background: rgba(255, 255, 255, 0.33); pointer-events: none; }
   #touch > [data-touch="fire"] { right: calc(20px + var(--sar)); bottom: calc(16px + var(--sab)); width: var(--fire); height: var(--fire);
-    background: rgba(214, 87, 74, 0.6); border-color: #ffb0a8; font-size: 22px; letter-spacing: 0.14em; }
-  #touch > [data-touch="fire"].on { background: rgba(214, 87, 74, 0.85); }
+    /* concentric like the stick: the inner disc fires, the outer band looks (the same thumb does both) */
+    background: radial-gradient(circle closest-side, rgba(214, 87, 74, 0.8) 0 54%, #ffb0a8 54% 58%, rgba(214, 87, 74, 0.3) 58% 100%);
+    border-color: #ffb0a8; font-size: 22px; letter-spacing: 0.14em; }
+  #touch > [data-touch="fire"].on { background: radial-gradient(circle closest-side, rgba(228, 100, 86, 1) 0 54%, #ffd0cb 54% 58%, rgba(214, 87, 74, 0.5) 58% 100%); }
   #touch > [data-touch="jump"] { right: calc(20px + var(--sar) + var(--fire) + 14px); bottom: calc(10px + var(--sab)); width: var(--jump); height: var(--jump); }
   #touch > [data-touch="e"] { right: calc(20px + var(--sar) + (var(--fire) - var(--ctx)) / 2); bottom: calc(16px + var(--sab) + var(--fire) + 12px);
     width: var(--ctx); height: var(--ctx); border-style: dashed; border-color: #c9a25c; background: rgba(201, 162, 92, 0.2); font-size: 22px; }
@@ -229,6 +231,13 @@
   @media (orientation: portrait) { html.touch #rotate { display: flex; } }
   /* Keyboard-only words are hidden under touch, not rewritten; the log's footer gets buttons instead. */
   html.touch .keyhint { display: none; }
+  .hicon { display: none; }
+  html.touch #healthbox .hword { display: none; }
+  html.touch #healthbox .hicon { display: block; width: 22px; height: 22px; color: var(--chalk); }
+  html.touch #healthbox .hicon svg { width: 100%; height: 100%; display: block; }
+  /* the buttons' pictures: the fire icon sits inside the inner disc */
+  #touch > [data-touch] svg { width: 54%; height: 54%; pointer-events: none; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6)); } /* a white picture still reads over a bright sky */
+  #touch > [data-touch="fire"] svg { width: 52%; height: 52%; }
   .touchonly { display: none; }
   html.touch .book .foot .touchonly { display: inline-block; font-size: 14px; padding: 10px 16px; }
   html.touch .book .foot #logprev { margin-left: auto; } /* where the hidden key hint sat */
@@ -332,7 +341,7 @@
   <div id="clue-logged"></div>
   <div id="tick"><svg viewBox="0 0 24 24"><path d="M4 13l5 5L20 6"/></svg></div>
   <div id="healthbox" class="plate">
-    <span class="label">Health</span>
+    <span class="label hword">Health</span><span class="hicon" aria-label="health"></span>
     <span id="hbar"></span>
     <span class="num" id="hnum">100</span>
   </div>
