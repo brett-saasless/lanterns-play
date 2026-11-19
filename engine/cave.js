@@ -333,6 +333,62 @@ function skinBuilder(uvScale) {
   };
 }
 
+/**
+ * The veils' membrane, softened (the art critic, C12): brightest toward its middle (where the petals'
+ * tips meet) and fading out toward the frame it grows from, the petals' own edges feathered, and a
+ * slow drifting mottle through it, so no petal reads as a hard facet. Look only: the veils' boxes and
+ * timing are the rules' (chambers.js), untouched. time: a { value } the cave's update keeps.
+ */
+function softVeil(mat, time) {
+  mat.transparent = true;
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uVeilTime = time;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>
+        varying vec2 vVeilUv;
+        varying vec3 vVeilPos;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vVeilUv = uv;
+        vec4 veilWorld = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+          veilWorld = instanceMatrix * veilWorld;
+        #endif
+        vVeilPos = (modelMatrix * veilWorld).xyz;`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+        uniform float uVeilTime;
+        varying vec2 vVeilUv;
+        varying vec3 vVeilPos;`)
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        float veilIn = smoothstep(0.0, 1.0, vVeilUv.y); // 0 at the frame, 1 where the tips meet
+        float veilSide = abs(cos(vVeilUv.x * 6.2831853)); // the flattened petal: 1 across its face, 0 at its edges
+        float veilMottle = 0.5 + 0.25 * sin(vVeilPos.x * 2.3 + vVeilPos.y * 1.7 + uVeilTime * 0.35)
+          + 0.25 * sin(vVeilPos.z * 2.9 - vVeilPos.y * 2.1 - uVeilTime * 0.23);
+        totalEmissiveRadiance *= mix(0.55, 1.35, veilIn) * (0.75 + 0.5 * veilMottle);
+        diffuseColor.a *= smoothstep(0.0, 0.3, vVeilUv.y) * mix(0.7, 1.0, smoothstep(0.05, 0.45, veilSide));
+        diffuseColor.rgb *= 0.8 + 0.3 * veilMottle;`);
+  };
+  mat.customProgramCacheKey = () => 'softVeil';
+  return mat;
+}
+
+/**
+ * The standing pools, given a faint teal sheen (the art critic, C13): the cave's own teal, a little
+ * everywhere and more at a grazing look, as a still pool gives back the foxfire. Additive in the
+ * shader: no light is added.
+ */
+function poolSheen(mat) {
+  mat.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace('#include <opaque_fragment>', `#include <opaque_fragment>
+      {
+        float graze = 1.0 - abs(dot(normalize(normal), normalize(vViewPosition)));
+        gl_FragColor.rgb += vec3(0.05, 0.22, 0.17) * (0.005 + 0.06 * pow(graze, 4.0));
+      }`);
+  };
+  mat.customProgramCacheKey = () => 'poolSheen';
+  return mat;
+}
+
 export function buildCave(scene, cfg) {
   const rng = makeRng(CAVE_SEED);
   const rr = (a, b) => a + rng() * (b - a);
@@ -509,14 +565,15 @@ export function buildCave(scene, cfg) {
   const floorMat = worldUV(new THREE.MeshStandardMaterial({
     map: rockMap, bumpMap: rockBump, bumpScale: 1.1, roughness: 0.27, metalness: 0.1, color: 0x9da2ac, vertexColors: true,
   }), 0.33);
-  const waterMat = new THREE.MeshStandardMaterial({
+  const waterMat = poolSheen(new THREE.MeshStandardMaterial({
     color: 0x04080a, roughness: 0.06, metalness: 0.7, transparent: true, opacity: 0.82, depthWrite: false,
-  });
+  }));
   const fungusMat = new THREE.MeshBasicMaterial({ vertexColors: true });
   const glowMat = new THREE.MeshBasicMaterial({ color: CAVE.foxfire });
-  const veilMat = new THREE.MeshStandardMaterial({
-    color: 0x34315a, emissive: 0x1c1a3a, emissiveIntensity: 0.55, roughness: 0.28, metalness: 0.1, side: THREE.DoubleSide,
-  });
+  const veilTime = { value: 0 };
+  const veilMat = softVeil(new THREE.MeshStandardMaterial({
+    color: 0x34315a, emissive: 0x1c1a3a, emissiveIntensity: 0.55, roughness: 0.85, metalness: 0, side: THREE.DoubleSide,
+  }), veilTime); // (matte: a gloss lit each petal's facet on its own, the starburst)
   const voidMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
   const padMat = new THREE.MeshBasicMaterial({ color: CAVE.foxfire, transparent: true, opacity: 0.4, depthWrite: false });
   const glow = glowTexture();
@@ -1038,7 +1095,7 @@ export function buildCave(scene, cfg) {
 
   // ---- veils: two layers of flattened cones that fold back along the passage -------------
   const PETALS = 13;
-  const petalGeo = new THREE.ConeGeometry(1, 1, 8, 1, true);
+  const petalGeo = new THREE.ConeGeometry(1, 1, 16, 4, true); // (16 round, 4 along: the gradient runs smooth, no facets)
   petalGeo.translate(0, 0.5, 0);
   const veilMesh = new THREE.InstancedMesh(petalGeo, veilMat, cfg.veils.length * PETALS * 2);
   veilMesh.frustumCulled = false;
@@ -1369,6 +1426,7 @@ export function buildCave(scene, cfg) {
     }
     if (dt > 0) stepDrips(dt, zoneNow);
     haloMat.opacity = 0.17 + 0.04 * Math.sin(time * 0.7);
+    veilTime.value = time;
   }
 
   const titlePos = new THREE.Vector3();
@@ -1401,6 +1459,8 @@ export function buildCave(scene, cfg) {
       h.mesh.instanceMatrix.needsUpdate = true;
     },
     floorAt: (x, z) => floorY(x, z, caveField(x, z)),
+    /** The Cantor's song (rockfall.js): the stalactite's shape and rock, and the water's height, for the loose rock it brings down. */
+    rock: { spikeGeos, spikeMat, waterY: WATER_Y },
     /** #29: the hole bored in the vault: centre (x, z), ragged radius r (0: the vault is whole), cut only above y. */
     setHole(x, z, r, y) { holeCut.value.set(x, z, r > 0 ? r : 0, y); },
     get shadowLevel() { return shadowLevel; },

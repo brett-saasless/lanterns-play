@@ -96,6 +96,11 @@ export const CATALOGUE = f({
   bossOpen: e('cantor', 'source', 'tell', 0.22, 1.25), // shipped at 0.22
   bossShut: e('cantor', 'source', 'tell', 0.3),
   bossCall: e('cantor', 'source', 'tell', 0.24, 1.25, { scare: f({ level: LADDER.scare, place: 'centre' }) }),
+  // The Cantor's song (cantorsong.js): four clear notes in a minor key, on his own strip, at the
+  // bottom of the tell tier (well under the salt gun's 1.0); each bout shakes the vault.
+  bossSing: e('cantor', 'source', 'tell', 0.32),
+  stalactiteLoose: e('world', 'source', 'world', 0.3), // the rock grinds loose where it will fall
+  stalactiteFall: e('world', 'source', 'world', 0.6), // it lands and breaks
 
   // The world.
   gateOpen: e('world', 'source', 'world', 0.4),

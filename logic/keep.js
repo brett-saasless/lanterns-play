@@ -39,6 +39,7 @@ import { createHaunts, stepHaunts, ghostScream, landRaven } from './haunts.js';
 import { reflectionLook } from './reflection.js';
 import { createRoad, settledRoad, stepRoad, roadBlock, footSeat } from './road.js'; // issue #29: the road up from the wood
 import { cutawayDue, startCutaway, stepCutaway } from './cutaway.js'; // the werewolf cutaway, right after the boulder
+import { lidBox } from './countlid.js'; // the Count's thrown-back lid, solid once it lies there
 
 /** The bridge, then one stage per checkpoint (the castle door to the Count's door). */
 export const STAGES = 7;
@@ -233,6 +234,9 @@ export function keepBoxes(cfg, w) {
   else out.push(...CRYPT.rails);
   // the mirror room's jumpy furniture, where haunts.js has it now (solids.js)
   out.push(...furnitureBoxes(w.haunts));
+  // the Count's lid, thrown back: a ramp from the rim to the floor, solid like a door (countlid.js)
+  const lid = lidBox(cfg, w);
+  if (lid) out.push(lid);
   // the chessmen are solid wherever they are drawn: every black piece standing on its square (won
   // or not) and the three white ones by the west wall (keepmap.js chessColliders, PIECE_FOOT); but
   // not while the knight is in the air: he leaps over them, as a knight does (stepLeap carries him)

@@ -20,7 +20,8 @@
 import * as THREE from 'three';
 import * as S from './sculpt.js';
 import { TAGS } from '../logic/script.js';
-import { poseOf, nextCurtain } from '../logic/count.js';
+import { nextCurtain } from '../logic/count.js';
+import { countStage, newCountStage, pyreClock } from '../logic/countlid.js'; // the lid and his rise, as keepprops.js draws the lid
 import * as MAP from '../logic/keepmap.js';
 import { reflectionOf } from '../logic/reflection.js';
 import { batGeometry, batFlap } from './roadview.js'; // K7: the road's bat, at the swarm's scale
@@ -2546,14 +2547,39 @@ function buildMirrorSet(ctx) {
 }
 
 // ---- the Count (R14, R15) and the bats ------------------------------------------------------------
-// The book's Count: a tall old man with thick white hair, heavy brows, a long white moustache, small fangs, eyes like coals. He rises in four poses that read across the room
-// (the lid, a hand on the rim, sitting, standing), recoils from each shaft of dawn, lurches, and
+// The book's Count: a tall old man with thick white hair, heavy brows, a long white moustache, small fangs, eyes like coals. He rises in beats that read across the room
+// (countlid.js: his hand comes up and pushes the lid open, it falls back, he sits, he stands), recoils from each shaft of dawn, lurches, and
 // burns. Eight draw calls: torso, skull, jaw, eyes, cloak, limbs, and the two glow sprites of his
 // eyes. The bats are one instanced mesh.
 
 const C_TALL = 1.14; // he is a tall man
 const C_EARTH = 0.84; // the earth in the box, to its rim, over the room's floor (keepprops.js: earthBox(…, B.h - 0.06))
 const C_FLOOR = C_EARTH / C_TALL; // the same in his own (scaled) measure
+const C_LIE = -0.34; // lying, his hips this far under the earth's top (his own measure): his face clear of the shut lid by a dark slit
+const C_FACE = -0.3; // lying, his face tipped up to the lid (radians)
+const C_SEG_R = 0.1; // sculpt.js limbs(): the segment's radius as built (place() scales by r / it)
+
+/**
+ * The mitten at instance i laid flat on a face (the lid's inner face: n its normal toward him, t the
+ * way along it), from the wrist on: fingers along the face where the forearm would carry them, the
+ * palm's depth halved against the boards. k blends from the arm's own mitten (0) to the flat palm (1).
+ */
+function palmOn(L, i, wrist, elbow, n, t, len, r, k) {
+  _d.subVectors(wrist, elbow).normalize();
+  _e.copy(_d).addScaledVector(n, -_d.dot(n)); // the forearm's way, along the face
+  if (_e.lengthSq() < 1e-6) _e.copy(t);
+  _e.normalize();
+  _y.copy(_d).lerp(_e, k).normalize();
+  _x.crossVectors(_y, n);
+  if (_x.lengthSq() < 1e-6) _x.set(1, 0, 0);
+  _x.normalize();
+  _z.crossVectors(_x, _y).normalize();
+  const across = r / C_SEG_R; const deep = across * lerp(1, 0.5, k);
+  _m.makeBasis(_x.multiplyScalar(across), _y.multiplyScalar(len), _z.multiplyScalar(deep));
+  _u.copy(wrist).addScaledVector(_y, 0.5); // _y is scaled by len: half way along the palm
+  _m.setPosition(_u);
+  L.mesh.setMatrixAt(i, _m);
+}
 
 /**
  * Where the Count is, for the fire (pyre.js): world positions, rewritten every frame he is drawn.
@@ -2606,36 +2632,44 @@ function buildCount(ctx) {
   const rig = { root: null, chest: torso, head: hd, cloths: [cloak], seed, rate: 0.1 };
   const sh = [V(), V()]; const hip = [V(), V()]; const hand = [V(), V()]; const foot = [V(), V()]; const elbow = V(); const knee = V(); const bend = V(); const toe = V();
   const home = V(); let homeYaw = Math.PI;
-  let tNow = 0; let tHeld = 0; let burn = -1; let recoil = 0; let yaw = 0; let was = 'box';
+  let burn = -1; let recoil = 0; let yaw = 0; let was = 'box';
+  // the lid and his rise as the rules have them (countlid.js), the one answer keepprops.js turns the lid by
+  const stage = newCountStage();
+  const lidWrist = V(); const lidN = V(); const lidT = V(); const toLocal = new THREE.Matrix4();
 
-  // o: t (0 lying shut in, 1 a hand on the rim, 2 sitting, 3..4 standing), recoil, lurch, burn (0..1 arms flung), time, eyeLocal
+  // o: sit (0 lying, 1 sitting), stand (0..1 on his feet), reach (0..1: his east hand on the lid's inner face at
+  // lidWrist, in his own frame), grip0 / grip1 (each hand on the rim), recoil, lurch, burn (0..1 arms flung), time
   function pose(o) {
-    const sit = smooth(o.t - 1); const stand = smooth(o.t - 3);
+    const sit = o.sit; const stand = o.stand;
     const out = o.lurch; // out of the box, on the floor
     const fl = C_FLOOR * (1 - out);
-    const hy = fl + lerp(-0.12, 0.14, Math.max(sit, out)) + 0.8 * stand; // lying, he is half under the earth
+    const hy = fl + lerp(C_LIE, 0.14, Math.max(sit, out)) + 0.8 * stand; // lying, he is half under the earth
     body.position.set(0, hy, 0.2 * (1 - stand));
     body.rotation.set(
-      (Math.PI / 2) * 0.97 * (1 - sit) - 0.16 * sit * (1 - stand) + 0.3 * o.recoil - 0.35 * o.lurch - 0.3 * o.burn,
-      -0.65 * o.recoil, 0.04 * o.burn * Math.sin(o.time * 31),
+      // thrown back by a shaft of dawn once he is up; lying in his box (sit 0) there is nowhere to be thrown: the
+      // lid is over him, so only his arm comes across his eyes (the smoke's countlid leg caught the cloak swinging up through it)
+      (Math.PI / 2) * 0.97 * (1 - sit) - 0.16 * sit * (1 - stand) + 0.3 * o.recoil * sit * (1 - o.reach) - 0.35 * o.lurch - 0.3 * o.burn,
+      -0.65 * o.recoil * sit * (1 - o.reach), 0.04 * o.burn * Math.sin(o.time * 31),
     );
     body.updateMatrix();
-    const k0 = smooth(o.t); const k1 = smooth((o.t - 1) / 0.6);
     for (let i = 0; i < 2; i++) {
       const sx = i ? -1 : 1;
       sh[i].set(sx * 0.24, 0.6, 0).applyMatrix4(body.matrix);
-      const grip = i ? k1 : k0; // his right hand takes the rim first
-      hand[i].set(sx * 0.21, fl - 0.06, 0.5).lerp(_a.set(sx * 0.6 / C_TALL, 0.96 / C_TALL, 0.42 - 0.3 * sit), grip);
+      // at his side; then on the rim (his east hand only once it has left the lid, and off the hinge line)
+      hand[i].set(sx * 0.21, fl + 0.06 + C_LIE, 0.5).lerp(_a.set(sx * (i ? 0.42 : 0.6) / C_TALL, 0.96 / C_TALL, 0.42 - 0.3 * sit), i ? o.grip1 : o.grip0);
+      if (i === 1) hand[i].lerp(lidWrist, o.reach); // his east hand pushes the lid: the wrist rides its inner face
       hand[i].lerp(_a.set(sx * (0.42 + 0.1 * Math.sin(o.time * 0.8 + i)), hy + 0.2, -0.22), stand); // off the rim, the cloak opening
       hand[i].lerp(_a.set(sx * 0.22, hy + 0.55, -0.8), o.lurch);
       if (i === 0) hand[i].lerp(_a.set(-0.02, 0.86, -0.24).applyMatrix4(body.matrix), o.recoil); // an arm across the eyes
       hand[i].lerp(_a.set(sx * 0.78, hy + 0.85 + 0.04 * Math.sin(o.time * 27 + i), 0.05), o.burn);
-      bend.set(sx * 0.7, -0.2 - 0.5 * stand, 0.6);
+      if (i === 1) bend.set(sx * lerp(-0.15, 0.7, stand), lerp(-0.8, -0.7, stand), 0.6); // his east elbow down into the earth, never out over the hinge side
+      else bend.set(sx * 0.7, -0.2 - 0.5 * stand, 0.6);
       placeArm(L, i * 3, sh[i], hand[i], 0.33, 0.34, bend, 0.05, elbow, 1.7);
+      if (i === 1 && o.reach > 0) palmOn(L, 5, hand[1], elbow, lidN, lidT, 0.1, 0.05 * 1.7, o.reach); // the palm flat on the boards
       hip[i].set(sx * 0.1, 0, 0).applyMatrix4(body.matrix);
       const stride = o.lurch > 0 ? Math.sin(o.time * 14 + i * Math.PI) * 0.35 * o.lurch : 0;
-      foot[i].set(sx * 0.1, fl - 0.08 + 0.12 * sit, -0.74).lerp(_a.set(sx * 0.12, fl + 0.04, -0.03 + stride), stand);
-      toe.set(0, 0.9 * (1 - stand), -1).normalize();
+      foot[i].set(sx * 0.1, fl + 0.04 + C_LIE * (1 - sit), -0.74).lerp(_a.set(sx * 0.12, fl + 0.04, -0.03 + stride), stand);
+      toe.set(0, 0.6 * (1 - stand), -1).normalize();
       bend.set(0, 1 - stand, -0.2 - stand);
       placeLeg(L, 6 + i * 3, hip[i], foot[i], 0.46, 0.46, bend, 0.066, toe, knee);
     }
@@ -2652,53 +2686,56 @@ function buildCount(ctx) {
   return {
     g,
     place(x, y, z, facing) { home.set(x, y, z); homeYaw = facing; g.position.copy(home); g.rotation.y = facing; },
-    reset() { burn = -1; recoil = 0; was = 'box'; tNow = 0; g.visible = false; countPoints.live = false; g.scale.set(1, 1, 1); skinC.color.setScalar(1); clothC.color.setScalar(1); glow.material.color.setScalar(1); },
+    reset() { burn = -1; recoil = 0; was = 'box'; g.visible = false; countPoints.live = false; g.scale.set(1, 1, 1); skinC.color.setScalar(1); clothC.color.setScalar(1); glow.material.color.setScalar(1); },
     recoil() { recoil = 1; },
     update(c) {
       const { sim, w, pl, dt, time, eye, reduced } = c;
       const cs = w && w.count;
-      const p = cs ? poseOf(sim) : { part: 0, pose: 'box' };
-      if (p.pose === 'box' || p.pose === 'ash') { g.visible = false; was = p.pose; burn = -1; countPoints.live = false; return; }
+      const phase = cs ? cs.phase : 'box';
+      if (!cs || phase === 'box' || phase === 'ash') { g.visible = false; was = phase; burn = -1; countPoints.live = false; return; }
+      if (phase === 'burning') {
+        if (was !== 'burning') burn = 0;
+        const pc = pyreClock(w);
+        burn = Number.isFinite(pc) ? pc : burn + dt;
+      }
+      countStage(sim, pyreClock(w), reduced, stage); // the same clock keepprops.js turns the lid by (its own burn below only chars him)
       g.visible = true;
       g.scale.setScalar(C_TALL);
-      let lurch = 0; let burnK = 0; let t = p.part * 4;
+      let lurch = 0; let burnK = 0;
       recoil = cs.still > 0 ? approach(recoil, 1, dt, 14) : approach(recoil, 0, dt, 2.5);
-      if (p.pose === 'lurch') {
+      if (phase === 'lurch') {
         const total = (sim.cfg.count && sim.cfg.count.lurch) || 1.2;
         lurch = smooth(1 - clamp(num(cs.lurchLeft) / total) + (cs.bitten ? 1 : 0));
-        t = 4;
         const dx = pl.x - home.x; const dz = pl.z - home.z; const d = Math.hypot(dx, dz) || 1;
         g.position.set(home.x + dx * lurch * Math.max(0, 1 - 0.6 / d), home.y, home.z + dz * lurch * Math.max(0, 1 - 0.6 / d));
         g.rotation.y = homeYaw + wrap(headingTo(dx, dz) - homeYaw) * Math.min(1, lurch * 3);
       } else {
         g.position.copy(home); g.rotation.y = homeYaw;
       }
-      if (p.pose === 'burning') {
-        if (was !== 'burning') { burn = 0; tHeld = tNow; }
-        const sc = w.scene;
-        burn = sc && sc.kind === 'pyre' && Number.isFinite(sc.t) ? sc.t : sc && sc.kind === 'pyre' && Number.isFinite(sc.left) ? num(sc.total, 10) - sc.left : burn + dt;
-        const up = smooth(burn / (reduced ? 1.2 : 0.6)); // he comes up out of the earth into the light, and it has him
-        t = lerp(tHeld, 4, up);
-        burnK = up;
+      if (phase === 'burning') {
+        burnK = stage.up; // he comes up out of the earth into the light (once the lid is flung clear), and it has him
         const char = smooth((burn - 1.5) / 4.5);
         skinC.color.setScalar(1 - 0.94 * char); clothC.color.setScalar(1 - 0.9 * char); glow.material.color.setScalar(1 - 0.5 * char);
         const sink = smooth((burn - 6.5) / 2);
         g.scale.set(C_TALL * (1 - 0.55 * sink), C_TALL * (1 - 0.93 * sink), C_TALL * (1 - 0.55 * sink));
-        if (burn >= 8.5) { g.visible = false; was = p.pose; countPoints.live = false; return; }
-      } else {
-        tNow = t;
+        if (burn >= 8.5) { g.visible = false; was = phase; countPoints.live = false; return; }
       }
-      was = p.pose;
-      const stand = smooth(t - 3); const sit = smooth(t - 1);
+      was = phase;
+      const stand = stage.stand; const sit = stage.sit;
+      // his east hand's wrist on the lid, and the lid's face, in his own (scaled, turned) frame
+      g.updateMatrix(); toLocal.copy(g.matrix).invert();
+      lidWrist.set(stage.wrist.x, stage.wrist.y, stage.wrist.z).applyMatrix4(toLocal);
+      lidN.set(stage.normal.x, stage.normal.y, stage.normal.z).transformDirection(toLocal);
+      lidT.set(stage.along.x, stage.along.y, stage.along.z).transformDirection(toLocal);
       S.breathe(rig, time, { look: eye, amount: 0.4, sway: 0.6 + 2 * lurch + 3 * burnK, wind: lurch + burnK });
       // the head comes round to the warden once he sits; thrown back when he burns
       const dx = eye.x - g.position.x; const dz = eye.z - g.position.z;
       yaw = approach(yaw, sit * (1 - recoil) * clamp(wrap(headingTo(dx, dz) - g.rotation.y), -1.2, 1.2), dt, 2.5);
       hd.group.rotation.y = yaw;
-      hd.group.rotation.x += -0.5 * (1 - sit) + 0.45 * burnK + 0.25 * recoil; // lying, his face is to the lid
+      hd.group.rotation.x += C_FACE * (1 - sit) + 0.45 * burnK + 0.25 * recoil; // lying, his face is to the lid
       hd.pose({ jaw: Math.max(0.9 * lurch, burnK, 0.5 * recoil), frown: 0.9, brow: -0.8 });
       glow.set((0.35 + 0.65 * Math.max(sit, stand) + (reduced ? 0.3 : 1.0) * Math.max(lurch, recoil)) * (burn > 6.5 ? 0 : 1));
-      pose({ t, recoil, lurch, burn: p.pose === 'burning' ? Math.max(burnK, 1e-3) : 0, time });
+      pose({ sit, stand, reach: stage.reach, grip0: stage.grip[0], grip1: stage.grip[1], recoil, lurch, burn: phase === 'burning' ? Math.max(burnK, 1e-3) : 0, time });
     },
   };
 }

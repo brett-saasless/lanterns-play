@@ -9,7 +9,7 @@
 // THE END) and leaves count.cheered, after which keep.js ends the level.
 //
 // State is sim.waves.count: { rise, open[3], cord, lock, nails[3], phase, still, stirred,
-// lurchLeft, away, relurched, bitten, cheered }. phase is 'box' (asleep, the warden not yet in), 'rising', 'lurch',
+// lurchLeft, away, relurched, bitten, cheered, lost }. lost: the seconds of rise the recoils actually took (a recoil at a rise under 4 s takes only what there was); countlid.js runs the lid on rise + lost, a record only, read by nothing in the rules. phase is 'box' (asleep, the warden not yet in), 'rising', 'lurch',
 // 'burning' (the pyre scene plays) or 'ash' (done.dawn). The rise clock advances only while the
 // warden is inside the Count's room (security A1): outside it the clock and his pose hold, and
 // re-entry resumes, so countStir fires once per life. The lurch is entered only with the warden
@@ -143,6 +143,7 @@ export function createCount(done = null) {
     relurched: false, // this lurch has already been met afresh once on a return
     bitten: false,
     cheered: false, // the triumph has played (issue #20): the level ends on the next frame
+    lost: 0, // seconds of rise the recoils have taken (countlid.js lidClock); nothing here reads it
   };
 }
 
@@ -271,7 +272,9 @@ function openCurtain(sim, i, by, events, input) {
     return true;
   }
   if (c.phase === 'rising') {
+    const before = c.rise;
     c.rise = Math.max(0, c.rise - t.recoil);
+    c.lost = (Number.isFinite(c.lost) ? c.lost : 0) + (before - c.rise);
     c.still = t.recoilHold;
     events.push({ type: 'countRecoil', rise: c.rise, curtain: i });
   }

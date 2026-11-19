@@ -8,6 +8,7 @@
 
 import { CATALOGUE } from '../logic/sounds.js';
 import { WAYOUT } from '../logic/wayout.js';
+import { FALL } from '../logic/rubblefall.js';
 
 const lv = (name) => CATALOGUE[name].level;
 
@@ -69,10 +70,10 @@ export function createWayoutCues(kit) {
         burst('lowpass', 500, 0.8, t, 0.3, L * 0.25, 160, 0.004);
         return;
       }
-      const land = C.drop + Math.sqrt((2 * 6.6) / C.gravity); // the first piece down (a vault of about 7 m)
+      const land = FALL.first; // the first piece down on the pile (rubblefall.js); the rest pile on till FALL.last
       burst('highpass', 2200, 0.8, t, 0.16, L * 0.8, 700, 0.002);
-      beats('bandpass', 430, 0.9, t, [0.07, 0.19, 0.33, land, land + 0.11, land + 0.24, land + 0.38, land + 0.5], 0.15, L * 0.6, 0.004);
-      tone('sine', 52, 30, t + 0.05, C.fall + 0.4, L, 0.25);
+      beats('bandpass', 430, 0.9, t, [0.07, 0.19, 0.33, land, land + 0.17, land + 0.36, land + 0.6, FALL.last - 0.05], 0.15, L * 0.6, 0.004);
+      tone('sine', 52, 30, t + 0.05, FALL.last + 0.6, L, 0.25);
     },
     // What is left: air moving in the shaft, where there was none. 3 nodes.
     sceneEnd(t) {

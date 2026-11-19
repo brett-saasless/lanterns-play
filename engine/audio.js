@@ -23,6 +23,7 @@ import { CLOCKS as CLOCK_SPOTS, zoneAt as keepZoneAt } from '../logic/keepmap.js
 import { tickGain } from '../logic/clocks.js';
 import { weatherNow } from '../logic/weather.js';
 import { newHiss, hissLevel } from '../logic/hiss.js'; // the snakes in the pit, by where the warden is
+import { SONG_NOTES } from '../logic/cantorsong.js'; // the Cantor's song: its four notes
 
 const _sky = { rain: 1, cloud: 1, sun: 0 }; // #28: scratch, so the frame allocates nothing
 
@@ -915,6 +916,44 @@ function voices(t, dur, peak, bendA, bendB, attack = 0.05) {
   tone('sine', 277.4, 277.4 * bendB, t, dur, peak * 0.9, attack);
 }
 
+// One sung note of the Cantor's song: two sines a few cents apart (their slow beat is the breath of
+// a choir) and a soft triangle under them, swelling slowly, held, then a long release; a breath of
+// noise at the pitch; and one late, quieter sine for the vault's echo. 10 nodes, all into `dest`.
+const SUNG = { attack: 0.16, release: 0.9, echo: 0.24, echoLevel: 0.3, detune: 1.0023 };
+function swell(g, at, top, hold) {
+  g.gain.setValueAtTime(0.0001, at);
+  g.gain.linearRampToValueAtTime(top, at + SUNG.attack);
+  g.gain.setValueAtTime(top, at + hold);
+  g.gain.exponentialRampToValueAtTime(0.0001, at + hold + SUNG.release);
+}
+function osc(type, f, at, end, g) {
+  const o = ctx.createOscillator();
+  o.type = type;
+  o.frequency.setValueAtTime(f, at);
+  o.connect(g);
+  o.start(at);
+  o.stop(end);
+}
+function sung(hz, t, hold, peak, dest) {
+  const end = t + hold + SUNG.release + 0.05;
+  if (probing) return mark(end + SUNG.echo);
+  const voice = ctx.createGain(); // the two detuned sines
+  swell(voice, t, peak * 0.42, hold);
+  voice.connect(dest);
+  osc('sine', hz * SUNG.detune, t, end, voice);
+  osc('sine', hz / SUNG.detune, t, end, voice);
+  const under = ctx.createGain(); // the triangle, softer
+  swell(under, t, peak * 0.16, hold);
+  under.connect(dest);
+  osc('triangle', hz, t, end, under);
+  const echo = ctx.createGain(); // the vault gives it back, late and quiet
+  swell(echo, t + SUNG.echo, peak * 0.42 * SUNG.echoLevel, hold);
+  echo.connect(dest);
+  osc('sine', hz, t + SUNG.echo, end + SUNG.echo, echo);
+  burst('bandpass', hz, 9, t, hold, peak * 0.18, null, SUNG.attack, dest);
+  return null;
+}
+
 const CUES = {
   ...wayout.yard, // issue #29: the last foe spins off, the blast, the crater (sceneStart, craterBlast, sceneEnd)
   shot(t) {
@@ -1091,6 +1130,7 @@ const CAVE_CUES = {
   },
   kill(t, ev) {
     if (ev && ev.enemy === 'cantor') {
+      if (!probing && live && ev.id != null) spatial.choke(ev.id, 3); // a song still sounding stops with it
       // The two voices slide into unison and stop.
       tone('sine', 196, 233, t, 1.15, 0.4, 0.05);
       tone('sine', 277.4, 233, t, 1.15, 0.4, 0.05);
@@ -1203,6 +1243,27 @@ const CAVE_CUES = {
   bossShut(t) {
     burst('bandpass', 500, 3, t, 0.05, 0.3);
     tone('sine', 120, 90, t, 0.08, 0.2);
+  },
+  // The Cantor sings (cantorsong.js): E5 C5 B4 A4, a falling minor phrase, one note every 0.6 s
+  // over the bout, on its own strip's chokeable input so its death cuts the song off.
+  bossSing(t, ev) {
+    const L = lv('bossSing');
+    const dest = tellOf(ev);
+    for (const n of SONG_NOTES) sung(n.hz, t + n.at, n.dur * 0.85, L, dest);
+  },
+  // A stalactite works loose over where it will fall: a low grinding of rock and a trickle of grit.
+  stalactiteLoose(t, ev) {
+    const L = lv('stalactiteLoose');
+    const pre = clamp(ev && ev.warn - ev.fall, 0.1, 1, 0.4);
+    burst('bandpass', 180, 1.4, t, pre + 0.1, L, 120, 0.08);
+    beats('bandpass', 2600, 4, t + 0.05, [0, 0.07, 0.15, 0.2, 0.29, 0.34], 0.02, L * 0.35, 0.003);
+  },
+  // It lands: a heavy thump with a crack in it, and the scatter of its pieces.
+  stalactiteFall(t) {
+    const L = lv('stalactiteFall');
+    tone('sine', 120, 42, t, 0.3, L, 0.004);
+    burst('lowpass', 900, 0.8, t, 0.22, L * 0.7, 250, 0.003);
+    beats('bandpass', 3200, 5, t + 0.06, [0, 0.05, 0.12, 0.2, 0.27], 0.02, L * 0.3, 0.002);
   },
   bossCall(t) {
     // One note that cracks.

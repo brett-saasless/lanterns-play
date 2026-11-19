@@ -4,6 +4,7 @@
 import { CONFIG } from './config.js';
 import { SPACE_DEFS, spaceBounds, mouthAt, towardWall, wallBoxes, ceilingBoxes, placePools, CAVE_SEED } from './cavemap.js';
 import { makeRng } from './rng.js';
+import { placeLoose } from './stalactites.js';
 
 const DEG = Math.PI / 180;
 
@@ -82,6 +83,9 @@ const BOXES = [
 // the cave's dressing seed. engine/cave.js runs the same placePools on its own generator, so
 // it draws these pools and everything it places after them lands where it always has.
 const POOLS = placePools(makeRng(CAVE_SEED), { spaces: SPACES, pads: PADS, boxes: BOXES });
+
+// The Nave's loose stalactites, the ones the Cantor's song brings down (stalactites.js, cantorsong.js).
+const LOOSE = placeLoose({ boxes: BOXES });
 
 export const CAVE_CONFIG = deepFreeze({
   ...CONFIG,
@@ -225,6 +229,25 @@ export const CAVE_CONFIG = deepFreeze({
     callMax: 2, // never more than this many called Lurches alive
     callType: 'lurch',
     tread: 1.7,
+  },
+
+  // The Cantor's song (cantorsong.js; the owner, 2026-11-19). He sings in bouts while the fight is
+  // on; each bout shakes stalactites loose from the vault: the first ever where the warden looks,
+  // every one after over him or near him. A fallen one is gone for the run (stump and rubble, seen only).
+  song: {
+    first: 8, // seconds from the fight's start (the Shed clock's) to the first bout
+    gapMin: 12, // seconds from one bout's end to the next, at random between these
+    gapMax: 16,
+    length: 2.4, // a bout: the four notes (cantorsong.js SONG_NOTES)
+    drops: [0.9, 1.6, 2.3], // seconds into the bout each stalactite begins to come loose (during the song)
+    more: [0.6, 0.25], // under each of these shares of his health a bout brings one more down (1, 2, 3)
+    warn: 1.4, // seconds from the first warning (shadow, glow, glint, dust, grinding) to the impact (the art critic, C1: 0.8 s loosening)
+    fall: 0.6, // of which the last this many it falls (let go at warn - fall)
+    damage: 20, // to a warden within radius of the impact (once a bout at most)
+    radius: 1.1, // metres, centre to the warden's centre
+    near: 1.5, // metres: after the first, the ones within this of the warden are chosen from
+    look: { min: 4, max: 6, level: 5 }, // metres ahead the first falls (level: looking level or down; the critic, C2: 4 to 6)
+    stalactites: LOOSE,
   },
 
   bellowsEnabled: false,

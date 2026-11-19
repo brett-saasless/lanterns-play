@@ -60,10 +60,8 @@ export const WAYOUT = f({
     shot: 0.35, // seconds the blast takes to reach the vault
     trail: 0.16, // seconds the blast's tail runs behind its head
     crack: 0.5, // seconds the cracks take to run out across the vault from where it is struck
-    drop: 0.5, // seconds after the strike the first piece of the vault lets go (the rim's chunks and dust lead it)
-    dropSpan: 1.1, // seconds over which the rest follow, from the middle outward: rock coming down for about two seconds (the owner, 2026-11-18)
-    gravity: 13, // metres a second squared the pieces fall at
-    fall: 2.6, // seconds after the strike by which every piece is down, on the heap
+    drop: 0.5, // seconds after the strike the dust starts to come down the shaft as a veil (the rock's own fall and the heap's piling: rubblefall.js)
+    gravity: 13, // metres a second squared the pieces fall at (rubblefall.js FALL.gravity)
     bore: 0.6, // seconds the hole takes to open from a 0.3 m bore to its full size, from the strike
     hold: 1.0, // seconds the view holds on the hole after the strike before it comes down with the rock
     light: 1.5, // seconds from the first daylight in the shaft to the shaft fully lit
@@ -554,24 +552,29 @@ export function vaultCrack(scene, t) {
   return smooth((t - strikeAt('vault')) / WAYOUT.cave.crack);
 }
 
-/**
- * When piece i of n of the vault lets go, in seconds after the strike: the middle first, the rim
- * last (i runs from the middle outward), each a little off the beat (jitter: 0 to 1, the view's
- * seeded draw for the piece).
- */
-export function vaultDropAt(i, n, jitter = 0.5) {
-  const C = WAYOUT.cave;
-  return C.drop + C.dropSpan * clamp((i + 0.6 * (jitter - 0.5)) / Math.max(1, n - 1));
+/** The hole's ragged edge: its radius at angle a (radians about the site) as a share of MOUTHS.cave.r (0.74 to 1.26). */
+export function holeEdge(a) {
+  return 1 + 0.14 * Math.sin(5 * a + 1.3) + 0.07 * Math.sin(11 * a + 0.4) + 0.05 * Math.sin(17 * a + 2.2);
 }
 
 /**
- * How far the heap has risen, 0 to 1, t seconds into the cave's scene (1 with none playing: kept
- * open): from the first pieces down (the middle's slabs) to the last, as the rock lands on it.
+ * The stalactites round the hole (the art critic, C8): one whose root lies inside the hole's edge
+ * (plus `inside` metres) goes with the vault there; one within RIM metres beyond the edge falls with
+ * it, `over` metres beyond the edge letting go RIM_FALL.at + RIM_FALL.per * over seconds after the
+ * strike, under WAYOUT.cave.gravity, and is gone once its root has fallen to RIM_FALL.gone metres.
  */
-export function heapRise(scene, t) {
-  if (!scene || scene.kind !== 'vault') return 1;
-  const C = WAYOUT.cave;
-  return smooth((t - strikeAt('vault') - C.drop - 0.6) / (C.fall - C.drop - 0.6));
+export const RIM_FALL = f({ inside: 0.3, rim: 1.4, at: 0.65, per: 0.45, gone: 2.2 });
+
+/** Where a stalactite rooted (dx, dz) from the hole's middle stands to the hole: { over (metres beyond the edge), inside, rim }. */
+export function rimOf(dx, dz, r) {
+  const over = Math.hypot(dx, dz) - r * holeEdge(Math.atan2(dz, dx));
+  return { over, inside: over <= RIM_FALL.inside, rim: over > RIM_FALL.inside && over <= RIM_FALL.rim };
+}
+
+/** How far a rim stalactite `over` metres beyond the edge has fallen bt seconds after the strike (0 still up). */
+export function rimDrop(over, bt) {
+  const tau = bt - (RIM_FALL.at + RIM_FALL.per * Math.max(0, over));
+  return tau > 0 ? 0.5 * WAYOUT.cave.gravity * tau * tau : 0;
 }
 
 /**

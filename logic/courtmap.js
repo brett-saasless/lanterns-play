@@ -423,12 +423,13 @@ export const COURT = f({
   throne: { x: -16.6, z: 0 },
   // The signposts: the north one points every suit at its own bed (no order); the south one,
   // read from the top, points at the valves in the one order that works, each arm carrying
-  // the suit of the bed that turn will redden.
+  // the suit of the valve it points at (the owner, 2026-11-19: the sign reads Diamonds, Spades,
+  // Hearts, Clubs; it used to carry the suit of the bed that turn reddens).
   signposts: {
     north: { x: 2.4, z: -14.5, arms: [0, 1, 2, 3].map((i) => ({ suit: SUITS[i], toward: BED_AT[i] })) },
     south: {
       x: 2.4, z: 14.5,
-      arms: [2, 3, 1, 0].map((v) => ({ suit: SUITS[(v + 1) % 4], toward: [VALVE_AT[v].x, VALVE_AT[v].z], valve: v })),
+      arms: [2, 3, 1, 0].map((v) => ({ suit: SUITS[v], toward: [VALVE_AT[v].x, VALVE_AT[v].z], valve: v })),
     },
   },
   guards: [{ x: -6, z: -18 }, { x: 6, z: -18 }],

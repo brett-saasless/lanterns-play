@@ -18,7 +18,8 @@ import * as THREE from 'three';
 import * as S from './sculpt.js';
 import { MOUTHS, pathOf } from '../logic/journey.js';
 import { caveField } from '../logic/cavemap.js';
-import { WAYOUT, sightTop, strikeAt, foeFlightAt, flightApex, vaultShotAt, vaultCrack, vaultDropAt, shaftLight, heapRise, holeOpen } from '../logic/wayout.js';
+import { WAYOUT, holeEdge, rimOf, rimDrop, RIM_FALL, sightTop, strikeAt, foeFlightAt, flightApex, vaultShotAt, vaultCrack, shaftLight, holeOpen } from '../logic/wayout.js';
+import { FALL, heapAt, pileAt, pileDoneAt, fillOf, fallOf, chunkAt } from '../logic/rubblefall.js';
 import { RUBBLE, heightAt, followAt } from '../logic/rubble.js';
 
 const TAU = Math.PI * 2;
@@ -135,8 +136,9 @@ varying vec3 vN;
 varying vec3 vV;
 varying float vH;
 void main() {
-  float face = pow(abs(dot(normalize(vN), normalize(vV))), 1.6); // nothing at its silhouette: no edge
-  gl_FragColor = vec4(color, opacity * face * mix(0.35, 1.0, vH)); // and thinner toward the floor
+  float face = pow(abs(dot(normalize(vN), normalize(vV))), 2.6); // nothing at its silhouette: a soft edge, no line (the art critic, C7)
+  float foot = smoothstep(0.0, 0.3, vH); // its lower end fades out over the heap's top: no line where it meets the rock
+  gl_FragColor = vec4(color, opacity * face * foot * mix(0.35, 1.0, vH)); // and thinner toward the floor
   #include <colorspace_fragment>
 }`;
 
@@ -790,32 +792,39 @@ export function createShaft(parent, cave) {
   for (let i = 0; i < N; i++) seeds.push([rnd() * TAU, rnd() * m.r, rnd(), 0.1 + rnd() * 0.25]);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const motes = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xfff6e0, size: 0.03, transparent: true, opacity: 0.35, depthWrite: false, fog: false }));
+  // round, soft motes (the art critic, C10: not square specks), as the other dust is drawn
+  const motes = new THREE.Points(geo, new THREE.PointsMaterial({ map: glowTexture('rgba(255,255,255,1)'), color: 0xfff6e0, size: 0.06, transparent: true, opacity: 0.45, depthWrite: false, fog: false }));
   motes.frustumCulled = false;
   group.add(motes);
 
   // The heap (the owner, 2026-11-18; logic/rubble.js is its ground): the fallen rock, built in the
   // path's frame (origin at the site, the path's end, under the hole; +x along the path, start to
   // end; +z its left) and turned to the run's heading. Its lane is the slope the warden climbs; its
-  // flanks and its back fall away steeply (the walls rubble.js keeps). It rises as the rock lands on
-  // it (logic heapRise), and its stones are part of it.
+  // flanks and its back fall away steeply (the walls rubble.js keeps). It is not raised out of the
+  // floor: it is piled (the owner, 2026-11-19; logic/rubblefall.js), from under the hole outward as
+  // the rock lands on it, each of its points (and each of its stones, by where it lies) at the
+  // pile's height there until the pile is the heap (pileAt), so that FALL.last seconds after the
+  // strike it is exactly the heap drawn here.
   const HL = RUBBLE.length; const HB = RUBBLE.back.cave;
-  const UPH = Object.freeze({ sign: 1, height: RUBBLE.height, run: RUBBLE.run, length: RUBBLE.length });
-  const core = (u) => (u <= HL ? heightAt(UPH, Math.max(0, u)) : heightAt(UPH, HL) * (1 - smooth((u - HL) / (HB + 0.8))));
-  const heapY = (u, v) => { const a = Math.abs(v) - RUBBLE.half; return a <= 0 ? core(u) : core(u) * (1 - smooth(a / (RUBBLE.flank + 0.1))); };
+  const heapY = heapAt;
   const heap = new THREE.Group();
   heap.visible = false;
   group.add(heap);
+  let heapGeo = null; // its merged geometry, and per vertex: where it lies (u, v in the path's frame), the heap's height there, its own height drawn
+  let heapU = null; let heapV = null; let heapH = null; let heapBase = null;
+  let heapAtT = NaN; // the pile's time it was last posed at
   {
     const rh = S.rng(91);
     const parts = [];
+    const anchors = []; // per part: the (u, v) its vertices lie by (null: each vertex by its own place)
     const NU = 34; const NV = 16; const U0 = -0.9; const U1 = HL + HB + 0.9; const VW = RUBBLE.half + RUBBLE.flank + 0.15;
-    const pos = []; const col = []; const idx = [];
+    const pos = []; const col = []; const idx = []; const own = [];
     const c = new THREE.Color();
     for (let i = 0; i <= NU; i++) {
       const u = U0 + ((U1 - U0) * i) / NU;
       for (let j = 0; j <= NV; j++) {
         const v = -VW + (2 * VW * j) / NV;
+        own.push(u, v);
         const onLane = Math.abs(v) <= RUBBLE.half && u >= 0 && u <= HL;
         const edge = i === 0 || i === NU || j === 0 || j === NV;
         const y = heapY(u, v) + (edge ? -0.08 : (onLane ? 0.04 : 0.09) * (rh() * 2 - 1));
@@ -833,7 +842,7 @@ export function createShaft(parent, cave) {
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     g.setIndex(idx);
-    parts.push(g);
+    parts.push(g); anchors.push(own);
     const stone = new THREE.IcosahedronGeometry(1, 0).deleteAttribute('uv').deleteAttribute('normal');
     // the heap's flanks ringed with larger boulders: its edge (a wall to the rules) is seen (N2)
     for (let i = 0; i < 5; i++) {
@@ -842,7 +851,7 @@ export function createShaft(parent, cave) {
       const st = stone.clone();
       st.scale(sz * 1.2, sz * 0.8, sz).rotateY(rh() * TAU);
       st.translate(u - HL, heapY(u, v) + sz * 0.35, v);
-      parts.push(S.tint(st, new THREE.Color(0.03, 0.036, 0.04).getHex(), 0.3, 500 + i));
+      parts.push(S.tint(st, new THREE.Color(0.03, 0.036, 0.04).getHex(), 0.3, 500 + i)); anchors.push([u, v]);
     }
     for (let i = 0; i < 84; i++) {
       const flank = i % 3 !== 0;
@@ -853,19 +862,44 @@ export function createShaft(parent, cave) {
       st.scale(s * (0.8 + rh() * 0.6), s * (0.5 + rh() * 0.4), s * (0.8 + rh() * 0.6)).rotateY(rh() * TAU).rotateX((rh() - 0.5) * 0.7);
       st.translate(u - HL, heapY(u, v) + s * 0.25, v);
       const k = 0.7 + 0.6 * rh();
-      parts.push(S.tint(st, new THREE.Color(0.022 * k, 0.025 * k, 0.031 * k).getHex(), 0.3, i));
+      parts.push(S.tint(st, new THREE.Color(0.022 * k, 0.025 * k, 0.031 * k).getHex(), 0.3, i)); anchors.push([u, v]);
     }
-    heap.add(new THREE.Mesh(S.merge(parts), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.06, flatShading: true })));
+    heapGeo = S.merge(parts);
+    const nv = heapGeo.attributes.position.count;
+    heapU = new Float32Array(nv); heapV = new Float32Array(nv); heapH = new Float32Array(nv); heapBase = new Float32Array(nv);
+    let at = 0;
+    for (let pi = 0; pi < parts.length; pi++) {
+      const a = anchors[pi]; const cnt = parts[pi].attributes.position.count;
+      for (let q = 0; q < cnt; q++, at++) {
+        const u = a.length === 2 ? a[0] : a[q * 2]; const v = a.length === 2 ? a[1] : a[q * 2 + 1];
+        heapU[at] = u; heapV[at] = v; heapH[at] = heapY(u, v);
+        heapBase[at] = heapGeo.attributes.position.getY(at);
+      }
+    }
+    heapGeo.attributes.position.setUsage(THREE.DynamicDrawUsage);
+    const mesh = new THREE.Mesh(heapGeo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.06, flatShading: true }));
+    mesh.frustumCulled = false; // (its bounds are the finished heap's: it only ever lies within them)
+    heap.add(mesh);
+  }
+
+  /** The heap as the pile has it bt seconds after the strike (Infinity: the heap, whole). */
+  function poseHeap(bt) {
+    const b = bt >= FALL.last ? Infinity : bt;
+    if (b === heapAtT) return;
+    heapAtT = b;
+    const arr = heapGeo.attributes.position.array;
+    for (let i = 0, n = heapBase.length; i < n; i++) arr[i * 3 + 1] = heapBase[i] + pileAt(heapU[i], heapV[i], b, heapH[i]) - heapH[i];
+    heapGeo.attributes.position.needsUpdate = true;
   }
 
   // The hole: bored through the vault (the shell's fragments inside it are dropped: cave.setHole),
   // a ragged chimney up through the rock (pale near the top, where the day falls on it), the sky
   // at its top, and the broken lip left round it. holeR: the hole's ragged edge, the same curve the
   // shell's cut uses (cave.js uHoleCut).
-  const holeR = (a) => 1 + 0.14 * Math.sin(5 * a + 1.3) + 0.07 * Math.sin(11 * a + 0.4) + 0.05 * Math.sin(17 * a + 2.2);
+  const holeR = holeEdge; // (logic/wayout.js: the rim's stalactites are judged against the same edge)
   const CHIMNEY = 3.2; // metres it goes up through the rock over the vault's underside
   const chimney = new THREE.Mesh((() => {
-    const SEG = 48; const ROWS = 6;
+    const SEG = 48; const ROWS = 10;
     const pos = []; const col = []; const idx = [];
     const rc = S.rng(29);
     for (let j = 0; j <= ROWS; j++) {
@@ -874,9 +908,11 @@ export function createShaft(parent, cave) {
         const a = (i % SEG) / SEG * TAU;
         const r = m.r * holeR(a) * (j === 0 ? 1 : 0.93 + 0.12 * rc());
         pos.push(Math.cos(a) * r, y, Math.sin(a) * r);
-        const day = Math.pow(y, 1.6); // dark rock at the vault, pale where the day reaches it
-        const k = 0.8 + 0.4 * rc();
-        col.push(mix(0.02, 0.46, day) * k, mix(0.022, 0.43, day) * k, mix(0.028, 0.37, day) * k);
+        // dark green-grey rock at the vault, paler where the day reaches it, but the cave's rock still
+        // (the art critic, C7): beds across it and a speckle for a little texture
+        const day = Math.pow(y, 1.6);
+        const k = (0.7 + 0.6 * rc()) * (0.85 + 0.15 * Math.sin(y * 23 + Math.sin(a * 3) * 2));
+        col.push(mix(0.016, 0.13, day) * k, mix(0.022, 0.165, day) * k, mix(0.019, 0.14, day) * k);
       }
     }
     for (let j = 0; j < ROWS; j++) for (let i = 0; i < SEG; i++) {
@@ -913,12 +949,18 @@ export function createShaft(parent, cave) {
   group.add(cracks);
   let quads = 0;
 
-  // The rock: the pieces that fall and lie round the mouth, and the broken lip of the hole.
+  // The rock: the pieces that fall and lie on the heap (the kept pieces, then the fill the pile
+  // buries as it grows: logic fillOf), and the broken lip of the hole. One instanced mesh.
+  const FILL = fillOf();
+  const FALLEN = PIECES + FILL.length;
   const rockGeo = new THREE.IcosahedronGeometry(0.5, 0);
-  const rock = new THREE.InstancedMesh(rockGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.06, flatShading: true }), PIECES + LIP);
+  // in the cave's own rock (its textured stalactite stone: the art critic, C7), a green-grey basalt
+  const rock = new THREE.InstancedMesh(rockGeo, cave.rock.spikeMat, FALLEN + LIP);
   rock.frustumCulled = false;
   group.add(rock);
-  const R = []; // per piece: [angle0, r0, angle1, r1, sx, sy, sz, yaw, tilt, spinX, spinZ, jitter] and, once placed, [..., restY, startY, drop, fall, its own angle0, r0]
+  const R = []; // per piece: [angle0, r0 (where it hangs), restX, restZ (the group's frame), sx, sy, sz, yaw, tilt, spinX, spinZ, jitter, its seat over the pile, -, -, -, its own angle0, r0, restU, restV, the pile's height under it]
+  const PLAN = []; // per piece: its fall (logic fallOf), once placed
+  const fallNow = {};
   const r3 = S.rng(23);
   const tone = new THREE.Color();
   for (let i = 0; i < PIECES; i++) {
@@ -947,13 +989,23 @@ export function createShaft(parent, cave) {
     const rv = hero ? [1, -1, 0.3, -1][i] * (i === 2 ? 1 : RUBBLE.half + 0.4) : big ? side * (RUBBLE.half + 0.15 + 0.35 * r3()) : (r3() * 2 - 1) * (RUBBLE.half + 0.5);
     R[i].push(ru, rv, heapY(ru, rv));
   }
+  // the fill: small stones, each landing on the pile's slope as it grows (where it lies as it lands)
+  const rf = S.rng(57);
+  for (const c of FILL) {
+    const s = 0.12 + 0.16 * rf();
+    const p = [rf() * TAU, 0, 0, 0, s * (0.9 + 0.6 * rf()), s * (0.6 + 0.4 * rf()), s * (0.9 + 0.5 * rf()), rf() * TAU, (rf() - 0.5) * 0.5,
+      (rf() - 0.5) * 12, (rf() - 0.5) * 12, rf(), 0, 0, 0, 0, 0, 0, c.u, c.v, c.y];
+    p[16] = p[0]; p[17] = 0;
+    R.push(p);
+  }
   const LP = []; // the lip: [angle, r, size, height, yaw]
   const lipY = new Float32Array(LIP); const lipH = new Float32Array(LIP); // (per site: its height, its length down)
   for (let i = 0; i < LIP; i++) { const a = (i / LIP) * TAU + r3() * 0.25; LP.push([a, m.r * 1.04 * (1 + 0.14 * Math.sin(5 * a + 1.3) + 0.07 * Math.sin(11 * a + 0.4) + 0.05 * Math.sin(17 * a + 2.2)) + 0.1 * r3(), 0.42 + r3() * 0.36, r3(), r3() * TAU]); } // (at the hole's ragged edge, holeR below: half in the rock)
   for (let i = 0; i < PIECES + LIP; i++) {
     const k = 0.7 + r3() * 0.6;
-    rock.setColorAt(i, tone.setRGB(0.02 * k, 0.024 * k, 0.031 * k)); // the Nave's basalt
+    rock.setColorAt(i < PIECES ? i : FALLEN + i - PIECES, tone.setRGB(0.42 * k, 0.5 * k, 0.45 * k)); // the Nave's basalt, as its stalactites are
   }
+  for (let i = PIECES; i < FALLEN; i++) { const k = 0.7 + rf() * 0.6; rock.setColorAt(i, tone.setRGB(0.42 * k, 0.5 * k, 0.45 * k)); }
 
   const dust = createPuffs(D_CEIL + D_VEIL + D_FLOOR, false);
   dust.mesh.material.fog = false; // lit by the blast and the daylight, not by the room: its colour is its light
@@ -985,8 +1037,24 @@ export function createShaft(parent, cave) {
   // And one for the day on the hole's lip and the vault round it, so the hole sits in the rock (critic CS-3).
   const rimLight = new THREE.PointLight(0xfff1d0, 0, 4, 1.5);
   parent.add(rimLight);
-  let dropped = []; // the stalactites that hung over the hole (critic CS-10): down with the vault
+  let dropped = []; // the stalactites whose roots lie inside the hole (critic CS-10, C8): down with the vault
   const setSpikes = (gone) => { for (const h of dropped) cave.dropStalactite(h, gone); };
+  // and those just beyond its edge (the art critic, C8): they fall with the vault, a little after it
+  // lets go, the further out the later (logic rimDrop), and are gone once into the dust over the heap
+  let rimSpikes = []; // { h, over }
+  const rimM = new THREE.Matrix4();
+  function poseRim(bt) {
+    for (const q of rimSpikes) {
+      const h = q.h;
+      const drop = bt >= 0 ? rimDrop(q.over, bt) : 0;
+      if (drop > 0 && h.y - drop < RIM_FALL.gone) { cave.dropStalactite(h, true); continue; }
+      if (h.gone) cave.dropStalactite(h, false);
+      rimM.copy(h.m);
+      rimM.elements[13] -= drop;
+      h.mesh.setMatrixAt(h.index, rimM);
+      h.mesh.instanceMatrix.needsUpdate = true;
+    }
+  }
 
   const o3 = new THREE.Object3D();
   const shot = {};
@@ -995,6 +1063,8 @@ export function createShaft(parent, cave) {
   let playing = null;
   let settled = false;
   let siteX = NaN; let siteZ = NaN;
+  let spikesAt = WAYOUT.cave.drop; // seconds after the strike the stalactites over the hole go (with the first slab)
+  const landOrder = []; // the pieces by when they land
   let lid = 7; // the vault's underside over the mouth: its lowest rock there
   let holeY = 99; // the shell is cut above this height
   const order = new Uint16Array(QUADS);
@@ -1024,24 +1094,47 @@ export function createShaft(parent, cave) {
     heap.rotation.y = theta;
     // the stalactites over the hole come down with it: each of the first is one of the slabs that falls first
     setSpikes(false);
-    dropped = cave.stalactitesNear(o.x, o.z, m.r + 0.9); // (the critic asked r + 0.5: the ones just outside still hang across the hole from below)
+    poseRim(-1);
+    dropped = []; rimSpikes = [];
+    for (const h of cave.stalactitesNear(o.x, o.z, m.r * 1.3 + RIM_FALL.rim)) {
+      const q = rimOf(h.x - o.x, h.z - o.z, m.r);
+      if (q.inside) dropped.push(h);
+      else if (q.rim) rimSpikes.push({ h, over: q.over });
+    }
     for (let i = 0; i < HERO; i++) {
       const h = dropped[i];
       R[i][0] = h ? Math.atan2(h.z - o.z, h.x - o.x) : R[i][16];
       R[i][1] = h ? Math.hypot(h.x - o.x, h.z - o.z) : R[i][17];
     }
-    // the rubble: where each piece hangs, when it lets go, how long it falls, where it lies (on the heap:
-    // p[2], p[3] its rest in the group's frame, p[12] how far over the heap's face it sits, p[20] the face's height there)
-    for (let i = 0; i < PIECES; i++) {
+    // the rubble (logic/rubblefall.js): where each piece lies (on the heap: p[2], p[3] its rest in the
+    // group's frame, p[12] how far over the pile's face it sits, p[20] the face's height there), when
+    // it lands (a kept piece as the pile comes up to the heap under it; the fill on the pile's slope as
+    // it grows), and so when it lets go of the vault (a fall's time before), and from where: the hole's
+    // rim as the blast has opened it by then, on the side it falls toward (the slabs with mass from
+    // where the stalactites over the hole hung)
+    const ring = { kind: 'vault' };
+    let first = Infinity;
+    for (let i = 0; i < FALLEN; i++) {
       const p = R[i];
       const u = p[18] - HL; const v = p[19];
       p[2] = hx * u - hz * v; p[3] = hz * u + hx * v;
       p[12] = p[5] * 0.3;
-      p[13] = lid - 0.1 - p[5] * 0.5;
-      p[14] = vaultDropAt(i, PIECES, p[11]);
-      p[15] = Math.sqrt((2 * Math.max(0.5, p[13] - p[12] - p[20])) / C.gravity);
-      if (i < HERO || i % 3 === 0) p[7] = -theta + (p[11] - 0.5) * 0.5; // the long pieces lie along the heap's flank
+      const land = i < PIECES ? pileDoneAt(p[18], p[19]) : FILL[i - PIECES].land;
+      const c = fallOf(0, lid - 0.1 - p[5] * 0.5, 0, p[2], p[20] + p[12], p[3], land);
+      if (i < HERO) { c.x0 = Math.cos(p[0]) * p[1]; c.z0 = Math.sin(p[0]) * p[1]; first = Math.min(first, c.release); }
+      else {
+        const a = Math.atan2(p[3], p[2]) + (p[11] - 0.5) * 0.8;
+        const r = m.r * holeR(a) * holeOpen(ring, strikeAt('vault') + c.release) * (0.72 + 0.22 * p[11]);
+        c.x0 = Math.cos(a) * r; c.z0 = Math.sin(a) * r;
+      }
+      PLAN[i] = c;
+      if (i < HERO || (i < PIECES && i % 3 === 0)) p[7] = -theta + (p[11] - 0.5) * 0.5; // the long pieces lie along the heap's flank
     }
+    spikesAt = first;
+    // the landings, in order: the dust thrown up off the pile is spread over them
+    landOrder.length = 0;
+    for (let i = 0; i < FALLEN; i++) landOrder.push(i);
+    landOrder.sort((a, b) => PLAN[a].land - PLAN[b].land);
     // the lip: rock left hanging round the hole, from just under the sky patch up into the vault
     for (let i = 0; i < LIP; i++) {
       const q = LP[i];
@@ -1099,18 +1192,15 @@ export function createShaft(parent, cave) {
     return n;
   }
 
-  /** The rubble at bt seconds after the strike (a huge bt: where it lies), on the heap risen `rise` (0 to 1). */
-  function poseRubble(bt, rise = 1) {
-    for (let i = 0; i < PIECES; i++) {
+  /** The rubble at bt seconds after the strike (a huge bt: where it lies): each piece on the vault, falling, or down on the pile (logic chunkAt). */
+  function poseRubble(bt) {
+    for (let i = 0; i < FALLEN; i++) {
       const p = R[i];
-      const tau = bt - p[14];
-      const rest = p[20] * rise + p[12];
-      const fall = p[13] - 0.5 * C.gravity * tau * tau;
-      const k = tau <= 0 ? 0 : fall <= rest ? 1 : Math.min(1, tau / p[15]);
-      const y = tau <= 0 ? p[13] : Math.max(rest, fall);
-      o3.position.set(mix(Math.cos(p[0]) * p[1], p[2], k), y, mix(Math.sin(p[0]) * p[1], p[3], k));
-      o3.rotation.set(p[8] + p[9] * (1 - k), p[7], p[8] * 0.6 + p[10] * (1 - k));
-      const s = tau <= 0 ? 0 : 1; // part of the vault until it lets go
+      const c = chunkAt(PLAN[i], bt, fallNow);
+      const k = c.k;
+      o3.position.set(c.x, c.y, c.z);
+      o3.rotation.set(p[8] + p[9] * (1 - k), p[7], p[8] * 0.6 + p[10] * (1 - k)); // tumbling as it falls, still once down
+      const s = c.up ? 0 : 1; // part of the vault until it lets go
       o3.scale.set(p[4] * s, p[5] * s, p[6] * s);
       o3.updateMatrix();
       rock.setMatrixAt(i, o3.matrix);
@@ -1128,18 +1218,18 @@ export function createShaft(parent, cave) {
       const sk = 0.55 + 0.45 * k;
       o3.scale.set(q[2] * 1.3 * sk, lipH[i] * sk, q[2] * sk);
       o3.updateMatrix();
-      rock.setMatrixAt(PIECES + i, o3.matrix);
+      rock.setMatrixAt(FALLEN + i, o3.matrix);
     }
     rock.instanceMatrix.needsUpdate = true;
   }
 
   function showLip(on) {
-    rock.count = on ? PIECES + LIP : PIECES;
+    rock.count = on ? FALLEN + LIP : FALLEN;
   }
 
   /** The shaft as the scene leaves it (and as a restore or a skip finds it). */
   function settle() {
-    poseRubble(1e3, 1);
+    poseRubble(1e3);
     poseLip(1);
     showLip(true);
     dust.clear(); dust.commit();
@@ -1147,13 +1237,14 @@ export function createShaft(parent, cave) {
     streak.visible = false;
     showHole(1);
     heap.visible = true;
-    heap.scale.y = 1;
+    poseHeap(Infinity);
     cracks.visible = true;
     cracks.material.blending = THREE.NormalBlending; // dark fissures in the rock (CS-4)
     cracks.material.color.copy(FISSURE);
     cracks.material.opacity = 0.85;
     crackGeo.setDrawRange(0, quadsWithin(CRACK_REACH) * 6);
     setSpikes(true);
+    poseRim(Infinity);
     light.color.copy(DAY);
     light.position.set(siteX, LIGHT_Y, siteZ);
     settled = true;
@@ -1228,7 +1319,8 @@ export function createShaft(parent, cave) {
       cracks.material.color.copy(hot ? PINK : FISSURE);
       cracks.material.opacity = hot ? 0.95 * (1 - smooth((bt - 0.2) / 0.1)) : 0.9 * smooth((bt - 0.3) / 0.12);
     }
-    setSpikes(bt >= C.drop); // the stalactites over the hole go with the first pieces
+    setSpikes(bt >= spikesAt); // the stalactites over the hole go with the first slab: it is one of them
+    poseRim(bt); // and those round its edge fall with the vault
     // the hole: bored by the blast as it strikes (a ragged quarter of it at once), then opening from
     // the middle as the pieces let go
     // the hole: bored by the blast as it strikes (0.3 m at once), opening to full over WAYOUT.cave.bore,
@@ -1237,11 +1329,11 @@ export function createShaft(parent, cave) {
     showHole(open);
     poseLip(open);
     showLip(open > 0);
-    // the heap: rising as the rock lands on it
-    const rise = sc ? heapRise(sc, t) : 1;
-    heap.visible = rise > 0.002;
-    heap.scale.y = Math.max(0.002, rise);
-    poseRubble(bt, rise);
+    // the heap: piled by the rock landing on it, from under the hole outward (logic pileAt), whole at FALL.last
+    const pb = sc ? bt : Infinity;
+    heap.visible = pb > FALL.first;
+    if (heap.visible) poseHeap(pb);
+    poseRubble(pb);
     // dust: knocked off the vault by the strike, hanging in the shaft, thrown up where the rock lands
     const lit = 0.25 + 0.75 * L;
     for (let i = 0; i < D_CEIL; i++) {
@@ -1262,10 +1354,11 @@ export function createShaft(parent, cave) {
         0.8 * lit, 0.75 * lit, 0.62 * lit, (0.1 + 0.26 * L) * smooth(a / 0.3) * Math.pow(1 - a / q[3], 1.2));
     }
     for (let i = 0; i < D_FLOOR; i++) {
-      const p = R[(i * 5) % PIECES];
-      const a = bt - p[14] - p[15];
+      const j = landOrder[Math.round((i * (FALLEN - 1)) / (D_FLOOR - 1))]; // spread over the landings, first to last
+      const p = R[j]; const c = PLAN[j];
+      const a = bt - c.land;
       if (a <= 0 || a >= 1.7) { dust.hide(D_CEIL + D_VEIL + i); continue; }
-      const r = 1 + 0.35 * (1 - Math.exp(-a * 2)); // thrown out a little from where it landed on the heap
+      const r = 1 + 0.35 * (1 - Math.exp(-a * 2)); // thrown out a little from where it landed on the pile
       dust.set(D_CEIL + D_VEIL + i, p[2] * r, 0.45 + p[20] + 0.55 * a, p[3] * r, 2.0 + 3.0 * (1 - Math.exp(-a * 1.8)),
         0.09 + 0.15 * L, 0.09 + 0.14 * L, 0.1 + 0.12 * L, 0.7 * smooth(a / 0.08) * Math.pow(1 - a / 1.7, 1.4));
     }
@@ -1323,6 +1416,7 @@ export function createShaft(parent, cave) {
         light.intensity = 0;
         rimLight.intensity = 0;
         setSpikes(false); // the vault is whole
+        poseRim(-1);
         cave.setHole(0, 0, 0, 99);
         clock = -1; playing = null;
         return;

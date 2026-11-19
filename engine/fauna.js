@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { CAVE, mergeGeometries, tint, glowTexture } from './cave.js';
 import { createWater } from './water.js';
 import { WAYOUT } from '../logic/wayout.js'; // #29: the Cantor's last blast
+import { SONG_NOTES } from '../logic/cantorsong.js'; // the Cantor's song: a ring off its head with each note
 
 const HIDE = CAVE.indigo;
 const UP = new THREE.Vector3(0, 1, 0);
@@ -975,6 +976,76 @@ export function registerFauna(actors, scene) {
   const ARM_BEND = V(0.4, 1, 0.25);
   const segDummy = new THREE.Object3D();
 
+  // The song (cantorsong.js): while it sings, a faint ring of pale-teal light leaves the ring of its
+  // head with each note and widens as it fades, a soft glow in the ring swells with the note, and a
+  // few motes of dust turn about it. Subtle up close, readable across the Nave (the art critic, C6:
+  // the cave's teal, peaking at 0.35, widening to about 1.9 m so it shows from 15 m). Reduced flash:
+  // every other note only, slower, and dimmer, with no swell. Built only for the Cantor.
+  const SING_RINGS = SONG_NOTES.length;
+  const singRingGeo = new THREE.RingGeometry(0.92, 1, 40); // in the head ring's own plane (XY)
+  const singMotesN = 14;
+  const singGlow = new THREE.SpriteMaterial({ map: glowTexture(), color: 0x9fe8c8, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+  function buildSongFx() {
+    const group = new THREE.Group();
+    group.visible = false;
+    const rings = [];
+    for (let i = 0; i < SING_RINGS; i++) {
+      const mat = new THREE.MeshBasicMaterial({ color: 0x9fe8c8, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+      const m = new THREE.Mesh(singRingGeo, mat);
+      m.visible = false;
+      group.add(m);
+      rings.push(m);
+    }
+    const glowS = new THREE.Sprite(singGlow);
+    glowS.scale.setScalar(0.9);
+    group.add(glowS);
+    const pos = new Float32Array(singMotesN * 3);
+    const mg = new THREE.BufferGeometry();
+    mg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const motes = new THREE.Points(mg, new THREE.PointsMaterial({ map: glowTexture(), color: 0xbff2da, size: 0.07, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+    motes.frustumCulled = false;
+    group.add(motes);
+    const seeds = [];
+    for (let i = 0; i < singMotesN; i++) seeds.push([i * 2.399, 0.35 + 0.45 * frac(i * 0.618), 0.4 + 0.5 * frac(i * 0.37), frac(i * 0.73) - 0.5]);
+    let fade = 0;
+    return {
+      group,
+      /** sing: seconds into the bout (cantorsong.js boss.sing), or -1. */
+      update(sing, dt, time, reduced) {
+        const on = sing >= 0;
+        fade = approach(fade, on ? 1 : 0, dt, on ? 6 : 2.5);
+        group.visible = fade > 0.01;
+        if (!group.visible) return;
+        let swell = 0;
+        for (let k = 0; k < SING_RINGS; k++) {
+          const n = SONG_NOTES[k];
+          const r = rings[k];
+          const life = reduced ? 1.6 : 1.1;
+          const u = on ? (sing - n.at) / life : -1;
+          const shown = u >= 0 && u < 1 && (!reduced || k % 2 === 0);
+          r.visible = shown;
+          if (shown) {
+            r.scale.setScalar(0.4 + (reduced ? 0.9 : 1.5) * smooth(u));
+            r.material.opacity = (reduced ? 0.18 : 0.35) * (1 - u) * Math.min(1, u * 8) * fade;
+          }
+          if (on && sing >= n.at && sing < n.at + n.dur) swell = Math.sin(Math.PI * clamp01((sing - n.at) / n.dur));
+        }
+        singGlow.opacity = (reduced ? 0.06 : 0.06 + 0.12 * swell) * fade;
+        // dust motes: a slow turn about the ring, rising a little and settling
+        for (let i = 0; i < singMotesN; i++) {
+          const [a0, rad, rate, h] = seeds[i];
+          const a = a0 + time * rate * (reduced ? 0.5 : 1);
+          pos[i * 3] = Math.cos(a) * rad;
+          pos[i * 3 + 1] = Math.sin(a) * rad * 0.9 + h * 0.3;
+          pos[i * 3 + 2] = 0.12 * Math.sin(a * 1.7 + i);
+        }
+        mg.attributes.position.needsUpdate = true;
+        motes.material.opacity = (reduced ? 0.35 : 0.55) * fade;
+      },
+      hide() { fade = 0; group.visible = false; },
+    };
+  }
+
   function poseCantor(v, time, o) {
     const torso = v.torso;
     torso.position.set(o.shake * Math.sin(time * 75) * 0.06, 0, o.surge);
@@ -1056,6 +1127,8 @@ export function registerFauna(actors, scene) {
     torso.add(column, head, ribsR, ribsL, core, halo, smallArms);
     const arm = [caster(segGeo), caster(segGeo), caster(segGeo)];
     g.add(...arm);
+    const songFx = buildSongFx();
+    head.add(songFx.group); // in the head ring's plane, so the rings leave its mouth
     const v = {
       g, torso, head, ribsR, ribsL, core, glow: halo, smallArms, arm, mat: flesh,
       parts: [column, head, ribMeshR, ribMeshL, smallArms, ...arm],
@@ -1128,6 +1201,7 @@ export function registerFauna(actors, scene) {
         sag: v.open, fold: 0, part: v.part, call: smooth(clamp01(v.call)), flare: v.shed,
         shake: clamp01(v.shudder / 0.3), frozen: false, reduced,
       });
+      songFx.update(en.sing == null ? -1 : en.sing, dt, time, reduced);
     };
     v.onEvent = (ev) => {
       if (ev.type === 'hit') v.blink = 0.08;
@@ -1136,6 +1210,7 @@ export function registerFauna(actors, scene) {
       else if (ev.type === 'globLaunch') v.whip = 0.3;
     };
     v.die = (ev, cfg) => {
+      songFx.hide();
       v.deathT = 0;
       v.beat = (cfg && cfg.winBeat) || 1.2;
       v.pitch0 = v.pitch;

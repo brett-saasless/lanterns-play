@@ -32,7 +32,9 @@ import {
 import { isTrue, TILE_COUNT } from '../logic/gallery.js';
 import { teaChairs, longcaseAt } from '../logic/solids.js'; // the tea room's chairs and the longcase clock stand where their boxes do
 import { CLOCK_RULES, CLOCK_NAMES, faceOf, createClocks } from '../logic/clocks.js';
-import { createCount, poseOf, triumphStage } from '../logic/count.js';
+import { createCount, triumphStage } from '../logic/count.js';
+import { LID, countStage, newCountStage, pyreClock } from '../logic/countlid.js'; // the lid, as both views draw it
+import { SHAFT, shaftEdge } from '../logic/countshafts.js';
 import { READS, ENTRIES } from '../logic/script.js';
 import { gougePlan, stripMesh, RAKE_Y } from '../logic/clawrake.js';
 
@@ -434,7 +436,7 @@ function coffinWalls(len, wid, h, y0, t, hex, m = 'wood') {
   out.push(box(m, wid * 0.6 + t, h, t, 0, y0 + h / 2, len / 2, hex, 0, 0.2));
   return out;
 }
-function coffinSheet(len, wid, y, heap, hex, seed, m = 'board', inset = 0.03) { // 'board': seen from both sides (a lid is)
+function coffinSheet(len, wid, y, heap, hex, seed, m = 'board', inset = 0.03, cap = Infinity) { // 'board': seen from both sides (a lid is)
   const g = new THREE.PlaneGeometry(1, len - inset * 2, 8, 16);
   g.rotateX(-Math.PI / 2);
   const p = g.attributes.position;
@@ -442,16 +444,38 @@ function coffinSheet(len, wid, y, heap, hex, seed, m = 'board', inset = 0.03) { 
     const z = p.getZ(i); const u = p.getX(i) * 2; // -1..1 across
     const half = coffinHalf(z, len, wid) - inset;
     const dome = heap ? heap * (1 - u * u) * (1 - (2 * z / len) ** 2 * 0.7) + heap * 0.55 * S.noise(u * 2.1, z * 4.3, 0, seed) : 0;
-    p.setXYZ(i, u * half, y + dome, z);
+    p.setXYZ(i, u * half, Math.min(cap, y + dome), z); // cap: pressed flat under a shut lid
   }
   g.computeVertexNormals();
   return part(m, S.tint(g, hex, heap ? 0.45 : 0.15, seed));
 }
-function earthBox(len, wid, h, seed = 1, lean = true) {
+/**
+ * A lid as a slab of boards `thick` deep (the owner: "solid like a door"): the coffin's six-sided
+ * outline, its face (y 0, toward the box) darker than its back (y thick), the edge between them the
+ * colour of sawn ends so it reads edge-on from a doorway. One geometry, seen from both sides.
+ */
+function coffinSlab(len, wid, thick, hex, edgeHex, seed, inset = 0.03) {
+  const g = new THREE.BoxGeometry(1, thick, len - inset * 2, 8, 1, 16);
+  g.translate(0, thick / 2, 0);
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const z = p.getZ(i); const u = p.getX(i) * 2;
+    p.setX(i, u * (coffinHalf(z, len, wid) - inset));
+  }
+  g.computeVertexNormals();
+  S.tint(g, hex, 0.15, seed);
+  const col = g.attributes.color; const nrm = g.attributes.normal; const edge = new THREE.Color(edgeHex);
+  for (let i = 0; i < p.count; i++) {
+    if (Math.abs(nrm.getY(i)) < 0.5) col.setXYZ(i, edge.r, edge.g, edge.b);
+    else if (p.getY(i) < thick / 2) col.setXYZ(i, col.getX(i) * 0.8, col.getY(i) * 0.8, col.getZ(i) * 0.8);
+  }
+  return part('board', g);
+}
+function earthBox(len, wid, h, seed = 1, lean = true, cap = Infinity) {
   const rand = S.rng(seed);
   const parts = [...coffinWalls(len, wid, h, 0, 0.045, 0x6a5d4c)];
   parts.push(coffinSheet(len, wid, 0.02, 0, 0x2e241a, seed)); // the floor of the box
-  parts.push(coffinSheet(len, wid, h - 0.04, 0.2, 0x1f1711, seed, 'earth', 0.05)); // earth, heaped over the rim
+  parts.push(coffinSheet(len, wid, h - 0.04, 0.2, 0x1f1711, seed, 'earth', 0.05, cap)); // earth, heaped over the rim (or pressed flat under a lid: cap)
   for (const k of [-0.3, 0.12, 0.42]) { // iron straps
     const half = coffinHalf(k * len, len, wid) + 0.03;
     for (const sd of [-1, 1]) parts.push(box('metal', 0.012, h, 0.07, sd * half, h / 2, k * len, IRON, 0, 0.2));
@@ -465,7 +489,7 @@ function earthBox(len, wid, h, seed = 1, lean = true) {
   }
   for (let i = 0; i < 5; i++) { // earth run over the rim
     const zz = (rand() - 0.5) * len * 0.7; const sd = rand() < 0.5 ? -1 : 1;
-    parts.push(ball('earth', 0.11, sd * (coffinHalf(zz, len, wid) + 0.01), h - 0.02, zz, 0x1f1711, 0.8, 0.5, 1.6, 0.4, 6), ball('earth', 0.1, sd * (coffinHalf(zz, len, wid) + 0.1), 0.05, zz, 0x1f1711, 1.2, 0.5, 1.8, 0.4, 6));
+    parts.push(ball('earth', 0.11, sd * (coffinHalf(zz, len, wid) + 0.01), Math.min(h - 0.02, cap - 0.06), zz, 0x1f1711, 0.8, 0.5, 1.6, 0.4, 6), ball('earth', 0.1, sd * (coffinHalf(zz, len, wid) + 0.1), 0.05, zz, 0x1f1711, 1.2, 0.5, 1.8, 0.4, 6));
   }
   if (lean) { // its lid, off and leaning: nothing is shut in here
     const lid = [coffinSheet(len, wid, 0, 0, 0x5c5041, seed + 3), coffinSheet(len, wid, 0.035, 0, 0x6a5d4c, seed + 4)];
@@ -1466,13 +1490,26 @@ export function createKeepprops(scene, cfg, opts = {}) {
     const tune = cfg.count || {};
     const B = COUNT_ROOM.box; const bx2 = (B.minX + B.maxX) / 2; const bz = (B.minZ + B.maxZ) / 2; const bl = B.maxZ - B.minZ; const bw = B.maxX - B.minX;
     // the box: the fiftieth, bigger than the crypt's, its earth to the rim; its lid on, until he lifts it
-    parts.push(...place(earthBox(bl, bw, B.h - 0.06, 50, false), bx2, y, bz, 0));
-    const lidParts = [coffinSheet(bl + 0.06, bw + 0.06, 0, 0, 0x3d2f22, 51, 'board', 0), coffinSheet(bl + 0.06, bw + 0.06, 0.05, 0, 0x4a3a2a, 52, 'board', 0)];
-    for (const k of [-0.3, 0.12, 0.42]) lidParts.push(box('metal', coffinHalf(k * bl, bl, bw) * 2 + 0.06, 0.012, 0.07, 0, 0.058, k * bl, IRON, 0, 0.2));
-    // hinged along its east edge, the windows' side: thrown back it stands behind the box from the room (and from the
-    // death scene's camera, which holds on the box from the west), so what is in the box is never hidden by it
-    for (const p of lidParts) p.g.translate(-(bw / 2 + 0.03), 0, 0);
-    const lid = mover(group, lidParts, bx2 + bw / 2 + 0.03, y + B.h - 0.03, bz);
+    parts.push(...place(earthBox(bl, bw, B.h - 0.06, 50, false, LID.hingeY - y - 0.02), bx2, y, bz, 0));
+    // the lid (countlid.js LID): a slab of boards 4 cm deep, solid like a door, its iron straps on its back. Hinged
+    // along its east edge, the windows' side: he pushes it up from inside (keepcast.js, his hand on its face) and
+    // it falls east and lies as a ramp from the rim to the floor, below the rim from the west (the death scene's
+    // camera holds on the box from there), so what is in the box is never hidden by it
+    const lidParts = [coffinSlab(LID.halfZ * 2, LID.len, LID.thick, 0x4a3a2a, 0x6b5440, 51, 0)];
+    for (const k of [-0.3, 0.12, 0.42]) { // its iron straps, wrapped round it: on its back, and on its face (what shows once it lies thrown back)
+      lidParts.push(box('metal', coffinHalf(k * bl, bl, bw) * 2 + 0.06, LID.strap, 0.07, 0, LID.thick + LID.strap / 2, k * bl, IRON, 0, 0.2));
+      lidParts.push(box('metal', coffinHalf(k * bl, bl, bw) * 2 + 0.06, LID.strap * 0.5, 0.07, 0, -LID.strap * 0.25, k * bl, IRON, 0, 0.2));
+    }
+    for (const p of lidParts) p.g.translate(-LID.len / 2, 0, 0);
+    for (const k of [-0.28, -0.12]) { // its two hinges, by the box's shoulder where its edge meets the hinge line: a knuckle, a leaf on its back, a leaf on the box
+      const ex = coffinHalf(k * bl, LID.halfZ * 2, LID.len) - LID.len / 2; // the lid's edge there (0 is the hinge line)
+      lidParts.push(box('metal', 0.16, 0.008, 0.09, ex - 0.08, LID.thick + 0.004, k * bl, IRON, 0, 0.2));
+      lidParts.push(part('metal', S.tint(new THREE.CylinderGeometry(0.016, 0.016, 0.1, 8).rotateX(Math.PI / 2).translate(ex, LID.thick / 2, k * bl), IRON, 0.2)));
+      parts.push(box('metal', 0.008, 0.12, 0.09, bx2 + coffinHalf(k * bl, bl, bw) + 0.027, y + B.h - 0.1, bz + k * bl, IRON, 0, 0.2));
+    }
+    const lid = mover(group, lidParts, LID.hingeX, LID.hingeY, LID.z);
+    lid.name = 'countLid';
+    const stage = newCountStage(); const stageIn = { cfg: null, waves: null }; // made once: the tick allocates nothing
     // the three curtains
     const eastX = COUNT_ROOM.rect.maxX;
     const W = 2.7; const Hh = 4.7; const y0 = y + 0.12;
@@ -1507,12 +1544,13 @@ export function createKeepprops(scene, cfg, opts = {}) {
       // (castle.js, dawnview.js), no flat gold pane; and the shaft it throws across the box
       // the shaft, where it lies: a pool of gold on the boards from the sill to past the box, fading as it goes
       const sg = new THREE.BufferGeometry();
-      const far = bx2 - 2.6; const N = 10;
+      // (countshafts.js: each window's own aim; the side windows' pools lie just off the box, the middle one's on it)
+      const N = SHAFT.strips; const sy = y + SHAFT.lift;
       const pos = []; const col = []; const gold = new THREE.Color(HUE.dawn);
-      const edge = (t) => { const x = lerp(eastX - 0.25, far, t); const zc = lerp(c.z, bz + (c.z - bz) * 0.3, t); const half = lerp(0.85, 1.5, t); return [x, zc - half, zc + half, (1 - t) ** 1.4]; };
+      const edge = (t) => { const e = shaftEdge(i, t); return [e.x, e.z0, e.z1, e.k]; };
       for (let k = 0; k < N; k++) {
         const [xa, za0, za1, ka] = edge(k / N); const [xb, zb0, zb1, kb] = edge((k + 1) / N);
-        pos.push(xa, y + 0.05, za0, xa, y + 0.05, za1, xb, y + 0.05, zb1, xa, y + 0.05, za0, xb, y + 0.05, zb1, xb, y + 0.05, zb0);
+        pos.push(xa, sy, za0, xa, sy, za1, xb, sy, zb1, xa, sy, za0, xb, sy, zb1, xb, sy, zb0);
         for (const q of [ka, ka, kb, ka, kb, kb]) col.push(gold.r * q, gold.g * q, gold.b * q);
       }
       sg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -1583,14 +1621,12 @@ export function createKeepprops(scene, cfg, opts = {}) {
       // Issue #20: in the triumph the dawn fills the room, the shafts brightening as the light comes up.
       const sc = w.scene && triumphStage(w.scene) ? w.scene : null;
       if (sc) M.shaft.opacity = Math.max(M.shaft.opacity, 0.5 + 0.35 * smooth(clamp(sc.t / 2.5)));
-      // the lid: shut on him; then it lifts as he rises, and stays thrown back
-      // thrown back it lies nearly flat beyond the east edge, below the rim's sight lines from anywhere in the room
-      const LID_BACK = 2.9;
-      let part2 = 0; let pose = 'box';
-      try { if (sim && sim.cfg && w.count && w.game) ({ part: part2, pose } = poseOf(sim)); else if (c.phase === 'ash') pose = 'ash'; } catch { /* a state not yet whole */ }
-      const goal = pose === 'box' ? 0 : pose === 'lid' ? 0.12 + part2 * 1.3 : pose === 'hand' ? 0.55 + (part2 - 0.25) * 2.2 : LID_BACK;
-      lid.rotation.z = lid.userData.set && dt > 0 ? toward(lid.rotation.z, -goal, dt * 1.2) : -goal;
-      lid.userData.set = true;
+      // the lid: where countlid.js has it (the same answer keepcast.js poses his hand on): shut, cracked,
+      // pushed up by his hand, over the top, the heavy fall east and the ramp it rests as. No easing of
+      // its own: the rules' angle is a continuous curve of his rise, so it moves only as he does
+      stageIn.cfg = sim && sim.cfg ? sim.cfg : cfg; stageIn.waves = sim && sim.waves ? sim.waves : w;
+      try { countStage(stageIn, pyreClock(stageIn.waves), reduced, stage); } catch { stage.lid = c.phase === 'ash' ? LID.rest : 0; } // a state not yet whole
+      lid.rotation.z = -stage.lid;
     }
     return { group, tick, free() { halfGeo.dispose(); glints.free(); } };
   }

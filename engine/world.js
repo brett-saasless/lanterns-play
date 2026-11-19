@@ -12,6 +12,7 @@ import { buildCourt } from './court.js';
 import { warmBusts } from './busts.js';
 import { buildForest } from './forest.js';
 import { createCrater, createShaft } from './passages.js'; // issue #29: the ways on between the levels
+import { createRockfall } from './rockfall.js'; // the Cantor's song: the stalactites it brings down
 
 export const PALETTE = {
   teal: 0x16343a, bilge: 0x0b1a1d, concrete: 0x27302f, rust: 0x8a4b2a, oxide: 0x3f5a56,
@@ -298,6 +299,7 @@ export function buildWorld(canvas) {
   forest.hide();
   const crater = createCrater(yard, [ground.material, stripeMat]); // #29: the yard's way down, once the last surge is held (the floor and its stripes cut where it opens)
   const shaft = createShaft(cave.group, cave); // #29: the Nave's way up, once the Cantor falls
+  const rockfall = createRockfall(cave, CAVE_CONFIG); // the stalactites the Cantor's song brings down
   let room = 'yard';
 
   // The fourth room is loaded on demand: castle.js (and the mirror pass) are imported here, so a
@@ -392,8 +394,10 @@ export function buildWorld(canvas) {
   function update(sim, dt, time) {
     if (room === 'yard') crater.update(sim, dt, time);
     if (room === 'cave') shaft.update(sim, dt, time);
-    if (room === 'cave') cave.update(sim, dt, time);
-    else if (room === 'court') {
+    if (room === 'cave') {
+      cave.update(sim, dt, time);
+      rockfall.update(sim, dt, time); // after the cave's, so its zone is this frame's
+    } else if (room === 'court') {
       court.update(sim, dt, time);
       forest.update(sim, dt, time);
     } else if (room === 'castle') castle.update(sim, dt, time);
@@ -413,6 +417,7 @@ export function buildWorld(canvas) {
     reducedFlash = !!on;
     crater.setReducedFlash(reducedFlash); // #29: the blast's flash and the strike's are dimmed
     shaft.setReducedFlash(reducedFlash);
+    rockfall.setReducedFlash(reducedFlash);
     court.setReducedFlash(reducedFlash); // the easel's head turns at a quarter rate
     if (castle && castle.setReducedFlash) castle.setReducedFlash(reducedFlash);
   }
@@ -448,7 +453,7 @@ export function buildWorld(canvas) {
    */
   function extras(name) {
     if (name === 'yard') return [crater.group];
-    if (name === 'cave') return [shaft.group];
+    if (name === 'cave') return [shaft.group, rockfall.group];
     const road = name === 'castle' && castle ? castle.group.getObjectByName('castle:road') : null;
     return road ? [road] : [];
   }

@@ -5,6 +5,7 @@
 
 import { spawnEnemy } from './enemy.js';
 import { restockPads } from './pickups.js';
+import { createSong, stepSong, settleSong } from './cantorsong.js';
 
 /** Spawn order for chamber `index` (seated Weepers and the boss's Call are not queued). */
 export function buildChamberQueue(index, cfg, rng) {
@@ -38,6 +39,7 @@ export function createChambers(cfg, rng) {
     spawnedThisWave: 0,
     veilsClosed: cfg.veils.map((v) => v.role === 'exit'),
     bossId: null,
+    song: createSong(cfg), // the Cantor's song and the stalactites it has brought down (cantorsong.js)
   };
 }
 
@@ -133,6 +135,7 @@ function finishRun(sim, events) {
   sim.enemies = [];
   sim.globs = [];
   sim.pools = [];
+  settleSong(sim);
   w.phase = 'done';
   events.push({ type: 'allClear' });
 }
@@ -173,6 +176,7 @@ export function stepChambers(sim, dt, events) {
   }
 
   if (ch.boss) {
+    if (w.bossId != null) stepSong(sim, sim.enemies.find((e) => e.id === w.bossId) || null, dt, events);
     if (!w.queue.length && w.bossId != null && !sim.enemies.some((e) => e.id === w.bossId)) finishRun(sim, events);
     return;
   }

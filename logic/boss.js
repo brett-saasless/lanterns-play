@@ -22,6 +22,7 @@ export function initCantor(e, cfg, rng) {
   e.sweepFacing = null; // heading the arc locked to when the wind-up ended
   e.swingResolved = false; // the current swing's hit has been resolved
   e.shedTarget = null; // where the player stood when the Shed stop began
+  e.sing = -1; // seconds into the bout of song he is singing, or -1 (cantorsong.js writes it; the view reads it)
 }
 
 function wrap(a) {
