@@ -51,6 +51,9 @@ const NOSE = 0x241e1c;
 const MOUTH = 0x140c0c; // the painting's open mouth
 const TOOTH = 0xe6dfc6; // the painting's teeth
 
+/** The dress's colours, for the werewolf painting (keepcast.js paintWerewolf): he wears the same uniform there. */
+export const DRESS = Object.freeze({ TUDOR, TRIM, FUR, FUR_DARK, RUFF, BONNET, CLAW, MUZZLE });
+
 /** The second boulder: the large one's icosahedron, noise and tint, at BOULDER_SMALL.r. 80 triangles. */
 function smallBoulderGeometry() {
   const g = new THREE.IcosahedronGeometry(BOULDER_SMALL.r, 1);

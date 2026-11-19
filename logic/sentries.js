@@ -14,7 +14,8 @@
 // of the guard's, slower to walk, to wind up and between blows, harder in the blow.
 //
 // The wife is immune and intangible: no shot, stake, swing or splash finds her. Passing her
-// painting she whispers (wifeStir); a few steps on she comes out and strikes cold. The garlic is
+// painting she whispers (wifeStir); a few steps on she comes out of the canvas over emergeTime
+// (logic/emerge.js, still 'stir': untouchable and harmless until she stands free) and strikes cold. The garlic is
 // wielded on Q like any weapon (#9): fired, it is held up (raiseGarlic, stepGarlic), and each
 // hold-up that finds her within cfg.wife.ward drives her back out through a wall, the ceiling or
 // the floor (wifeDriven); she comes back from any side, keening as she comes (wifeNear, #10).
@@ -26,6 +27,7 @@ import { lineOfSight } from './hitscan.js';
 import { greet, greeting, stepSpeaker, taunt, deathLine, warn, keySeconds } from './talk.js';
 import { zoneAt } from './keepmap.js';
 import { specOf, weaponNamed } from './weapon.js';
+import { EMERGE, emergeAt } from './emerge.js';
 
 /** #29: the road up from the wood: no sentry follows the warden onto it, and no blow lands there. */
 const onTheRoad = (pl) => zoneAt(pl.x, pl.z) === 'road';
@@ -74,6 +76,10 @@ export const WIFE_TUNE = Object.freeze({
   stirRange: 3, // metres from the painting that wake the whisper
   outAfter: 3, // metres walked on past the whisper before she comes out
   outTime: 5, // or seconds, whichever comes first
+  // Then she comes out of the canvas over emergeTime (logic/emerge.js), still 'stir': nothing she
+  // does strikes and no garlic finds her until she stands free, `free` metres off the wall.
+  emergeTime: EMERGE.time,
+  free: EMERGE.free,
   reach: 1.4,
   slack: 0.5,
   speed: 3,
@@ -135,6 +141,7 @@ export function initSentry(e, cfg) {
     e.home = { x: e.x, z: e.z };
     e.stirAt = null;
     e.stirFor = 0;
+    e.emerge = null; // seconds into coming out of the canvas (logic/emerge.js), null until she begins
     e.flee = null; // { x, y, z, speed }: where she is going out through the house
     e.nearIn = 0; // seconds to her next keen as she comes back
   }
@@ -364,6 +371,8 @@ function returnPoint(sim, c) {
   return { x: pl.x - Math.sin(a) * flat, y: feetY(pl) + dy, z: pl.z - Math.cos(a) * flat };
 }
 
+const lifted = {}; // emergeAt's out, reused every frame
+
 const near = (e) => ({ type: 'wifeNear', id: e.id, x: e.x, y: feetY(e), z: e.z });
 
 function stepWife(e, sim, dt, events, c) {
@@ -376,14 +385,25 @@ function stepWife(e, sim, dt, events, c) {
     e.state = 'stir';
     e.stirAt = { x: pl.x, z: pl.z };
     e.stirFor = 0;
+    e.home.yaw = Number.isFinite(e.heading) ? e.heading : 0; // the way her canvas faces (seatSentries)
     warn(sim, 'wife', 0, events);
     events.push({ type: 'wifeStir', x: e.x, z: e.z });
     return;
   }
   if (e.state === 'stir') {
     faceTo(e, pl.x, pl.z);
-    e.stirFor += dt;
-    if (Math.hypot(pl.x - e.stirAt.x, pl.z - e.stirAt.z) >= c.outAfter || e.stirFor >= c.outTime) e.state = 'out';
+    if (e.emerge == null) {
+      e.stirFor += dt;
+      if (Math.hypot(pl.x - e.stirAt.x, pl.z - e.stirAt.z) >= c.outAfter || e.stirFor >= c.outTime) e.emerge = 0;
+      return;
+    }
+    // Coming out of the canvas: off the wall along its facing, by the timeline's lift.
+    e.emerge = Math.min(c.emergeTime, e.emerge + dt);
+    const k = emergeAt(e.emerge, c.emergeTime, lifted).lift;
+    const yaw = e.home.yaw || 0;
+    e.x = e.home.x - Math.sin(yaw) * c.free * k;
+    e.z = e.home.z - Math.cos(yaw) * c.free * k;
+    if (e.emerge >= c.emergeTime) e.state = 'out';
     return;
   }
   e.cooldown = Math.max(0, e.cooldown - dt);

@@ -319,10 +319,21 @@ export const COVER = f([
 /** The castle door (the second suit fights in front of it). */
 export const DOOR = f({ x: 0, z: 0 });
 
-/** Where the sentries stand (sentries.js seatSentries): the two suits either side of the door, the wife in her painting. */
+/**
+ * Where the one who leaves is painted on the wives' canvas (keepcast.js wifeWhoLeaves), in shares
+ * of the canvas: her face's middle at u across (from its left as seen) and v down, s her face's half
+ * width as a share of the canvas's width. She comes out of the canvas there (logic/emerge.js).
+ */
+export const WIFE_SPOT = f({ u: 0.2, v: 0.38, s: 0.064 });
+
+/**
+ * Where the sentries stand (sentries.js seatSentries): the two suits either side of the door, the
+ * wife in her painting, in front of where she is painted (the wives' canvas is 2.5 m wide, WALL_ART,
+ * centred on CORRIDOR.painting.x and facing +z, so its left as seen is -x).
+ */
 export const SENTRIES = f({
   suits: [{ x: -3, z: 1.8, yaw: Math.PI }, { x: 3, z: 1.8, yaw: Math.PI }],
-  painting: { x: 11, z: -15.4, yaw: Math.PI },
+  painting: { x: 11 + (WIFE_SPOT.u - 0.5) * 2.5, z: -15.4, yaw: Math.PI },
 });
 
 /** The pikes' price tags (read; the shipped tag "In this Style 10/6"). */

@@ -1005,7 +1005,7 @@ async function boot() {
     let usePrompt = ''; // the interact prompt on screen (E  Turn, E  Read, ...): the touch E shows with it
     if (inView()) {
       const court = LOG_ROOMS.includes(sim.cfg.room);
-      usePrompt = court && state === 'PLAYING' && !inScene ? pages.prompt(sim) : '';
+      usePrompt = court && state === 'PLAYING' && !inScene ? pages.prompt(sim, controls.touchMode()) : '';
       hud.render(sim, simDt, usePrompt);
       if (court) {
         pages.line(sim);

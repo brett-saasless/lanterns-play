@@ -21,7 +21,7 @@ import * as ST from './stone.js';
 import * as KM from '../logic/keepmap.js';
 import * as KEEP from '../logic/keep.js';
 import { createRoadView } from './roadview.js'; // issue #29: the road up from the wood, and its evening
-import { cutawayAt } from '../logic/cutaway.js'; // the werewolf cutaway: its run beat plays on the real front
+import { cutawayAt, CUTAWAY } from '../logic/cutaway.js'; // the werewolf cutaway: its run beat plays on the real front
 import { buildDawnView, DAWN_SUN } from './dawnview.js'; // art pass K1: the sunrise out of the Count's windows
 
 const HUE = ST.STONE;
@@ -1805,11 +1805,13 @@ export function buildCastle(scene, cfg) {
       free.at = f; free.level = dt === 0 ? 1 : 0;
       free.l.position.set(f.x, f.y, f.z);
     }
+    // the werewolf film's castle front: the torches' pools up, so the fire reads against the dusk (the art critic)
+    const filmTorch = film && film.front ? CUTAWAY.sun.torch : 1;
     for (let i = 0; i < POOL; i++) {
       const s = pool[i];
       if (s.at && s.at.stamp === stamp) s.level = Math.min(1, s.level + dt * 2.5);
       // K4: the flames' share; a passage's torches keep more of it, the pools that make a passage readable (K2)
-      s.l.intensity = s.at ? 12 * (s.at.passage ? PASSAGE_FIRE : FIRE_SHARE) * (s.at.cold ? COLD.fire : 1) * s.at.power * clamp(s.level) * lightFlicker(time, s.at.seed) : 0;
+      s.l.intensity = s.at ? 12 * (s.at.passage ? PASSAGE_FIRE : FIRE_SHARE) * (s.at.cold ? COLD.fire : 1) * s.at.power * clamp(s.level) * lightFlicker(time, s.at.seed) * filmTorch : 0;
     }
     glowMat.opacity = lightFlicker(time, 4.7); // the exit candle's pool breathes with its flame (slow drift under reduced flash)
     haloMat.opacity = 0.26 * (reduced ? 1 : 0.9 + 0.1 * Math.sin(time * 9.1) + 0.06 * Math.sin(time * 23.3));

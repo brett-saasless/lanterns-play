@@ -243,6 +243,8 @@ export function bustState(items) {
     pack, show, count: n,
     turn(i, rad) { if (i < 0 || i >= n) return; turned[i] = rad; pack[i * 4 + 3] = base[i] + rad; },
     setShown(i, on) { if (i >= 0 && i < n) show[i] = on ? 1 : 0; },
+    // part way: a head going into the ghost that comes over it (keepcast.js, the wife's emergence)
+    setScale(i, k) { if (i >= 0 && i < n) show[i] = Math.max(0, Math.min(1, k)); },
     shown(i) { return show[i] === 1; },
     turns() { return Array.from(turned.subarray(0, n)); },
   };
@@ -293,6 +295,8 @@ export function bustSet(items, o = {}) {
     turn: state.turn,
     /** Hides head i (scaled to nothing at its pivot) or shows it again. */
     show: state.setShown,
+    /** Scales head i toward its pivot, 0 (gone) to 1 (whole). */
+    scale: state.setScale,
     /** The turns as last set (radians), a copy: for the smoke harness and the tests. */
     turns: state.turns,
     shown: state.shown,

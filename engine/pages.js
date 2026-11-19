@@ -3,7 +3,8 @@
 // by key; this file lays it out and never retypes it. It holds no game state: the sim is the
 // source of truth and these are read from it each frame (the card and the open page aside).
 
-import { CARDS, LINES, ENTRIES, PROMPTS, NAMES, READS, COPY } from '../logic/script.js';
+import { CARDS, LINES, ENTRIES, NAMES, READS, COPY } from '../logic/script.js';
+import { interactPrompt } from '../logic/prompt.js';
 import { COURT_CONFIG } from '../logic/courtconfig.js';
 import { pagesOf } from '../logic/journal.js';
 
@@ -28,7 +29,6 @@ export function wrapLines(text, cols = SPEECH_COLS) {
 }
 const TICK_MS = 2000; // a new log entry is marked by the tick for this long
 const GHOST_MS = 2500; // the two empty outlines after E on the bowl with nothing to put in
-const KEY = 'E';
 
 // Which story card's found document sits beside which log entry (its log half).
 const DOCS = Object.freeze([['fromCave', 'arrive'], ['toForest', 'arch'], ['toCastle', 'end'], ['dawn', 'dawn']]);
@@ -236,14 +236,9 @@ export function createPages(opts = {}) {
     if (loggedUntil && t >= loggedUntil) { loggedUntil = 0; el.logged.classList.remove('on'); }
   }
 
-  /** The interact prompt for what E would act on: the key and a verb ("E  Turn"), or ''. */
-  function prompt(sim) {
-    const f = sim.waves && sim.waves.focus;
-    if (!f) return '';
-    // The bowl with nothing to put in is answered by the Rabbit, not worked: a speaking verb.
-    const verb = f.kind === 'bowl' && !f.ready ? 'speak' : f.verb;
-    const word = PROMPTS[verb];
-    return word ? `${KEY}  ${word}` : '';
+  /** The interact prompt for what E would act on: "E  Turn", or just the words with the hand button; '' for none. */
+  function prompt(sim, touch = false) {
+    return interactPrompt(sim.waves && sim.waves.focus, touch);
   }
 
   /** The events pages.js reacts to: a new entry (the tick) and a refused bowl (two outlines). */

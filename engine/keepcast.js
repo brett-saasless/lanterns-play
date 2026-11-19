@@ -24,8 +24,10 @@ import { poseOf, nextCurtain } from '../logic/count.js';
 import * as MAP from '../logic/keepmap.js';
 import { reflectionOf } from '../logic/reflection.js';
 import { batGeometry, batFlap } from './roadview.js'; // K7: the road's bat, at the swarm's scale
+import { DRESS } from './roadcreature.js'; // the werewolf-beefeater's uniform: the painting wears it too
 import { bustGeometry, bustSet, BUST } from './busts.js';
 import { headYawToward, headSeen, HEAD_TURN } from '../logic/headturn.js';
+import { EMERGE, emergeAt } from '../logic/emerge.js'; // the wife coming out of her painting
 import { cutawayAt, CUTAWAY } from '../logic/cutaway.js'; // the werewolf cutaway: it poses the fighting suit at the real door
 const CUT_SUIT = CUTAWAY.guard.suit;
 
@@ -320,29 +322,105 @@ const wivesWhoStay = (g, w, h) => {
   varnish(g, w, h, 21);
   return { eyes: [], heads: [...a.heads, ...b.heads] };
 };
-const wifeWhoLeaves = (g, w, h) => paintSitter(g, w * 0.2, h * 0.38, w * 0.064, { ...WIFE_LOOKS[0], relief: true });
+// where the one who leaves is painted (logic/keepmap.js, where the sim seats her): the ghost comes off the canvas there (buildWife, wifeSpot)
+const WIFE_SPOT = MAP.WIFE_SPOT;
+const wifeWhoLeaves = (g, w, h) => paintSitter(g, w * WIFE_SPOT.u, h * WIFE_SPOT.v, w * WIFE_SPOT.s, { ...WIFE_LOOKS[0], relief: true });
 
-/** The werewolf: hunched in a dark wood, its near arm at the canvas's edge. Yellow eyes. */
+/**
+ * The werewolf: hunched in a dark wood in what is left of the Yeoman Warder's state dress he wears
+ * running up the hill (roadcreature.js, its own colours: DRESS): the weathered Tudor red with its
+ * dulled gold bands and belt and a scrap of the badge, the soiled ruff, the flat bonnet askew with
+ * his ears up through it, fur at the neck, the cuffs and the hands. One clawed hand is raised at the
+ * front of the canvas, four long hooked claws, bone at the tips (MAP.WEREWOLF_CLAW, as the arm that
+ * comes out of it), large enough to read across the room; the other hangs. Yellow eyes, which the
+ * iris discs lie on (their place and size as before).
+ */
 function paintWerewolf(g, w, h) {
   const cx = w * 0.5; const cy = h * 0.34; const s = w * 0.14;
-  // trunks
+  const D = DRESS;
+  // the dark wood, a little mist low between the trunks
   g.strokeStyle = 'rgba(10,12,10,0.9)';
   for (let i = 0; i < 7; i++) { g.lineWidth = 6 + hash(i, 5) * 16; const x = hash(i, 9) * w; g.beginPath(); g.moveTo(x, 0); g.lineTo(x + (hash(i, 2) - 0.5) * 30, h); g.stroke(); }
-  // the body: a great back and a low head
-  g.fillStyle = css(0x2a2420);
-  g.beginPath(); g.ellipse(cx + s * 0.3, cy + s * 2.2, s * 2.5, s * 2.4, -0.3, 0, TAU); g.fill();
-  g.beginPath(); g.ellipse(cx - s * 1.5, cy + s * 4.2, s * 0.8, s * 2.0, 0.25, 0, TAU); g.fill();
-  // fur: short strokes
-  g.strokeStyle = 'rgba(70,60,52,0.7)'; g.lineWidth = 1.4;
-  for (let i = 0; i < 260; i++) {
-    const a = hash(i, 1) * TAU; const r = Math.sqrt(hash(i, 2)) * s * 2.3;
-    const x = cx + s * 0.3 + Math.cos(a) * r; const y = cy + s * 2.2 + Math.sin(a) * r * 0.95;
-    g.beginPath(); g.moveTo(x, y); g.lineTo(x + (hash(i, 3) - 0.5) * 6, y + 5 + hash(i, 4) * 7); g.stroke();
+  const mist = g.createLinearGradient(0, h * 0.62, 0, h);
+  mist.addColorStop(0, 'rgba(60,70,64,0)'); mist.addColorStop(1, 'rgba(60,70,64,0.22)');
+  g.fillStyle = mist; g.fillRect(0, h * 0.62, w, h * 0.38);
+  // shade over a painted shape: lit from the upper left, falling to near black at the lower right
+  const shade = (x0, y0, x1, y1, a = 0.75) => {
+    const gr = g.createLinearGradient(x0, y0, x1, y1);
+    gr.addColorStop(0, 'rgba(255,236,210,0.06)'); gr.addColorStop(0.45, 'rgba(0,0,0,0.32)'); gr.addColorStop(1, `rgba(4,2,2,${a})`);
+    g.fillStyle = gr; g.fill();
+  };
+  const fur = (x, y, r, n, seed, col = 'rgba(92,80,68,0.75)', len = 7) => {
+    g.strokeStyle = col; g.lineWidth = 1.4;
+    for (let i = 0; i < n; i++) {
+      const a = hash(i, seed) * TAU; const d = Math.sqrt(hash(i, seed + 1)) * r;
+      const px = x + Math.cos(a) * d; const py = y + Math.sin(a) * d * 0.8;
+      g.beginPath(); g.moveTo(px, py); g.lineTo(px + (hash(i, seed + 2) - 0.5) * 6, py + len * (0.6 + hash(i, seed + 3))); g.stroke();
+    }
+  };
+  // the hunched back and shoulders in the red coat, clipped for its gold bands and shading
+  const back = () => {
+    g.beginPath(); g.ellipse(cx + s * 0.3, cy + s * 2.5, s * 2.6, s * 2.45, -0.3, 0, TAU);
+    g.ellipse(cx - s * 1.45, cy + s * 4.4, s * 0.85, s * 2.0, 0.25, 0, TAU);
+  };
+  // the coat's red, painted down under old varnish (the art critic: the castle's canvases are ivory,
+  // black and ink; the runner's TUDOR lit reads as the one saturated thing there): a deeper red
+  const COAT = 0x6a1e22;
+  g.fillStyle = css(COAT); back(); g.fill();
+  g.save(); back(); g.clip();
+  // the gold: two bands round the body, the belt below, what is left of the badge on the breast
+  g.strokeStyle = css(D.TRIM, 0.85); g.lineWidth = s * 0.16;
+  for (const k of [1.55, 1.95]) { g.beginPath(); g.ellipse(cx + s * 0.1, cy + s * (k + 2.4), s * 2.8, s * 1.1, -0.25, Math.PI * 1.05, Math.PI * 1.95); g.stroke(); }
+  g.lineWidth = s * 0.26;
+  g.beginPath(); g.ellipse(cx + s * 0.2, cy + s * 5.6, s * 2.6, s * 0.9, -0.25, Math.PI * 1.05, Math.PI * 1.9); g.stroke();
+  g.fillStyle = css(D.TRIM, 0.7);
+  g.beginPath(); g.moveTo(cx - s * 0.75, cy + s * 2.15); g.lineTo(cx - s * 0.35, cy + s * 2.05); g.lineTo(cx - s * 0.25, cy + s * 2.6); g.lineTo(cx - s * 0.55, cy + s * 2.9); g.lineTo(cx - s * 0.85, cy + s * 2.6); g.closePath(); g.fill();
+  // wear and dirt: dark scrapes through the red and the gold
+  g.strokeStyle = 'rgba(14,8,8,0.55)'; g.lineWidth = 1.2;
+  for (let i = 0; i < 40; i++) { const x = cx + (hash(i, 31) - 0.4) * s * 4.4; const y = cy + s * (1.2 + hash(i, 32) * 5); g.beginPath(); g.moveTo(x, y); g.lineTo(x + (hash(i, 33) - 0.5) * 10, y + 4 + hash(i, 34) * 9); g.stroke(); }
+  // folds: a few darker strokes at the shoulder and down the back
+  g.strokeStyle = 'rgba(20,6,8,0.55)'; g.lineCap = 'round';
+  for (const [x0, y0, x1, y1, x2, y2, wd] of [[1.2, 1.3, 1.9, 2.2, 2.0, 3.3, 0.16], [-0.9, 1.7, -1.5, 2.6, -1.4, 3.6, 0.12], [0.5, 3.6, 1.3, 4.2, 2.1, 4.1, 0.1]]) {
+    g.lineWidth = s * wd;
+    g.beginPath(); g.moveTo(cx + s * x0, cy + s * y0); g.quadraticCurveTo(cx + s * x1, cy + s * y1, cx + s * x2, cy + s * y2); g.stroke();
   }
-  // the head: ears, a long muzzle, the teeth
+  g.lineCap = 'butt';
+  back(); shade(cx - s * 2.2, cy + s * 0.8, cx + s * 2.6, cy + s * 6.2, 0.82);
+  // a black glaze over the lower third of him
+  g.fillStyle = 'rgba(0,0,0,0.15)'; g.fillRect(0, cy + s * 4.3, w, h);
+  g.restore();
+  // fur where the coat has gone: the mane over the hump behind the head, and at the neck
+  fur(cx + s * 0.7, cy + s * 0.9, s * 1.5, 160, 41);
+  fur(cx, cy + s * 1.5, s * 0.9, 70, 47, 'rgba(70,59,51,0.85)');
+  // the ruff: a soiled, crushed ring of pleats under the jaw
+  g.fillStyle = css(D.RUFF, 0.9);
+  g.beginPath();
+  for (let k = 0; k <= 24; k++) {
+    const a = (k / 24) * TAU; const r = k % 2 ? 1 : 1.13;
+    const x = cx + Math.cos(a) * s * 1.38 * r; const y = cy + s * 1.42 + Math.sin(a) * s * 0.42 * r;
+    if (k) g.lineTo(x, y); else g.moveTo(x, y);
+  }
+  g.fill();
+  g.strokeStyle = 'rgba(40,32,24,0.6)'; g.lineWidth = 1;
+  for (let k = 0; k < 12; k++) { const a = Math.PI * (0.05 + (k / 11) * 0.9); g.beginPath(); g.moveTo(cx + Math.cos(a) * s * 0.5, cy + s * 1.42 + Math.sin(a) * s * 0.15); g.lineTo(cx + Math.cos(a) * s * 1.4, cy + s * 1.42 + Math.sin(a) * s * 0.44); g.stroke(); }
+  g.fillStyle = 'rgba(52,40,26,0.35)'; // stains
+  for (let k = 0; k < 5; k++) { g.beginPath(); g.ellipse(cx + (hash(k, 51) - 0.5) * s * 2.2, cy + s * (1.45 + hash(k, 52) * 0.3), s * 0.18, s * 0.08, 0, 0, TAU); g.fill(); }
+  // the arm that hangs, in its red sleeve, fur at the cuff, the hand low in the dark
+  g.strokeStyle = css(D.TUDOR); g.lineCap = 'round'; g.lineWidth = s * 0.62;
+  g.beginPath(); g.moveTo(cx - s * 1.7, cy + s * 2.3); g.quadraticCurveTo(cx - s * 2.25, cy + s * 4.0, cx - s * 1.9, cy + s * 5.3); g.stroke();
+  fur(cx - s * 1.9, cy + s * 5.45, s * 0.38, 40, 61, css(D.FUR, 0.9), 6);
+  g.fillStyle = css(D.FUR_DARK); g.beginPath(); g.ellipse(cx - s * 1.85, cy + s * 5.85, s * 0.3, s * 0.38, 0.2, 0, TAU); g.fill();
+  for (let i = 0; i < 3; i++) { // short claws hanging
+    const x = cx - s * (2.05 - i * 0.2);
+    g.strokeStyle = css(D.CLAW, 0.85); g.lineWidth = 2;
+    g.beginPath(); g.moveTo(x, cy + s * 6.1); g.quadraticCurveTo(x - 1, cy + s * 6.45, x + 3, cy + s * 6.6); g.stroke();
+  }
+  // the dark closes in round him (before the raised hand, which stands in front of it all)
+  const vig = g.createRadialGradient(cx, cy + s * 1.5, s * 2.2, cx, cy + s * 1.5, h * 0.75);
+  vig.addColorStop(0, 'rgba(0,0,0,0)'); vig.addColorStop(1, 'rgba(0,0,0,0.5)');
+  g.fillStyle = vig; g.fillRect(0, 0, w, h);
+  // the head: a long muzzle, the teeth (as it always was: the eyes lie where they were)
   g.fillStyle = css(0x1e1a18);
-  g.beginPath(); g.moveTo(cx - s * 0.9, cy - s * 0.5); g.lineTo(cx - s * 1.25, cy - s * 1.9); g.lineTo(cx - s * 0.35, cy - s * 0.9); g.fill();
-  g.beginPath(); g.moveTo(cx + s * 0.9, cy - s * 0.5); g.lineTo(cx + s * 1.25, cy - s * 1.9); g.lineTo(cx + s * 0.35, cy - s * 0.9); g.fill();
   g.beginPath(); g.ellipse(cx, cy, s * 1.05, s * 1.1, 0, 0, TAU); g.fill();
   g.fillStyle = css(0x2c2622);
   g.beginPath(); g.moveTo(cx - s * 0.55, cy + s * 0.2); g.lineTo(cx + s * 0.55, cy + s * 0.2); g.lineTo(cx + s * 0.32, cy + s * 1.7); g.lineTo(cx - s * 0.32, cy + s * 1.7); g.fill();
@@ -359,6 +437,58 @@ function paintWerewolf(g, w, h) {
     g.strokeStyle = '#0a0808'; g.lineWidth = 3;
     g.beginPath(); g.moveTo(cx + sx * (ex + er * 1.4), ey - er * 1.3); g.lineTo(cx + sx * (ex - er * 1.2), ey - er * 0.35); g.stroke();
   }
+  // the flat bonnet, askew on the skull above the brows, its velvet worn grey
+  g.save(); g.translate(cx + s * 0.06, cy - s * 0.95); g.rotate(0.1);
+  g.fillStyle = css(0x4a4748); // the runner's bonnet (DRESS.BONNET) taken toward a neutral grey: the room's cool light made it read purple
+  g.beginPath(); g.ellipse(0, 0, s * 1.45, s * 0.3, 0, 0, TAU); g.fill();
+  g.beginPath(); g.moveTo(-s * 0.85, -s * 0.05); g.quadraticCurveTo(-s * 0.9, -s * 0.5, 0, -s * 0.52); g.quadraticCurveTo(s * 0.9, -s * 0.5, s * 0.85, -s * 0.05); g.closePath(); g.fill();
+  g.strokeStyle = 'rgba(160,150,170,0.25)'; g.lineWidth = 1.5; // the worn nap catching the light
+  g.beginPath(); g.ellipse(0, -s * 0.02, s * 1.4, s * 0.26, 0, Math.PI * 1.1, Math.PI * 1.6); g.stroke();
+  g.restore();
+  // the ears, up through the bonnet: tall, pointed, a paler hollow inside
+  for (const sx of [-1, 1]) {
+    g.fillStyle = css(D.FUR_DARK);
+    g.beginPath(); g.moveTo(cx + sx * s * 0.95, cy - s * 0.95); g.lineTo(cx + sx * s * 1.3, cy - s * 2.05); g.lineTo(cx + sx * s * 0.42, cy - s * 1.1); g.closePath(); g.fill();
+    g.fillStyle = css(0x6a5246, 0.8);
+    g.beginPath(); g.moveTo(cx + sx * s * 0.86, cy - s * 1.1); g.lineTo(cx + sx * s * 1.2, cy - s * 1.85); g.lineTo(cx + sx * s * 0.6, cy - s * 1.15); g.closePath(); g.fill();
+  }
+  // the raised hand, at the front of the canvas: the sleeve up from the elbow, the gold at the
+  // cuff, fur at the wrist, and four long hooked claws, bone at their tips (MAP.WEREWOLF_CLAW)
+  const C = MAP.WEREWOLF_CLAW;
+  g.lineCap = 'round';
+  g.strokeStyle = css(D.TUDOR); g.lineWidth = s * 0.66;
+  g.beginPath(); g.moveTo(cx + s * 1.5, cy + s * 2.6); g.quadraticCurveTo(cx + s * 2.95, cy + s * 4.1, cx + s * 2.25, cy + s * 2.55); g.stroke();
+  g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = s * 0.3; // the sleeve's shadowed side
+  g.beginPath(); g.moveTo(cx + s * 1.75, cy + s * 2.95); g.quadraticCurveTo(cx + s * 3.05, cy + s * 4.0, cx + s * 2.55, cy + s * 2.6); g.stroke();
+  g.strokeStyle = css(D.TRIM, 0.9); g.lineWidth = s * 0.14; // the cuff's gold band
+  g.beginPath(); g.moveTo(cx + s * 2.0, cy + s * 2.7); g.lineTo(cx + s * 2.75, cy + s * 2.6); g.stroke();
+  fur(cx + s * 2.2, cy + s * 2.3, s * 0.45, 60, 71, css(D.FUR, 0.95), 6);
+  const px = cx + s * 2.12; const py = cy + s * 1.75; // the palm
+  const hs = s * 1.3; // the hand drawn large: it is what the eye should find across the room
+  g.fillStyle = css(D.FUR_DARK);
+  g.beginPath(); g.ellipse(px, py, hs * 0.42, hs * 0.5, 0.15, 0, TAU); g.fill();
+  for (let i = 0; i < C.fingers; i++) {
+    const f = i / (C.fingers - 1) - 0.5; // -0.5 .. 0.5 across the hand
+    const a = -Math.PI / 2 + f * C.spread * 1.9; // up, fanned
+    const ux = Math.cos(a); const uy = Math.sin(a); const vx = -uy; const vy = ux;
+    const bx = px + ux * hs * 0.38 + vx * f * hs * 0.3; const by = py + uy * hs * 0.38 + vy * f * hs * 0.3;
+    const kx = bx + ux * hs * 0.5; const ky = by + uy * hs * 0.5; // the knuckle, where the claw comes out
+    g.strokeStyle = css(D.FUR_DARK); g.lineWidth = hs * 0.17;
+    g.beginPath(); g.moveTo(bx, by); g.lineTo(kx, ky); g.stroke();
+    const len = hs * (C.length / 0.46) * 0.95 * (1 - 0.25 * Math.abs(f * 2));
+    const hook = len * 0.42 * C.curl; // the claw hooks over toward the middle of the canvas
+    const tx = kx + ux * len - vx * hook * 0.35; const ty = ky + uy * len - vy * hook * 0.35;
+    const qx = kx + ux * len * 0.75 + vx * hook * 0.25; const qy = ky + uy * len * 0.75 + vy * hook * 0.25;
+    const base = hs * 0.075;
+    const gr = g.createLinearGradient(kx, ky, tx, ty);
+    gr.addColorStop(0, css(D.CLAW)); gr.addColorStop(0.55, css(0xb8ae94)); gr.addColorStop(1, css(BONE));
+    g.fillStyle = gr;
+    g.beginPath(); g.moveTo(kx + vx * base, ky + vy * base); g.quadraticCurveTo(qx + vx * base * 0.6, qy + vy * base * 0.6, tx, ty);
+    g.quadraticCurveTo(qx - vx * base * 0.9, qy - vy * base * 0.9, kx - vx * base, ky - vy * base); g.closePath(); g.fill();
+    g.strokeStyle = 'rgba(255,248,226,0.35)'; g.lineWidth = 1; // a glint along the claw's lit edge
+    g.beginPath(); g.moveTo(kx - vx * base * 0.5, ky - vy * base * 0.5); g.quadraticCurveTo(qx - vx * base * 0.4, qy - vy * base * 0.4, tx, ty); g.stroke();
+  }
+  g.lineCap = 'butt';
   varnish(g, w, h, 12);
   return [{ x: cx - ex, y: ey, r: er, hex: 0x120a04, white: 0xd9b23a }, { x: cx + ex, y: ey, r: er, hex: 0x120a04, white: 0xd9b23a }];
 }
@@ -456,7 +586,13 @@ function paintings(list, M, o = {}) {
     const m = mesh(all, sitMat);
     group.add(m); sitMeshes.push({ m, of: -1 });
   }
-  for (const q of quads) if (alone[q.i]) { const m = mesh(q.geo, sitMat); group.add(m); sitMeshes.push({ m, of: q.i }); }
+  const fades = []; // per painting index: the ripple material's uniforms (an entry with ripple: { u, v })
+  for (const q of quads) {
+    if (!alone[q.i]) continue;
+    const p = list[q.i];
+    const m = mesh(q.geo, p.ripple ? rippleMat(sitMat, p, total, cellH, fades, q.i) : sitMat);
+    group.add(m); sitMeshes.push({ m, of: q.i });
+  }
   // Issue #13: each eye is three discs in the one instanced mesh, unlit so they read in a dark room:
   // the white (a dim glow of the painted white), the iris, and a catch-light on the iris. Only
   // painted eyes have discs (the werewolf's); a sitter with a sculpted head looks with the head.
@@ -539,9 +675,74 @@ function paintings(list, M, o = {}) {
       for (const e of eyes) if (e.of === i) e.off = !!off;
       heads.forEach((h, k) => { if (h.of === i && h.off !== !!off) { h.off = !!off; h.turn = 0; set.turn(k, 0); set.show(k, !off); } });
     },
+    /**
+     * The wife's emergence (logic/emerge.js) on painting i (one with ripple): how much of the painted
+     * figure is left (paint, dissolving through the paint's grain), the ripple across her (0..1,
+     * gentler under reduced flash), her sculpted head going into the ghost's (head), and the light
+     * on the dissolving edge (flash, 0 under reduced flash). Allocates nothing.
+     */
+    emerge(i, paint, ripple, head, time, flash = 0) {
+      const f = fades[i];
+      if (f) { f.uFade.value = paint; f.uRip.value = ripple; f.uTime.value = time; f.uFlash.value = flash; }
+      if (set) for (let k = 0; k < heads.length; k++) if (heads[k].of === i && !heads[k].off) set.scale(k, head);
+    },
     /** Every head back at rest (a restored checkpoint: the view starts from what the rules say). */
     rest() { heads.forEach((h, k) => { h.turn = 0; h.seen = false; set.turn(k, 0); }); },
   };
+}
+
+/**
+ * The one animated variant of a painting's cut-out material (the wife who leaves): her figure's
+ * pixels ripple outward from her (a displacement of the paint, not the quad), and dissolve through
+ * the paint's grain as uFade falls from 1 (whole) to 0 (the canvas empty), the dissolving edge lit
+ * a little by uFlash. Shares the atlas; one draw call as before.
+ */
+function rippleMat(base, p, total, cellH, fades, i) {
+  const mat = base.clone();
+  mat.userData.ownMap = false; // the atlas is the shared material's to free
+  // see-through rather than cut out, so the flecks fade (the art critic); the paint's own edge still cut
+  mat.transparent = true; mat.alphaTest = 0.02; mat.depthWrite = false;
+  const u = {
+    uFade: { value: 1 }, uRip: { value: 0 }, uTime: { value: 0 }, uFlash: { value: 0 },
+    uC: { value: new THREE.Vector2((p.u0 + p.ripple.u * p.cw) / total, 1 - p.ripple.v) },
+    uSize: { value: new THREE.Vector2(total, cellH) },
+  };
+  fades[i] = u;
+  mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, u);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+uniform float uFade; uniform float uRip; uniform float uTime; uniform float uFlash; uniform vec2 uC; uniform vec2 uSize;
+vec2 rippleUv; float fadeEdge;
+float paintHash( vec2 p ) { return fract( sin( dot( p, vec2( 12.9898, 78.233 ) ) ) * 43758.5453 ); }
+float paintNoise( vec2 p ) { // value noise: the paint lifts in soft blots, not in pixels
+  vec2 i = floor( p ); vec2 f = fract( p ); f = f * f * ( 3.0 - 2.0 * f );
+  return mix( mix( paintHash( i ), paintHash( i + vec2( 1.0, 0.0 ) ), f.x ), mix( paintHash( i + vec2( 0.0, 1.0 ) ), paintHash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y );
+}`)
+      .replace('#include <map_fragment>', `{
+  vec2 d = ( vMapUv - uC ) * uSize; // pixels from her middle
+  float r = length( d );
+  float w = uRip * exp( -r / 90.0 ) * 2.2 * sin( r * 0.16 - uTime * 7.0 );
+  rippleUv = vMapUv + ( r > 0.5 ? d / r : vec2( 0.0 ) ) * w / uSize;
+  vec4 sampledDiffuseColor = texture2D( map, rippleUv );
+  diffuseColor *= sampledDiffuseColor;
+  vec2 px = rippleUv * uSize;
+  float n = 0.62 * paintNoise( px / 16.0 ) + 0.28 * paintNoise( px / 6.0 ) + 0.1 * paintNoise( px / 2.5 );
+  n = clamp( ( n - 0.2 ) / 0.6, 0.0, 1.0 ) * 0.8 + clamp( 1.0 - r / 160.0, 0.0, 1.0 ) * 0.2; // her middle lifts first
+  float f = uFade * 1.5 - 0.25; // a band a quarter of the noise wide: each fleck fades rather than tears
+  float keep = smoothstep( n - 0.25, n + 0.25, f );
+  fadeEdge = keep * ( 1.0 - smoothstep( n, n + 0.4, f ) ) * step( 0.001, uFade ) * step( uFade, 0.999 );
+  // going, the paint loses its white and black to the canvas's own ivory-grey
+  diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.5, 0.48, 0.44 ), clamp( ( 1.0 - keep ) * 0.8 + ( 1.0 - uFade ) * 0.35, 0.0, 0.85 ) );
+  diffuseColor.a *= keep;
+}`)
+      .replace('#include <emissivemap_fragment>', `#ifdef USE_EMISSIVEMAP
+  totalEmissiveRadiance *= texture2D( emissiveMap, rippleUv ).rgb;
+#endif
+  totalEmissiveRadiance += vec3( 0.55, 0.68, 0.82 ) * fadeEdge * uFlash;`);
+  };
+  mat.customProgramCacheKey = () => 'paint-ripple';
+  return mat;
 }
 
 /** merge() for quads that carry uv (the kit's merge keeps position, normal and colour only). */
@@ -1013,16 +1214,105 @@ function buildArmour(e, cfg, ctx) {
 // One of the three: pale, see-through, hungry and polite. Nothing fired at her does anything. She
 // comes out of the canvas, lunges after her tell, recoils from the garlic out through the house
 // (wall, ceiling or floor) and comes back from any side, and at the last shreds away for good.
-// Six draw calls: gown, skull, jaw, eyes, arms (one instanced mesh), hair.
+// Six draw calls: gown, skull, jaw, eyes, arms (one instanced mesh), hair; and the mist, while she comes out of the canvas and a moment after.
 
 const W_SH = [V(0.2, 1.46, 0), V(-0.2, 1.46, 0)];
 const W_ARM = [0.38, 0.44]; // too long
+// Coming out of the canvas (logic/emerge.js, the owner's 2026-11-18 ask, re-timed by the art critic):
+// first the paint ripples and a mist lifts off her painted outline; then she forms on the paint, flat,
+// at the painted head's size (0.9) with her face over the canvas's sculpted head, in the painting's
+// colours, almost opaque, her mouth a calm closed line, held to her own part of the canvas (clipped to
+// it); as the timeline's lift runs she comes off the plane to where the sim stands her (a step off the
+// wall), takes her own depth and size, breaks out past the picture's edge, her colour crossfades to the
+// ghost's, and only once she is clear of the frame does her grin open. A mist trails after her. Her
+// own material variants (body, and her face's for the calm mouth), one more draw call (the mist).
+const W_FACE = 1.83; // her face's middle above her feet, in her own frame
+const W_S0 = 0.9; // her scale while she is still the painted figure: the painted head's size
+const W_FLAT = 0.06; // her depth then, a share of her own
+const W_PAINTED = 0.92; // her opacity in the painting's colours
+const MIST = 36; // motes in the mist that trails from the canvas after her
+
+/** Where the one who leaves is painted, in the world: her face's middle on the canvas, the way it faces, its lower edge, her part of the canvas. */
+const W_CELL = 0.37; // her part of the canvas, from its left edge (as seen) to before the fair wife's shoulder, a share of its width
+function wifeSpot() {
+  const P = MAP.CORRIDOR.painting; const W = MAP.WALL_ART.wives;
+  const yaw = facingIn('cor1', P.x, P.z);
+  const lx = (WIFE_SPOT.u - 0.5) * W.w; const ly = (0.5 - WIFE_SPOT.v) * W.h;
+  const off = 0.02 + 0.3 * WIFE_SPOT.s * W.w; // as paintings() stands the head out of the canvas
+  // the canvas's own x (its left to right as seen) and its facing, for a painting turned yaw + pi
+  const ax = -Math.cos(yaw); const az = Math.sin(yaw); const nx = -Math.sin(yaw); const nz = -Math.cos(yaw);
+  const cx = (W_CELL / 2 - 0.5) * W.w; // her part's middle along the canvas
+  return {
+    x: P.x + ax * lx + nx * off, y: 1.8 + ly, z: P.z + az * lx + nz * off, yaw, bottom: 1.8 - W.h / 2, ax, az, nx, nz,
+    cell: { x: P.x + ax * cx, y: 1.8, z: P.z + az * cx, hw: (W_CELL / 2) * W.w, hh: W.h / 2 },
+  };
+}
+
+/** A soft round mote, drawn once. */
+function moteTexture() {
+  return drawn(64, 64, (g, w, h) => {
+    const gr = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+    gr.addColorStop(0, 'rgba(255,255,255,0.9)'); gr.addColorStop(0.4, 'rgba(255,255,255,0.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+  });
+}
 
 function buildWife(e, cfg, ctx) {
   const seed = 63;
   const g = new THREE.Group(); const body = new THREE.Group();
   g.add(body);
   const mat = ctx.phantom.clone();
+  const faceMat = ctx.phantom.clone(); // her skull and her face's features: the same, and the calm mouth
+  const jawMat = ctx.phantom.clone(); // her jaw (its lower lip and teeth): the same, in the jaw's own frame
+  const spot = wifeSpot();
+  // her own variant: painted colour to ghost colour (uLook), the ripple through her (uRip), her part
+  // of the canvas she is held to (uCell its middle, uAx the canvas's x, uCellHalf, uGrow letting go),
+  // the light as she breaks free (uFlash); on her face, the calm closed mouth (uCalm, uMouth: the
+  // mouth's band in the head's frame: top, line, bottom, half width)
+  const wu = {
+    uLook: { value: 1 }, uRip: { value: 0 }, uTime: { value: 0 }, uFlash: { value: 0 }, uGrow: { value: 99 },
+    uCell: { value: V(spot.cell.x, spot.cell.y, spot.cell.z) }, uAx: { value: V(spot.ax, 0, spot.az) }, uCellHalf: { value: new THREE.Vector2(spot.cell.hw, spot.cell.hh) },
+    uCalm: { value: 0 }, uMouth: { value: new THREE.Vector4(0, 0, 0, 0) },
+  };
+  const shader = (calm, off = [0, 0, 0]) => (shd) => {
+    const o3 = `vec3( ${off.map((q) => q.toFixed(5)).join(', ')} )`;
+    Object.assign(shd.uniforms, wu);
+    shd.vertexShader = shd.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uRip; uniform float uTime; varying vec3 vWp; varying vec3 vLoc;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+  transformed.x += uRip * 0.03 * sin( position.y * 13.0 + uTime * 6.5 );
+  transformed.z += uRip * 0.025 * sin( position.y * 8.0 - uTime * 5.0 + position.x * 17.0 );`)
+      .replace('#include <project_vertex>', `#include <project_vertex>
+  { vec4 wp = vec4( transformed, 1.0 );
+  #ifdef USE_INSTANCING
+    wp = instanceMatrix * wp;
+  #endif
+    vWp = ( modelMatrix * wp ).xyz; vLoc = position + ${o3}; }`);
+    shd.fragmentShader = shd.fragmentShader
+      .replace('#include <common>', `#include <common>
+uniform float uLook; uniform float uFlash; uniform float uTime; uniform float uGrow; uniform vec3 uCell; uniform vec3 uAx; uniform vec2 uCellHalf;
+uniform float uCalm; uniform vec4 uMouth; varying vec3 vWp; varying vec3 vLoc;`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+  { float l = dot( diffuseColor.rgb, vec3( 0.3, 0.59, 0.11 ) );
+    diffuseColor.rgb = mix( vec3( l ) * vec3( 0.98, 0.93, 0.82 ), diffuseColor.rgb, uLook );
+    // held to her part of the canvas (along its facing, so off the wall too) until she lets go
+    vec3 d = vWp - uCell;
+    float wob = 0.03 * sin( vWp.y * 23.0 + uTime * 3.0 ) + 0.03 * sin( dot( d, uAx ) * 31.0 - uTime * 2.0 );
+    float outside = max( abs( dot( d, uAx ) ) - uCellHalf.x - uGrow, abs( d.y ) - uCellHalf.y - uGrow ) + wob;
+    diffuseColor.a *= 1.0 - smoothstep( -0.03, 0.03, outside );
+${calm ? `    // the calm mouth: her grin's teeth and lips under the pale of her face, one dark closed line
+    float inBand = step( uMouth.z, vLoc.y ) * step( vLoc.y, uMouth.x ) * ( 1.0 - smoothstep( uMouth.w * 0.8, uMouth.w, abs( vLoc.x ) ) );
+    diffuseColor.rgb = mix( diffuseColor.rgb, mix( vec3( 0.66, 0.66, 0.62 ), vec3( 0.72, 0.8, 0.88 ), uLook ), uCalm * inBand );
+    float line = ( 1.0 - smoothstep( 0.003, 0.006, abs( vLoc.y - uMouth.y ) ) ) * ( 1.0 - smoothstep( uMouth.w * 0.45, uMouth.w * 0.6, abs( vLoc.x ) ) );
+    diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.12, 0.1, 0.11 ), uCalm * line * inBand );` : ''}
+  }`)
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+  totalEmissiveRadiance = totalEmissiveRadiance * uLook + vec3( 0.6, 0.72, 0.86 ) * uFlash;`);
+  };
+  mat.onBeforeCompile = shader(false);
+  mat.customProgramCacheKey = () => 'wife-emerge';
+  faceMat.onBeforeCompile = shader(true);
+  faceMat.customProgramCacheKey = () => 'wife-emerge-face';
   const gown = mesh(S.skin([
     { at: [0, 0.0, 0.85], r: 0.012, color: 0x5f7286 }, { at: [0, 0.1, 0.5], r: [0.09, 0.05], color: 0x6f8296 }, { at: [0, 0.38, 0.2], r: [0.19, 0.13], color: 0x8fa3b8 },
     { at: [0, 0.85, 0.04], r: [0.19, 0.13] }, { at: [0, 1.2, 0], r: [0.125, 0.095] }, { at: [0, 1.44, -0.02], r: [0.225, 0.115] }, { at: [0, 1.58, 0], r: [0.06, 0.06], color: 0xdde8f2 },
@@ -1038,7 +1328,18 @@ function buildWife(e, cfg, ctx) {
     },
   });
   hd.group.position.set(0, 1.58, 0);
-  for (const m of [hd.skull, hd.jaw, hd.features]) if (m) m.material = mat;
+  hd.skull.material = faceMat; hd.features.material = faceMat;
+  if (hd.jaw) {
+    hd.jaw.material = jawMat;
+    const jp = hd.jaw.position; // the jaw's frame is the head's moved to its hinge (it barely turns while her mouth is closed)
+    jawMat.onBeforeCompile = shader(true, [jp.x, jp.y, jp.z]);
+    jawMat.customProgramCacheKey = () => 'wife-emerge-jaw';
+  }
+  { // the mouth's band in the head's frame: from below the lower lip to above the smile's corners, as wide as the smile
+    const pm = hd.plan.mouth; const ml = pm.lat;
+    const yMid = hd.at(0, ml).y; const yTop = hd.at(0, ml + 0.06 + pm.smile * 0.12).y; const yBot = hd.at(0, ml - 0.42).y; // down past the front fangs
+    wu.uMouth.value.set(Math.max(yTop, yMid), yMid, Math.min(yBot, yMid), Math.abs(hd.at(pm.width * 1.12, ml).x));
+  }
   hair.mesh.position.set(0, 0.36, 0.16); hair.mesh.rotation.y = Math.PI;
   hd.group.add(hair.mesh);
   const L = S.limbs(6, { seed, sides: 5, taper: 0.6, material: mat, cast: false });
@@ -1047,6 +1348,38 @@ function buildWife(e, cfg, ctx) {
   g.add(L.mesh);
   const rig = { root: body, chest: gown, head: hd, cloths: [hair], seed, rate: 0.16, depth: 1.6 };
   const v = { g, type: 'wife', seed, shown: 0, tellAmt: 0, tellOn: false, tellClock: 0, lunge: 0, flinch: 0, goneT: -1, yaw: 0, first: true, home: V(e.x, 0, e.z) };
+  const EK = {}; // emergeAt's out, reused
+  v.hairYaw = 0; v.hairTilt = 0; v.px = 0; v.pz = 0; // the hair's lag (0.15 s) behind her head and her going
+  // the mist: one Points draw call in the world (not under g, which is scaled flat while she is)
+  const mPos = new Float32Array(MIST * 3); const mCol = new Float32Array(MIST * 4);
+  const mistGeo = new THREE.BufferGeometry();
+  mistGeo.setAttribute('position', new THREE.BufferAttribute(mPos, 3).setUsage(THREE.DynamicDrawUsage));
+  mistGeo.setAttribute('color', new THREE.BufferAttribute(mCol, 4).setUsage(THREE.DynamicDrawUsage));
+  const mistMat = new THREE.PointsMaterial({ size: 0.26, map: moteTexture(), vertexColors: true, transparent: true, depthWrite: false, sizeAttenuation: true });
+  mistMat.userData.ownMap = true;
+  const mist = new THREE.Points(mistGeo, mistMat);
+  mist.frustumCulled = false; mist.visible = false; mist.name = 'wife mist';
+  if (ctx.scene) ctx.scene.add(mist);
+  v.mist = 0;
+  // for the smoke harness: what is shown of her, read each frame
+  g.userData.wifeEmerge = { ghost: 0, look: 1, lift: 1, t: -1, mist: 0, x: 0, y: 0, z: 0, sx: 1, sz: 1 };
+  function mistAt(time, amt) {
+    mist.visible = amt > 0.002 && g.visible;
+    if (!mist.visible) return;
+    for (let i = 0; i < MIST; i++) {
+      const p = frac(time * 0.45 + hash(i, 3)); const q = smooth(p);
+      // from a point of her painted figure on the canvas to a point of her, wherever she now is
+      const lx = (hash(i, 5) - 0.5) * 0.7; const ly = -0.9 * hash(i, 6) + 0.15;
+      const sx = spot.x + spot.ax * lx; const sy = spot.y + ly; const sz = spot.z + spot.az * lx;
+      const hy = g.position.y + g.scale.y * (0.2 + 1.5 * hash(i, 7));
+      const tx = g.position.x + (hash(i, 8) - 0.5) * 0.5; const tz = g.position.z + (hash(i, 9) - 0.5) * 0.5;
+      const curl = 0.08 * Math.sin(time * 1.7 + i * 2.3) * Math.sin(Math.PI * p);
+      mPos[i * 3] = lerp(sx, tx, q) + curl * spot.az; mPos[i * 3 + 1] = lerp(sy, hy, q) + 0.1 * p; mPos[i * 3 + 2] = lerp(sz, tz, q) - curl * spot.ax;
+      mCol[i * 4] = 0.78; mCol[i * 4 + 1] = 0.85; mCol[i * 4 + 2] = 0.93; mCol[i * 4 + 3] = 0.42 * amt * Math.sin(Math.PI * p);
+    }
+    mistGeo.attributes.position.needsUpdate = true;
+    mistGeo.attributes.color.needsUpdate = true;
+  }
   const m4 = new THREE.Matrix4(); const sh = [V(), V()]; const hand = [V(), V()]; const elbow = V(); const bend = V();
 
   function pose(o) {
@@ -1070,20 +1403,54 @@ function buildWife(e, cfg, ctx) {
 
   v.sync = (en, dt, time, eye, cfg2, reduced) => {
     const st = String(en.state || '');
-    // Seen out of the canvas, going out through the house when driven back (flee) and coming
-    // back (return, #10); unseen while she is away (en.hidden).
+    // Seen coming out of the canvas (stir with en.emerge: logic/emerge.js), out of it, going out
+    // through the house when driven back (flee) and coming back (return, #10); unseen while she is
+    // away (en.hidden).
     const out = !en.hidden && (st === 'out' || st === 'tell' || st === 'flee' || st === 'return');
+    const emerging = !en.hidden && st === 'stir' && en.emerge != null;
     if (v.first) { v.home.set(en.home ? en.home.x : en.x, 0, en.home ? en.home.z : en.z); v.first = false; }
-    v.shown = out ? Math.min(1, v.shown + dt / 0.55) : 0;
+    const report = g.userData.wifeEmerge;
+    if (emerging) {
+      const ET = (cfg2 && cfg2.wife && cfg2.wife.emergeTime) || EMERGE.time;
+      emergeAt(en.emerge, ET, EK);
+      v.shown = EK.ghost; // all of her by 40 percent of the way: out, she is whole
+      if (v.shown >= 1) v.emerged = true;
+    } else v.shown = out ? Math.min(1, v.shown + dt / 0.55) : 0;
     if (v.shown >= 1) v.emerged = true; // once fully out, later showings fade in where she is
-    g.visible = out && Math.hypot(eye.x - en.x, eye.z - en.z) < FAR;
-    if (!g.visible) return;
-    // she comes out of the canvas: from the painting to where the rules have her
+    g.visible = (out || emerging) && Math.hypot(eye.x - en.x, eye.z - en.z) < FAR;
+    v.mist = emerging ? Math.max(v.mist, EK.mist) : approach(v.mist, 0, dt, 1.1);
+    if (!g.visible) { mist.visible = false; report.ghost = 0; report.t = -1; return; }
     const k = smooth(v.shown);
-    const from = v.emerged ? 1 : k;
-    g.position.set(lerp(v.home.x, en.x, from), num(en.y), lerp(v.home.z, en.z, from));
-    g.rotation.y = num(en.heading);
-    g.scale.set(0.3 + 0.7 * from, 1, 0.3 + 0.7 * from);
+    let look = 1; let rip = 0; let grow = 99; let flash = 0; let calm = 0;
+    if (emerging) {
+      // off the canvas: from the painted figure, flat on the paint at the painted head's size, to where the rules stand her
+      const L = EK.lift; const sc = lerp(W_S0, 1, EK.grow);
+      g.position.set(lerp(spot.x, en.x, L), lerp(spot.y - sc * W_FACE, num(en.y), L), lerp(spot.z, en.z, L));
+      g.rotation.y = spot.yaw + wrap(num(en.heading) - spot.yaw) * L;
+      g.scale.set(sc, sc, sc * lerp(W_FLAT, 1, L));
+      look = EK.look; rip = (reduced ? 0.35 : 1) * EK.ripple;
+      grow = 4 * (1 - EK.frame); // held to her part of the canvas, then out past its edge (her gown pours below the frame)
+      calm = 1 - EK.grin;
+      flash = reduced ? 0 : 0.35 * EK.ripple * EK.look;
+    } else {
+      // (a showing with no emergence, as after a restore mid-fight: from the painting to where the rules have her)
+      const from = v.emerged ? 1 : k;
+      g.position.set(lerp(v.home.x, en.x, from), num(en.y), lerp(v.home.z, en.z, from));
+      g.rotation.y = num(en.heading);
+      g.scale.set(0.3 + 0.7 * from, 1, 0.3 + 0.7 * from);
+    }
+    wu.uLook.value = look; wu.uRip.value = rip; wu.uTime.value = time; wu.uGrow.value = grow; wu.uFlash.value = flash; wu.uCalm.value = calm;
+    // the hair a beat (0.15 s) behind her head's turn, and trailing as she goes
+    const yawNow = g.rotation.y + hd.group.rotation.y;
+    const speed = dt > 0 ? Math.hypot(g.position.x - v.px, g.position.z - v.pz) / dt : 0;
+    v.px = g.position.x; v.pz = g.position.z;
+    v.hairYaw = dt > 0 ? v.hairYaw + wrap(yawNow - v.hairYaw) * Math.min(1, dt / 0.15) : yawNow;
+    v.hairTilt = dt > 0 ? approach(v.hairTilt, clamp(speed * 0.3, 0, 0.45), dt, 1 / 0.15) : 0;
+    hair.mesh.rotation.y = Math.PI + clamp(wrap(v.hairYaw - yawNow), -0.6, 0.6);
+    hair.mesh.rotation.x = -v.hairTilt;
+    mistAt(time, v.mist * (reduced ? 0.6 : 1));
+    report.ghost = emerging ? EK.ghost : k; report.look = look; report.lift = emerging ? EK.lift : 1; report.t = emerging ? en.emerge : -1; report.mist = v.mist; // nothing made a frame
+    report.x = g.position.x; report.y = g.position.y; report.z = g.position.z; report.sx = g.scale.x; report.sz = g.scale.z;
     v.fleeK = approach(v.fleeK || 0, st === 'flee' ? 1 : 0, dt, 6); // she thins as she goes into the stone
     if (v.tellOn) { v.tellClock += dt; if (v.tellClock > 1.2) v.tellOn = false; }
     const wt = (cfg2 && cfg2.wife && cfg2.wife.tell) || 0.6;
@@ -1093,10 +1460,11 @@ function buildWife(e, cfg, ctx) {
     v.flinch = approach(v.flinch, st === 'flee' ? 1 : 0, dt, 9);
     S.breathe(rig, time, { look: eye, sway: 2.2, wind: 0.5 });
     hd.group.rotation.y = approach(hd.group.rotation.y, -1.1 * v.flinch, dt, 10);
-    hd.pose({ jaw: Math.max(0.15, 0.95 * Math.max(v.tellAmt, v.lunge)), frown: 0.6 + 0.4 * v.flinch, brow: -0.6 });
+    hd.pose({ jaw: Math.max(0.15 * (1 - calm), 0.95 * Math.max(v.tellAmt, v.lunge)), frown: (0.6 + 0.4 * v.flinch) * (1 - 0.7 * calm), brow: -0.6 * (1 - 0.7 * calm) });
     pose({ time, tell: v.tellAmt, lunge: v.lunge, flinch: v.flinch });
-    // a third strength; brighter on the lunge (not under reduced flash)
-    mat.opacity = 0.42 * k * (1 - 0.35 * v.flinch) * (1 - 0.6 * v.fleeK) + (reduced ? 0 : 0.3 * v.lunge);
+    // painted, almost opaque; then a third strength; brighter on the lunge (not under reduced flash)
+    mat.opacity = lerp(W_PAINTED, 0.42, look) * k * (1 - 0.35 * v.flinch) * (1 - 0.6 * v.fleeK) + (reduced ? 0 : 0.3 * v.lunge);
+    faceMat.opacity = mat.opacity; jawMat.opacity = mat.opacity;
   };
   v.onEvent = (ev) => {
     if (ev.type === 'strikeTell') { v.tellOn = true; v.tellClock = 0; }
@@ -1110,14 +1478,15 @@ function buildWife(e, cfg, ctx) {
     const k = clamp(v.goneT / 0.9);
     g.scale.set((1 - k) * (1 + 0.25 * Math.sin(time * 37)), 1 + 1.6 * k * k, 1 - 0.8 * k);
     g.position.y += dt * 1.2 * k;
-    mat.opacity = 0.42 * (1 - k);
+    wu.uLook.value = 1; wu.uRip.value = 0; wu.uGrow.value = 99; wu.uFlash.value = 0; wu.uCalm.value = 0; mist.visible = false;
+    mat.opacity = 0.42 * (1 - k); faceMat.opacity = mat.opacity; jawMat.opacity = mat.opacity;
     hd.pose({ jaw: 1 });
     pose({ time, tell: 0, lunge: 0, flinch: 1 });
     return k < 1;
   };
-  v.die = () => { g.visible = false; };
+  v.die = () => { g.visible = false; mist.visible = false; };
   v.updateDeath = () => true;
-  v.dispose = () => { freeTree(g, ctx.keep); };
+  v.dispose = () => { freeTree(g, ctx.keep); freeTree(mist, ctx.keep); };
   v.count = () => S.count(g);
   g.visible = false;
   pose({ time: 0, tell: 0, lunge: 0, flinch: 0 });
@@ -1455,7 +1824,17 @@ function buildCorridorSet(ctx) {
   const P = MAP.CORRIDOR.painting;
   const yaw = facingIn('cor1', P.x, P.z);
   const at = { x: P.x, y: 1.8, z: P.z, yaw, w: MAP.WALL_ART.wives.w, h: MAP.WALL_ART.wives.h };
-  const art = paintings([{ ...at, paint: wivesWhoStay, ground: 0x12100f, canvas: 'wives' }, { ...at, paint: wifeWhoLeaves, bare: true, alone: true, canvas: 'wives' }], ctx.M, { name: 'painted:wives', lift: 0.3, fill: 0.2 });
+  // her figure ripples out from between her face and her shoulders (1.5 face half-widths down)
+  const cellAspect = MAP.WALL_ART.wives.w / MAP.WALL_ART.wives.h;
+  const ripple = { u: WIFE_SPOT.u, v: WIFE_SPOT.v + 1.5 * WIFE_SPOT.s * cellAspect };
+  const art = paintings([{ ...at, paint: wivesWhoStay, ground: 0x12100f, canvas: 'wives' }, { ...at, paint: wifeWhoLeaves, bare: true, alone: true, canvas: 'wives', ripple }], ctx.M, { name: 'painted:wives', lift: 0.3, fill: 0.2 });
+  // The emergence as the canvas shows it (logic/emerge.js): read from the sim's e.emerge while she
+  // comes out; on a restore that seats her back in it, the same curve read backward (settle counts
+  // down from the emergence's length): the paint settles where she was. For the smoke harness too.
+  const EK = {};
+  const shown = { paint: 1, ripple: 0, head: 1, t: -1, settle: 0 };
+  art.group.userData.wifeEmerge = shown;
+  let wasAway = false; let settle = 0;
   return {
     g: art.group, figures: { 'painting of the three wives': art.group },
     reset() { art.rest(); },
@@ -1466,13 +1845,23 @@ function buildCorridorSet(ctx) {
       // on following at half pace through the fight (the owner, 2026-11-18; the art critic).
       const w = c.w;
       let away = false;
+      let t = -1; // seconds into her coming out, while she is
       if (w) {
         const e = c.sim.enemies.find(isWife);
         const st = e ? String(e.state) : '';
         away = !!(w.done && w.done.wife) || !!(e && st !== 'painting' && st !== 'stir');
+        if (e && st === 'stir' && e.emerge != null) t = e.emerge;
       }
       art.hide(1, away);
       art.watch(c.eye, c.dt, false, c.reduced, c.pl ? c.pl.yaw : NaN, away);
+      const ET = (c.sim && c.sim.cfg && c.sim.cfg.wife && c.sim.cfg.wife.emergeTime) || EMERGE.time;
+      if (wasAway && !away && !(w && w.done && w.done.wife)) settle = ET; // seated back in it: the paint settles
+      wasAway = away;
+      if (settle > 0 && t < 0) { settle = Math.max(0, settle - c.dt); t = settle; } else settle = 0;
+      emergeAt(Math.max(0, t), ET, EK);
+      const paint = away ? 0 : EK.paint;
+      art.emerge(1, paint, (c.reduced ? 0.35 : 1) * EK.ripple, EK.head, c.time, c.reduced ? 0 : 0.8 * EK.ripple);
+      shown.paint = paint; shown.ripple = EK.ripple; shown.head = away ? 0 : EK.head; shown.t = t; shown.settle = settle;
     },
   };
 }

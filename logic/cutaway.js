@@ -107,6 +107,13 @@ export const CUTAWAY = f({
   // the warm lift on the creature (the view's rim and key): 0 on the road beat, up as the crane
   // lands, `run` of it on the set
   light: { run: 0.6 },
+  // the film's light on the castle front (the art critic, 2026-11-18: "the castle reads overcast ...
+  // same sun, same colour, only given a direction"): on the run beat only, the boulder moment's own
+  // sun (the view aims it along the road's key direction, in the road's sun colour) is thrown as the
+  // castle's shadowed key at `key`; the road's fill times `fill`; the grade's emissive floor times
+  // `floor`, warmed to `floorHex`; the stone tinted `tint` (the critic: chroma toward the road's
+  // earth); the deck (the castle's fittings) lifted by `deck`; the torches' pools times `torch`
+  sun: { key: 6, fill: 1.5, floor: 0.65, floorHex: 0x7a5a48, tint: [1, 0.94, 0.86], deck: 0.15, torch: 1.5 },
   near: 15, // no live foe within this many metres of the warden when it starts (never over a fight)
 });
 
@@ -461,6 +468,42 @@ export function cutawayBlack(t) {
   return smooth((t - (CUTAWAY.total - CUTAWAY.fade)) / CUTAWAY.fade);
 }
 
+// ---- the film's light ----------------------------------------------------------------------------
+
+/**
+ * The film's light (the owner, 2026-11-18: "the entire scene of the werewolf running into the castle
+ * should be in the same time of day as when the boulder falls with the same lighting/coloring etc."):
+ * from its first frame to its last, every beat (the dust, the face, the run along the castle's real
+ * front, the doors and the guard) is lit by the road's light at the dark the film began on, which is
+ * the boulder moment's (the sim is frozen under the film, so it is the frame the boulder fell's, to
+ * the step or two the warden may have taken while it fell). roadOn 1: the road's light holds, with no
+ * hand-over to the castle's own moonlit night at the gate's threshold. null when the cutaway is not
+ * playing: then the road lights itself from its ratchet, exactly as before the film. Into out:
+ * { beat, dark, roadOn, front, key, fill, floor, floorHex, tint, deck, torch } (CUTAWAY.sun on the
+ * castle front; on the road's beats key 0, fill 1, floor 1, floorHex null, tint null, deck 0, torch 1).
+ */
+export function filmLightAt(sim, out = {}) {
+  const s = sim && sim.waves && sim.waves.scene;
+  if (!s || s.kind !== 'cutaway') return null;
+  const road = sim.waves.road;
+  out.beat = beatAt(s.t || 0);
+  out.dark = Number.isFinite(s.dark) ? s.dark : road && Number.isFinite(road.dark) ? road.dark : 0;
+  out.roadOn = 1;
+  // the castle front (the run beat): the same sun, given a direction (CUTAWAY.sun); the road's
+  // beats exactly the boulder frame's light, nothing added
+  const front = out.beat === 'run';
+  const S = CUTAWAY.sun;
+  out.front = front;
+  out.key = front ? S.key : 0;
+  out.fill = front ? S.fill : 1;
+  out.floor = front ? S.floor : 1;
+  out.floorHex = front ? S.floorHex : null;
+  out.tint = front ? S.tint : null;
+  out.deck = front ? S.deck : 0;
+  out.torch = front ? S.torch : 1;
+  return out;
+}
+
 // ---- the rules -----------------------------------------------------------------------------------
 
 /** True when the road's cutaway is due and the warden is clear to watch it: alive, playing, no scene, no foe near. */
@@ -485,6 +528,7 @@ export function startCutaway(sim, events) {
   w.scene = {
     kind: 'cutaway', t: 0, left: CUTAWAY.total, total: CUTAWAY.total, skippable: true,
     x: w.road.boulder.x,
+    dark: w.road.dark, // the time of day the whole film is held at (filmLightAt)
     from: { x: pl.x, y: (pl.y || 0) + eye, z: pl.z, yaw: pl.yaw || 0, pitch: pl.pitch || 0 },
   };
   w.road.cutaway.state = 'play';

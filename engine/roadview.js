@@ -21,7 +21,7 @@ import * as S from './sculpt.js';
 import { buildTunnel } from './tunnel.js';
 import { buildRoadSurface, buildRoadProps } from './roadsurface.js'; // the owner: variability along the whole road, a few derelicts
 import { createRoadCreature } from './roadcreature.js'; // the second boulder, the rubble, the werewolf and the cutaway's set
-import { cutawayAt, beatAt } from '../logic/cutaway.js'; // the werewolf cutaway's film (its camera here)
+import { cutawayAt, filmLightAt } from '../logic/cutaway.js'; // the werewolf cutaway's film (its camera and its light here)
 import { SET } from './court.js';
 import {
   LINE, RECTS, ROAD, LENGTH, stationAt, pointAt, heightAt, onRoad, boulderAt, boulderRockAt, BOULDER_ROCKS, BATS_X, BATS_DIR, BOULDER_X, BOULDER_DIR,
@@ -64,6 +64,10 @@ const BARK_FLOOR = 0.55; // the wood's and stones' shadow-side floor, in the sam
 const rgb = (c, a) => c.setRGB(a[0], a[1], a[2], THREE.SRGBColorSpace);
 const LIFT_RGB = [0, 0, 0]; // scratch: the land's lift colour this frame
 const CASTLE_FLOOR = 0.3; // the castle stone's emissive floor in the dark stretch, in the haze's colour (calibrated on the leg 5 still)
+// The werewolf film's sun on the castle front (logic/cutaway.js CUTAWAY.sun): the castle's shadowed key
+// stands this far from its target along the road's own key direction (the moon key's own distance, so
+// the shadow camera's near and far, set for it, still fit)
+const KEY_FAR = 95;
 const _c2 = new THREE.Color();
 
 // ---- the hillside -----------------------------------------------------------------------------
@@ -789,7 +793,10 @@ export function createRoadView(root, parts) {
   const EYE_UP = GIANT_PATH.eye; // the warden's eye over their feet (keepconfig player.eyeHeight)
   let trailAcc = 0; // the dust trail's part-particles carried from frame to frame
   let roadOn = 1; // the road's light holding (1) or handed to the forecourt's (0): the reveal at the gate
-  let filmShot = null; // the werewolf cutaway's beat last frame: its cuts to and from the castle's front take the light at once
+  const filmLight = {}; // filmLightAt's answer, reused every frame
+  let keyHeld = false; // the castle's key is the film's sun: its own place and colour kept to put back
+  const keyPlace = new THREE.Vector3();
+  const keyColour = new THREE.Color();
   const MOON_HALO = parts.moonHalo ? parts.moonHalo.opacity : 0;
 
   /**
@@ -799,18 +806,17 @@ export function createRoadView(root, parts) {
   function update(sim, dt, time, inRun, outside, eye) {
     group.visible = outside;
     const road = inRun && sim.waves ? sim.waves.road : null;
-    const dark = road ? road.dark : 1;
+    // the werewolf cutaway (the owner, 2026-11-18: "the entire scene ... should be in the same time
+    // of day as when the boulder falls"): the whole film, the castle's real front included, is held
+    // at the dark it began on (logic/cutaway.js filmLightAt), with no hand-over to the castle's night
+    const held = road ? filmLightAt(sim, filmLight) : null;
+    const dark = held ? held.dark : road ? road.dark : 1;
 
     // ---- the light: the colour script, kept state on the ratchet (logic/roadlight.js) ----
     // `on`: how much the road's light holds, 1 on the road, 0 past the gate, where castle.js's own
     // light (which the courtyard end of the script equals) takes over unchanged.
-    const want = road && outside && eye && eye.z >= GATE_Z ? 1 : 0;
-    // the film cuts from the bank to the castle's front and, at its end, back to the warden: a cut
-    // takes the light of where it lands at once (the gate's reveal is for walking through it)
-    const film = sim && sim.waves && sim.waves.scene && sim.waves.scene.kind === 'cutaway' ? beatAt(sim.waves.scene.t || 0) : null;
-    const cutNow = film !== filmShot && (film === 'run' || filmShot === 'run');
-    filmShot = film;
-    roadOn = dt === 0 || cutNow ? want : clamp(roadOn + Math.sign(want - roadOn) * dt / REVEAL);
+    const want = held ? held.roadOn : road && outside && eye && eye.z >= GATE_Z ? 1 : 0;
+    roadOn = dt === 0 || held ? want : clamp(roadOn + Math.sign(want - roadOn) * dt / REVEAL);
     const on = outside ? smooth(roadOn) : 0;
     const L = roadLight(dark);
     const dusk = outside ? L.dusk : 0;
@@ -846,8 +852,15 @@ export function createRoadView(root, parts) {
     // stone on the top stretch; its windows come on a few at a time as the sun sets
     const shade = lerp(1, L.castleShade, on);
     // never black (the owner): as its own light goes, the stone keeps a floor of the haze's colour
-    rgb(_c2, L.peaksRGB).multiplyScalar(CASTLE_FLOOR * (1 - L.castleShade) * on);
-    for (const m of parts.castleStone || []) { m.color.setScalar(shade); m.emissive.copy(_c2); }
+    // (on the film's castle front: lower and warmer, the stone a little warmer, the deck lifted)
+    if (held && held.floorHex != null) _c2.setHex(held.floorHex); else rgb(_c2, L.peaksRGB);
+    _c2.multiplyScalar(CASTLE_FLOOR * (1 - L.castleShade) * on * (held ? held.floor : 1));
+    for (const m of parts.castleStone || []) {
+      const lift = held && !m.userData.stone ? 1 + held.deck : 1; // the fittings: the drawbridge's planks among them
+      if (held && held.tint) m.color.setRGB(shade * lift * held.tint[0], shade * lift * held.tint[1], shade * lift * held.tint[2]);
+      else m.color.setScalar(shade * lift);
+      m.emissive.copy(_c2);
+    }
     const wm = parts.windowMats;
     if (wm) for (let k = 0; k < wm.length; k++) wm[k].visible = on < 0.5 || L.windows[k] > 0;
     // the land's lift: the ground's value rises in a straight line (the script's road values)
@@ -865,7 +878,7 @@ export function createRoadView(root, parts) {
       sunToward(Math.max(L.sunElevDeg, -2) + KEY_RAISE, lightDir).lerp(moonFill, L.moonK).normalize();
       parts.fill.position.lerp(_p.copy(lightDir).multiplyScalar(100), on);
       parts.fill.color.lerp(rgb(_c, L.fillRGB), on);
-      parts.fill.intensity = lerp(parts.fill.intensity, L.fill, on);
+      parts.fill.intensity = lerp(parts.fill.intensity, L.fill, on) * (held ? held.fill : 1);
       parts.hemi.color.lerp(rgb(_c, L.hemiRGB), on);
       parts.hemi.groundColor.lerp(rgb(_c, L.groundRGB), on);
       parts.hemi.intensity = lerp(parts.hemi.intensity, L.hemi, on);
@@ -875,12 +888,22 @@ export function createRoadView(root, parts) {
       parts.starMat.opacity *= lerp(1, L.stars, on);
       parts.moonMat.opacity *= lerp(1, L.moon, on);
       parts.key.intensity *= lerp(1, L.key, on); // the moon on the castle's front only over the top stretch
+      if (held && held.key > 0) {
+        // the film's castle front (the art critic: "same sun, same colour, only given a direction"):
+        // the castle's shadowed key becomes the boulder moment's sun, along the road's own key
+        // direction (lightDir, above) in its colour, so the front has a lit side and a shadow side
+        if (!keyHeld) { keyPlace.copy(parts.key.position); keyColour.copy(parts.key.color); keyHeld = true; }
+        parts.key.position.copy(parts.key.target.position).addScaledVector(lightDir, KEY_FAR);
+        rgb(parts.key.color, L.fillRGB);
+        parts.key.intensity = held.key;
+      }
       const r = parts.getRenderer();
       if (r && inRun) r.toneMappingExposure = lerp(COURTYARD.exposure, L.exposure, on);
     } else {
       const r = parts.getRenderer();
       if (r && inRun) r.toneMappingExposure = COURTYARD.exposure;
     }
+    if (keyHeld && !(held && held.key > 0)) { parts.key.position.copy(keyPlace); parts.key.color.copy(keyColour); keyHeld = false; } // put back exactly
     // the bats' wings glow blood-orange where the low sun is behind them (the colour script)
     batMat.emissive.copy(rgb(_c, L.fillRGB)).multiplyScalar(0.35 * smooth((L.sunElevDeg + 2) / 4) * on);
     // what lit the road this frame, for the smoke's check that it follows the ratchet to the courtyard's light
