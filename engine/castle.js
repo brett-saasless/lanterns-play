@@ -9,6 +9,12 @@
 // down: open joints, damp at the foot of the wall, fallen mortar, a torch, a tattered red banner
 // with a black bat-winged heart, and a carved fanged grin over the arch.
 //
+// The Dracula pass (logic/vamp.js, vampkit.js): a house fit for the Count, decayed grandeur that
+// deepens room by room toward him. Each dressed zone takes its decor from the plan (the Count's arms,
+// gargoyles and carved bats, coffins in niches, iron chandeliers and candelabras with dripped wax,
+// cobwebs, dust in the light) merged into its own meshes, its stone a shade darker and its flames' and
+// shadows' light a shade redder by its richness. No light is added.
+//
 // Draw calls: each zone is a handful of merged meshes (stone, floor, fittings, cloth, glass,
 // flames, glows); only the occupied zone and the zones through its doors are drawn. One spot
 // light with the one shadow map is the zone's key (moon or fire); five point lights are shared
@@ -26,6 +32,8 @@ import { cutawayAt, CUTAWAY } from '../logic/cutaway.js'; // the werewolf cutawa
 import { buildDawnView, DAWN_SUN } from './dawnview.js'; // art pass K1: the sunrise out of the Count's windows
 import { nightSky, SKY } from '../logic/nightsky.js'; // fix/wives-window: the moon and stars seen through a passage's slit
 import { SIGHT } from '../logic/sightlines.js'; // fix/doorway-sky: which zones are in sight of which
+import * as V from '../logic/vamp.js'; // the Dracula pass: how rich each room is, its grade, where the decor stands
+import { createVampKit, placeMatrix } from './vampkit.js'; // the Dracula pass's shared kit (gargoyles, crests, coffins, chandeliers, cobwebs, dust)
 
 const HUE = ST.STONE;
 const INSET = 0; // walls stand just outside a zone's clear floor, as keepmap.js builds them
@@ -442,6 +450,8 @@ export function buildCastle(scene, cfg) {
 
   // A baked pool of candlelight (the tea room's exit candle): additive, vertex-coloured fans on the floor and the
   // wall, no texture and no real light. Its opacity is the flame's flicker (update), so the pool breathes with it.
+  const _dv = new THREE.Vector3(); // the Dracula pass's scratch point (build time only)
+  const vamp = createVampKit({ time: flameTime }); // the Dracula pass: its three shared materials; the dust drifts on the flames' clock
   const glowMat = new THREE.MeshBasicMaterial({
     vertexColors: true, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide,
   });
@@ -452,6 +462,7 @@ export function buildCastle(scene, cfg) {
     ...z, index: i, group: new THREE.Group(), neighbours: new Set(),
     stone: [], worn: [], floorParts: {}, fit: [], cloth: [], rug: [], glass: [], lit: [], dark: [], ridge: [], glow: [], sky: [],
     flames: flameBuilder(), halos: [], fires: [], leaves: [],
+    crest: [], web: [], motes: [], moonGlow: [], grade: V.gradeOf(z.id), // the Dracula pass
   }));
   const byId = Object.fromEntries(zones.map((z) => [z.id, z]));
   for (const z of zones) {
@@ -878,6 +889,10 @@ export function buildCastle(scene, cfg) {
   buildMirror(byId.mirror);
   buildNursery(byId.nursery);
   buildCount(byId.count);
+  for (const z of zones) dress(z);
+  // the grade: a dressed zone's flames throw a light a shade redder (the pool and a fire key)
+  for (const z of zones) for (const fr of z.fires) fr.red = z.grade.fire;
+  for (const [id, k] of Object.entries(keys)) if (k.kind === 'fire' && byId[id]) k.red = byId[id].grade.fire;
 
   function buildHall(z) {
     const r = z.rects[0];
@@ -1185,6 +1200,78 @@ export function buildCastle(scene, cfg) {
     z.ambient = 2.8;
   }
 
+  // ---- the Dracula pass: a zone's decor, from the plan (logic/vamp.js) ----
+
+  /**
+   * Builds every placement vamp.js lists for zone z into the zone's own lists: carved stone into its
+   * walls' mesh, iron, wood and wax into its fittings, candle flames into its flame and halo draws with
+   * a baked pool for their light, the arms into one atlas mesh, the webs into one mesh, the dust into
+   * one points draw. No collider: everything stands on a wall, in a corner, high, or hangs.
+   */
+  function dress(z) {
+    const list = V.decorFor(z.id);
+    if (!list.length) return;
+    const walls = wallList(z);
+    const rgb = z.grade.glow;
+    const webTris = [];
+    const put = (geo, m) => (geo ? geo.applyMatrix4(m) : null);
+    const lit = (m, fl) => {
+      for (const f of fl) {
+        _dv.set(f[0], f[1], f[2]).applyMatrix4(m);
+        z.flames.add(_dv.x, _dv.y, _dv.z, f[3], _dv.x * 2.3 + _dv.z * 1.1);
+        z.halos.push(_dv.x, _dv.y + f[3] * 0.5, _dv.z);
+      }
+    };
+    for (const p of list) {
+      const m = p.kind === 'web' || p.kind === 'motes' ? null : placeMatrix(p.x, p.y, p.z, p.n, p.out || 0);
+      if (p.kind === 'gargoyle') {
+        const b = vamp.gargoyle({ variant: p.variant, h: p.h, seed: p.seed, corbel: p.mount !== 'top', wings: p.wings, edge: p.edge });
+        walls.push(put(b.stone, m)); if (b.fit) z.fit.push(put(b.fit, m));
+        if (p.rim) z.moonGlow.push(vamp.glowDisc([p.x, p.y + p.h * 0.55, p.z + p.n[1] * 0.02 + 0.0], [0.85, 0, 0], [0, 0.9, 0], V.GRADE.moon, 0.26)); // a moonlit rim behind it on the pier
+      } else if (p.kind === 'bat') {
+        const b = vamp.bat({ variant: p.variant, w: p.w, tilt: p.tilt, seed: p.seed });
+        walls.push(put(b.stone, m)); if (b.fit) z.fit.push(put(b.fit, m));
+      } else if (p.kind === 'crest') {
+        const b = vamp.crest({ variant: p.variant, finish: p.finish, w: p.w, h: p.h, proud: p.proud, frame: p.frame });
+        z.crest.push(put(b.quad, m)); walls.push(put(b.stone, m)); if (b.fit) z.fit.push(put(b.fit, m));
+      } else if (p.kind === 'coffin') {
+        const b = vamp.coffin({ variant: p.variant, w: p.w, h: p.h, proud: p.proud });
+        walls.push(put(b.stone, m)); z.fit.push(put(b.fit, m));
+        if (p.moonlit) { // the moon through the slit opposite falls on it: a still, cold pool on the lid
+          const al = [p.n[1], 0, -p.n[0]];
+          z.moonGlow.push(vamp.glowDisc([p.x + p.n[0] * (p.proud + 0.01), p.y + 1.0, p.z + p.n[1] * (p.proud + 0.01)], al.map((v) => v * 0.62), [0, 0.9 * 1.15, 0], V.GRADE.moon, 0.245)); // 0.9 m, the niche the brightest thing down the passage
+        }
+      } else if (p.kind === 'bottle') {
+        walls.push(put(vamp.bottle({ w: p.w, h: p.h }).stone, m));
+      } else if (p.kind === 'chandelier') {
+        const b = vamp.chandelier({ variant: p.variant, arms: p.arms, w: p.w, h: p.h, seed: z.index + 3 });
+        z.fit.push(put(b.fit, m));
+        lit(m, b.flames);
+        for (const t of b.webs) webTris.push(t.map((q) => _dv.set(q[0], q[1], q[2]).applyMatrix4(m).toArray()));
+        z.glow.push(vamp.glowDisc([p.x, z.y + 0.03, p.z], [2.6, 0, 0], [0, 0, 2.6], rgb, 0.2)); // its pool on the floor
+      } else if (p.kind === 'candelabra') {
+        const b = vamp.candelabra({ variant: p.variant, arms: p.arms, w: p.w, seed: z.index + p.y });
+        z.fit.push(put(b.fit, m));
+        lit(m, b.flames);
+        const al = [p.n[1], 0, -p.n[0]]; // along the wall
+        z.glow.push(vamp.glowDisc([p.x + p.n[0] * 0.03, p.y + 0.42, p.z + p.n[1] * 0.03], al.map((v) => v * 0.75), [0, 0.95, 0], rgb, 0.34)); // on the wall behind
+        z.glow.push(vamp.glowDisc([p.x + p.n[0] * 0.7, z.y + 0.03, p.z + p.n[1] * 0.7], al.map((v) => v * 1.3), [p.n[0] * 0.8, 0, p.n[1] * 0.8], rgb, 0.16)); // and on the floor under it
+      } else if (p.kind === 'web') webTris.push(p.pts);
+      else if (p.kind === 'motes') z.motes.push(p);
+    }
+    if (webTris.length) z.web.push(vamp.webs(webTris));
+  }
+
+  /** The grade on a zone's merged stone: a shade darker and redder by its richness (vertex colour only). */
+  function gradeStone(geo, g) {
+    if (!g.r) return geo;
+    const c = geo.attributes.color;
+    if (!c) return geo;
+    const a = c.array; const kr = g.stoneK * (1 + g.warm); const kg = g.stoneK; const kb = g.stoneK * (1 - g.warm);
+    for (let i = 0; i < a.length; i += 3) { a[i] *= kr; a[i + 1] *= kg; a[i + 2] *= kb; }
+    return geo;
+  }
+
   // ---- the exterior ----
 
   function buildOutside(z) {
@@ -1222,7 +1309,8 @@ export function buildCastle(scene, cfg) {
     parapet([1.9, A.z1 + h2], [A.x1, A.z1 + h2]);
     for (const sd of [-1, 1]) {
       stone.push(ST.block(sd * 1.9, 0, A.z1 + h2, 0.8, 3.0, 0.8, 0xffffff), ST.block(sd * 1.9, 3.0, A.z1 + h2, 1.0, 0.16, 1.0, 0xf1f3f5));
-      stone.push(S.tint(new THREE.ConeGeometry(0.6, 0.7, 4).deleteAttribute('uv').rotateY(Math.PI / 4).translate(sd * 1.9, 3.5, A.z1 + h2), 0xe9ebee, 0.1));
+      // the Dracula pass: a gargoyle crouches on each of these caps in place of the stone finial (vamp.js)
+      if (!V.decorFor('outside').some((p) => p.id === (sd < 0 ? 'gate-w' : 'gate-e'))) stone.push(S.tint(new THREE.ConeGeometry(0.6, 0.7, 4).deleteAttribute('uv').rotateY(Math.PI / 4).translate(sd * 1.9, 3.5, A.z1 + h2), 0xe9ebee, 0.1));
     }
     // the iron gate stands open (#29: the warden comes in by it, up the road): a leaf swung back
     // against the parapet's outer face either side
@@ -1314,7 +1402,7 @@ export function buildCastle(scene, cfg) {
       stone.push(ST.surround({ at: 0, w, h, rise: w * 0.8 }, { profile: ST.PROFILE.bead.map(([p, q]) => [p * 1.6, q * 1.6]) }).translate(x, y, zz));
       lit(x, y, w, h * 0.86, zz + 0.03, 0.4 + 0.6 * Math.abs(Math.sin(x * 1.7 + y)));
     };
-    lancet(0, door.h + 2.6, 2.4, 4.4);
+    lancet(0, door.h + 4.5, 2.2, 3.25); // raised for the Count's arms over the door (the Dracula pass); under the string course at 12.4
     for (const sx of [-1, 1]) for (const k of [0, 1, 2]) lancet(sx * (15 + k * 5.5), 6.5, 1.0, 3.4);
     // towers, round, corbelled and capped
     const tower = (x, zz, rad, h, roofH) => {
@@ -1377,8 +1465,8 @@ export function buildCastle(scene, cfg) {
 
   function finish(z) {
     const add = (m, cast = true, receive = true) => { m.castShadow = cast; m.receiveShadow = receive; z.group.add(m); return m; };
-    if (z.stone.length) add(new THREE.Mesh(S.merge(z.stone), ST.stoneMaterial('ashlar', { floorY: z.y })));
-    if (z.worn.length) add(new THREE.Mesh(S.merge(z.worn), ST.stoneMaterial('worn', { floorY: z.id === 'gallery' ? PLAN.gallery.cryptY : z.outside ? PLAN.outside.pit.y : z.y })));
+    if (z.stone.length) add(new THREE.Mesh(gradeStone(S.merge(z.stone), z.grade), ST.stoneMaterial('ashlar', { floorY: z.y })));
+    if (z.worn.length) add(new THREE.Mesh(gradeStone(S.merge(z.worn), z.grade), ST.stoneMaterial('worn', { floorY: z.id === 'gallery' ? PLAN.gallery.cryptY : z.outside ? PLAN.outside.pit.y : z.y })));
     for (const [kind, parts] of Object.entries(z.floorParts)) add(new THREE.Mesh(S.merge(parts), ST.stoneMaterial(kind)), false);
     if (z.fit.length) add(new THREE.Mesh(S.merge(z.fit), fitMat));
     if (z.cloth.length) add(new THREE.Mesh(S.merge(z.cloth), clothMat), false);
@@ -1402,6 +1490,18 @@ export function buildCastle(scene, cfg) {
       const m = add(new THREE.Mesh(z.glow.length === 1 ? z.glow[0] : S.merge(z.glow), glowMat), false, false);
       m.renderOrder = 3;
     }
+    // the Dracula pass: the arms (one atlas), the cobwebs, the dust in the light
+    if (z.crest.length) add(new THREE.Mesh(vamp.mergeUV(z.crest), vamp.materials.crest), false, true);
+    if (z.web.length) add(new THREE.Mesh(z.web.length === 1 ? z.web[0] : vamp.mergeUV(z.web), vamp.materials.web), false, false);
+    if (z.moonGlow.length) {
+      const m = add(new THREE.Mesh(S.merge(z.moonGlow), vamp.materials.still), false, false);
+      m.renderOrder = 3;
+    }
+    if (z.motes.length) {
+      const pts = new THREE.Points(vamp.motes(z.motes, z.index + 1), vamp.materials.motes);
+      pts.renderOrder = 4;
+      z.group.add(pts);
+    }
     if (!z.flames.empty) {
       const m = add(new THREE.Mesh(z.flames.build(), flameMat), false, false);
       m.renderOrder = 3;
@@ -1413,6 +1513,7 @@ export function buildCastle(scene, cfg) {
       z.group.add(halo);
     }
     z.stone = z.worn = z.fit = z.cloth = z.rug = z.glass = z.lit = z.dark = z.ridge = z.glow = z.sky = null;
+    z.crest = z.web = z.motes = z.moonGlow = null;
     z.floorParts = null;
     z.group.visible = false;
   }
@@ -1487,7 +1588,7 @@ export function buildCastle(scene, cfg) {
       const cut = op.y > 0.001 ? { ...op, y: op.y + 0.05 } : { ...op, h: op.h + 0.05 };
       const g = ST.wall({ from, to, y0: y0 - 0.05, y1: Math.max(a.y + a.h + rise + 0.25, d.y + d.h + 0.3), t: WALL_T, openings: [cut], seed: 91 });
       const kind = b.kind === 'passage' ? 'worn' : 'ashlar';
-      const m = new THREE.Mesh(g, ST.stoneMaterial(kind, { floorY: b.y }));
+      const m = new THREE.Mesh(gradeStone(g, a.grade), ST.stoneMaterial(kind, { floorY: b.y })); // graded as the zone it is drawn in
       m.name = `castle:cap-${d.id}-${a.id}`;
       m.castShadow = true; m.receiveShadow = true;
       a.group.add(m);
@@ -1831,6 +1932,7 @@ export function buildCastle(scene, cfg) {
           key.target.position.set(want.target[0], want.target[1], want.target[2]);
           key.target.updateMatrixWorld();
           key.color.setHex(want.color);
+          if (want.red) key.color.lerp(_vFire, want.red); // the Dracula pass: a dressed room's fire leans red
           key.angle = want.angle; key.penumbra = want.penumbra; key.decay = want.decay; key.distance = want.distance;
           const far = Math.hypot(want.pos[0] - want.target[0], want.pos[1] - want.target[1], want.pos[2] - want.target[2]);
           key.shadow.camera.near = want.kind === 'fire' ? 0.3 : Math.max(1, far * 0.35);
@@ -1891,8 +1993,11 @@ export function buildCastle(scene, cfg) {
       const s = pool[i];
       if (s.at && s.at.stamp === stamp) s.level = Math.min(1, s.level + dt * 2.5);
       // K4: the flames' share; a passage's torches keep more of it, the pools that make a passage readable (K2)
+      s.l.color.copy(_fireC);
+      if (s.at && s.at.red) s.l.color.lerp(_vFire, s.at.red); // the Dracula pass: its zone's grade
       s.l.intensity = s.at ? 12 * (s.at.passage ? PASSAGE_FIRE : FIRE_SHARE) * (s.at.cold ? COLD.fire : 1) * s.at.power * clamp(s.level) * lightFlicker(time, s.at.seed) * filmTorch : 0;
     }
+    vamp.materials.still.opacity = 1 - V.MOON_BREATH.depth + V.MOON_BREATH.depth * Math.sin(time * TAU / V.MOON_BREATH.period); // the moon's still glow breathes over 25 s
     glowMat.opacity = lightFlicker(time, 4.7); // the exit candle's pool breathes with its flame (slow drift under reduced flash)
     haloMat.opacity = 0.26 * (reduced ? 1 : 0.9 + 0.1 * Math.sin(time * 9.1) + 0.06 * Math.sin(time * 23.3));
 
@@ -1905,21 +2010,28 @@ export function buildCastle(scene, cfg) {
     hemi.color.setHex(0x6f86b4);
     if (cold) hemi.color.setHex(COLD.hemi);
     hemi.color.lerp(_gold, dawnLevel * 0.8);
+    if (cur.grade.sky) hemi.color.lerp(_vSky, cur.grade.sky); // the Dracula pass: the night air a shade toward crimson
     dawnGlass.opacity = 0.42 - 0.39 * dawnLevel; // K1: the glass clears as the sun comes up, so it lays no veil on the view
     if (dawnView) dawnView.setLevel(dawnLevel);
     fill.intensity += ((cur.outside ? 1.1 : 0) - fill.intensity) * mixK;
     fog.density += ((cur.outside ? 0.0055 : 0.022) - fog.density) * mixK;
     fog.color.setHex(HUE.night).lerp(_gold, dawnLevel * 0.25);
+    if (cur.grade.fog) fog.color.lerp(_vFog, cur.grade.fog);
     background.copy(fog.color);
     fill.position.set(-0.5, 0.6, 0.8); // the night's own fill: the road steers it below (#29)
     fill.color.setHex(HUE.moon);
     hemi.groundColor.setHex(0x45536f);
     roadView.update(sim, dt, time, !!inRun, !!cur.outside, eye); // #29: on the road the evening has the last word
     if (cold) hemi.groundColor.setHex(COLD.ground);
+    if (cur.grade.shadow) hemi.groundColor.lerp(_vShadow, cur.grade.shadow); // and the shadows
     // K9: the crags sit a grade over the roofs' black, in the night sky's hue (on the road, over its evening grade)
     ridgeMat.color.copy(darkMat.color).add(_ridgeLift);
   }
   const _gold = new THREE.Color(HUE.dawn);
+  // the Dracula pass's grade targets (logic/vamp.js GRADE), made once
+  const _fireC = new THREE.Color(FIRELIGHT);
+  const _vFire = new THREE.Color(V.GRADE.fire.hex); const _vSky = new THREE.Color(V.GRADE.sky.hex);
+  const _vShadow = new THREE.Color(V.GRADE.shadow.hex); const _vFog = new THREE.Color(V.GRADE.fog.hex);
   const _ridgeLift = new THREE.Color(RIDGE).sub(new THREE.Color(0x080b12));
 
   // ---- the title fly-through: over the bridge, in at the door and through every room ----
@@ -2043,6 +2155,7 @@ export function buildCastle(scene, cfg) {
       }
     });
     for (const m of rugMats.values()) { m.map.dispose(); m.dispose(); }
+    vamp.dispose(); // its materials, whether or not a zone drew them
     rugMats.clear();
     if (key.shadow.map) { key.shadow.map.dispose(); key.shadow.map = null; }
     root.userData.castle = null;

@@ -28,6 +28,7 @@ import { DRESS } from './roadcreature.js'; // the werewolf-beefeater's uniform: 
 import { bustGeometry, bustSet, BUST } from './busts.js';
 import { headYawToward, headSeen, HEAD_TURN } from '../logic/headturn.js';
 import { EMERGE, emergeAt } from '../logic/emerge.js'; // the wife coming out of her painting
+import { CLAW_EMERGE, clawStrikeAt, clawPoseAt } from '../logic/clawemerge.js'; // the werewolf's painted hand coming out to strike
 import { SUIT_RODS, SUIT_REST, heapLayout, planFall, trackAt } from '../logic/debris.js'; // a fallen suit's pieces, kept out of stone
 import { cutawayAt, CUTAWAY } from '../logic/cutaway.js'; // the werewolf cutaway: it poses the fighting suit at the real door
 const CUT_SUIT = CUTAWAY.guard.suit;
@@ -332,7 +333,7 @@ const wifeWhoLeaves = (g, w, h) => paintSitter(g, w * WIFE_SPOT.u, h * WIFE_SPOT
  * running up the hill (roadcreature.js, its own colours: DRESS): the weathered Tudor red with its
  * dulled gold bands and belt and a scrap of the badge, the soiled ruff, the flat bonnet askew with
  * his ears up through it, fur at the neck, the cuffs and the hands. One clawed hand is raised at the
- * front of the canvas, four long hooked claws, bone at the tips (MAP.WEREWOLF_CLAW, as the arm that
+ * front of the canvas (its own layer, paintWerewolfHand: it is the hand that strikes), four long hooked claws, bone at the tips (MAP.WEREWOLF_CLAW, as the arm that
  * comes out of it), large enough to read across the room; the other hangs. Yellow eyes, which the
  * iris discs lie on (their place and size as before).
  */
@@ -453,19 +454,53 @@ function paintWerewolf(g, w, h) {
     g.fillStyle = css(0x6a5246, 0.8);
     g.beginPath(); g.moveTo(cx + sx * s * 0.86, cy - s * 1.1); g.lineTo(cx + sx * s * 1.2, cy - s * 1.85); g.lineTo(cx + sx * s * 0.6, cy - s * 1.15); g.closePath(); g.fill();
   }
-  // the raised hand, at the front of the canvas: the sleeve up from the elbow, the gold at the
-  // cuff, fur at the wrist, and four long hooked claws, bone at their tips (MAP.WEREWOLF_CLAW)
-  const C = MAP.WEREWOLF_CLAW;
+  // the raised arm's upper half, from the shoulder down to the elbow (de Casteljau's halves of the one
+  // curve it was painted as): the forearm and the hand above it are their own layer (paintWerewolfHand),
+  // the one that comes out of the canvas to strike, and the 3D arm grows from this elbow
   g.lineCap = 'round';
   g.strokeStyle = css(D.TUDOR); g.lineWidth = s * 0.66;
-  g.beginPath(); g.moveTo(cx + s * 1.5, cy + s * 2.6); g.quadraticCurveTo(cx + s * 2.95, cy + s * 4.1, cx + s * 2.25, cy + s * 2.55); g.stroke();
+  g.beginPath(); g.moveTo(cx + s * 1.5, cy + s * 2.6); g.quadraticCurveTo(cx + s * 2.225, cy + s * 3.35, cx + s * WW_ELBOW.x, cy + s * WW_ELBOW.y); g.stroke();
   g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = s * 0.3; // the sleeve's shadowed side
-  g.beginPath(); g.moveTo(cx + s * 1.75, cy + s * 2.95); g.quadraticCurveTo(cx + s * 3.05, cy + s * 4.0, cx + s * 2.55, cy + s * 2.6); g.stroke();
+  g.beginPath(); g.moveTo(cx + s * 1.75, cy + s * 2.95); g.quadraticCurveTo(cx + s * 2.4, cy + s * 3.475, cx + s * 2.6, cy + s * 3.3875); g.stroke();
+  g.lineCap = 'butt';
+  varnish(g, w, h, 12);
+  return [{ x: cx - ex, y: ey, r: er, hex: 0x120a04, white: 0xd9b23a }, { x: cx + ex, y: ey, r: er, hex: 0x120a04, white: 0xd9b23a }];
+}
+
+/**
+ * The werewolf's raised left hand (on the viewer's right), its own cut-out layer over the canvas
+ * (paintWerewolf leaves it out): the red sleeve up from the elbow, the gold band at the cuff, fur at
+ * the wrist, and four long hooked claws, bone at their tips (MAP.WEREWOLF_CLAW), large enough to read
+ * across the room. It is what strikes: it ripples and falls away from the canvas as the 3D arm
+ * (buildTeaSet) comes off it, in its place and at its size, and settles back when the arm goes home.
+ * The places are WW_ELBOW, WW_WRIST and WW_PALM (shares of s = 0.14 of the width, from the head at
+ * (w / 2, 0.34 h)), which the 3D arm reads too.
+ */
+const WW_ELBOW = Object.freeze({ x: 2.4125, y: 3.3375 }); // the painted sleeve's low point, where the forearm turns up
+const WW_WRIST = Object.freeze({ x: 2.25, y: 2.55 });
+const WW_PALM = Object.freeze({ x: 2.12, y: 1.75 });
+const WW_HAND = 1.3; // the hand's size, in s: drawn large, it is what the eye should find across the room
+function paintWerewolfHand(g, w, h) {
+  const cx = w * 0.5; const cy = h * 0.34; const s = w * 0.14;
+  const D = DRESS; const C = MAP.WEREWOLF_CLAW;
+  const fur = (x, y, r, n, seed, col, len = 7) => {
+    g.strokeStyle = col; g.lineWidth = 1.4;
+    for (let i = 0; i < n; i++) {
+      const a = hash(i, seed) * TAU; const d = Math.sqrt(hash(i, seed + 1)) * r;
+      const px = x + Math.cos(a) * d; const py = y + Math.sin(a) * d * 0.8;
+      g.beginPath(); g.moveTo(px, py); g.lineTo(px + (hash(i, seed + 2) - 0.5) * 6, py + len * (0.6 + hash(i, seed + 3))); g.stroke();
+    }
+  };
+  g.lineCap = 'round';
+  g.strokeStyle = css(D.TUDOR); g.lineWidth = s * 0.66;
+  g.beginPath(); g.moveTo(cx + s * WW_ELBOW.x, cy + s * WW_ELBOW.y); g.quadraticCurveTo(cx + s * 2.6, cy + s * 3.325, cx + s * WW_WRIST.x, cy + s * WW_WRIST.y); g.stroke();
+  g.strokeStyle = 'rgba(0,0,0,0.45)'; g.lineWidth = s * 0.3; // the sleeve's shadowed side
+  g.beginPath(); g.moveTo(cx + s * 2.6, cy + s * 3.3875); g.quadraticCurveTo(cx + s * 2.8, cy + s * 3.3, cx + s * 2.55, cy + s * 2.6); g.stroke();
   g.strokeStyle = css(D.TRIM, 0.9); g.lineWidth = s * 0.14; // the cuff's gold band
   g.beginPath(); g.moveTo(cx + s * 2.0, cy + s * 2.7); g.lineTo(cx + s * 2.75, cy + s * 2.6); g.stroke();
   fur(cx + s * 2.2, cy + s * 2.3, s * 0.45, 60, 71, css(D.FUR, 0.95), 6);
-  const px = cx + s * 2.12; const py = cy + s * 1.75; // the palm
-  const hs = s * 1.3; // the hand drawn large: it is what the eye should find across the room
+  const px = cx + s * WW_PALM.x; const py = cy + s * WW_PALM.y; // the palm
+  const hs = s * WW_HAND;
   g.fillStyle = css(D.FUR_DARK);
   g.beginPath(); g.ellipse(px, py, hs * 0.42, hs * 0.5, 0.15, 0, TAU); g.fill();
   for (let i = 0; i < C.fingers; i++) {
@@ -490,8 +525,7 @@ function paintWerewolf(g, w, h) {
     g.beginPath(); g.moveTo(kx - vx * base * 0.5, ky - vy * base * 0.5); g.quadraticCurveTo(qx - vx * base * 0.4, qy - vy * base * 0.4, tx, ty); g.stroke();
   }
   g.lineCap = 'butt';
-  varnish(g, w, h, 12);
-  return [{ x: cx - ex, y: ey, r: er, hex: 0x120a04, white: 0xd9b23a }, { x: cx + ex, y: ey, r: er, hex: 0x120a04, white: 0xd9b23a }];
+  return [];
 }
 
 /**
@@ -1805,45 +1839,122 @@ function buildTeaSet(ctx) {
   const reach = (ctx.cfg && ctx.cfg.werewolf && ctx.cfg.werewolf.reach) || 1.8;
   const wall = { x: T.werewolf.x + Math.sin(wyaw) * 0.14, z: T.werewolf.z + Math.cos(wyaw) * 0.14 }; // back onto the wall's face
   const G = T.werewolf.gouge; // the middle of the gouge ring keepprops.js draws: the arm comes as far as its rim
-  const art = paintings([{
-    x: wall.x - Math.sin(wyaw) * 0.04, y: 1.95, z: wall.z - Math.cos(wyaw) * 0.04, yaw: wyaw, w: MAP.WALL_ART.werewolf.w, h: MAP.WALL_ART.werewolf.h, paint: paintWerewolf, ground: 0x0b0f0c,
-  }], M, { name: 'painted:werewolf' });
-  // the arm: fur and four claws, pushed out through the canvas
-  const arm = new THREE.Group();
-  const armGeo = S.merge([
-    S.skin([{ at: [0, 0, 0.1], r: 0.17 }, { at: [0.05, -0.1, -0.7], r: 0.14 }, { at: [0, -0.26, -1.3], r: 0.1 }, { at: [0, -0.3, -1.5], r: 0.11 }],
-      { seed: 9, sides: 9, detail: 3, budget: 420, noise: 0.1, rough: 0.5, color: 0x2a2420, color2: 0x4a3f36, mottle: 0.3 }),
-    S.claw({ ...MAP.WEREWOLF_CLAW, color: 0x2a2420, tip: BONE, seed: 9 }).translate(0, -0.3, -1.56),
-  ]);
-  arm.add(mesh(armGeo, M.skin, true));
-  arm.position.set(wall.x - Math.sin(wyaw) * 0.08, 1.5, wall.z - Math.cos(wyaw) * 0.08);
+  // The painting is two layers on one canvas (as the wives'): the werewolf with the upper half of his
+  // raised arm, and over it the raised forearm and clawed hand (paintWerewolfHand), cut out, which
+  // ripples and falls away from the canvas as the 3D arm comes off it (logic/clawemerge.js).
+  const AW = MAP.WALL_ART.werewolf;
+  const at = { x: wall.x - Math.sin(wyaw) * 0.04, y: 1.95, z: wall.z - Math.cos(wyaw) * 0.04, yaw: wyaw, w: AW.w, h: AW.h };
+  const SM = 0.14 * AW.w; // the painter's s, in metres
+  const onCanvas = (q) => ({ x: SM * q.x, y: (0.16 - 0.14 * q.y * (AW.w / AW.h)) * AW.h }); // a painter's point in the plane (+x the viewer's right, +y up)
+  const elbow = onCanvas(WW_ELBOW); const wrist = onCanvas(WW_WRIST); const palm = onCanvas(WW_PALM);
+  const art = paintings([
+    { ...at, paint: paintWerewolf, ground: 0x0b0f0c, canvas: 'werewolf' },
+    { ...at, paint: paintWerewolfHand, bare: true, alone: true, canvas: 'werewolf', ripple: { u: 0.5 + 0.14 * WW_PALM.x, v: 0.34 + 0.14 * WW_PALM.y * (AW.w / AW.h) } },
+  ], M, { name: 'painted:werewolf' });
+  // The arm that strikes is that raised hand: from the painted elbow, the scarlet sleeve (DRESS, as
+  // painted) to the cuff's two gold bands and the fur at the wrist, the dark palm, four fingers and the
+  // four long hooked claws, bone at the tips. Built along +z from the elbow (the hand from the wrist),
+  // at the painted size; the view lays it upright on the canvas, flat, and swings it out at the warden
+  // while the sleeve stretches out of the canvas. Its own material (the skin's, dithered by alphaHash:
+  // no sorting, no transparency pass) crosses with the paint.
+  const D = DRESS; const C = MAP.WEREWOLF_CLAW;
+  const HS = SM * WW_HAND; // the hand's size
+  const PALM_AT = Math.hypot(palm.x - wrist.x, palm.y - wrist.y); // wrist to palm
+  const armMat = M.skin.clone(); armMat.alphaHash = true;
+  const sleeveGeo = S.skin([{ at: [0, 0, -0.03], r: 0.07 }, { at: [0, 0, 0.5], r: 0.067 }, { at: [0, 0, 1], r: 0.064 }],
+    { seed: 9, sides: 10, detail: 2, budget: 160, noise: 0.04, mottle: 0.12, color: D.TUDOR, caps: ['round', 'open'] });
+  const handParts = [
+    S.skin([{ at: [0, 0, -0.07], r: 0.07, color: D.TUDOR }, { at: [0, 0, -0.052], r: 0.072, color: D.TUDOR }, { at: [0, 0, -0.045], r: 0.076, color: D.TRIM }, { at: [0, 0, -0.03], r: 0.076, color: D.TRIM },
+      { at: [0, 0, -0.022], r: 0.074, color: D.TUDOR }, { at: [0, 0, -0.012], r: 0.074, color: D.TUDOR }, { at: [0, 0, -0.005], r: 0.077, color: D.TRIM }, { at: [0, 0, 0.01], r: 0.077, color: D.TRIM }],
+    { seed: 10, sides: 10, detail: 1, budget: 200, noise: 0.03, mottle: 0.1, caps: ['open', 'flat'] }),
+    S.skin([{ at: [0, 0, 0.0], r: 0.082 }, { at: [0, 0, 0.05], r: 0.09 }, { at: [0, 0, 0.1], r: 0.072 }],
+      { seed: 11, sides: 9, detail: 2, budget: 140, noise: 0.18, rough: 0.6, color: D.FUR, color2: D.FUR_DARK, mottle: 0.3 }),
+    ball(HS * 0.5, 0, 0, PALM_AT, D.FUR_DARK, 0.84, 0.36, 1, 0.15),
+  ];
+  for (let i = 0; i < C.fingers; i++) {
+    const f = i / (C.fingers - 1) - 0.5;
+    const a = f * C.spread * 1.9; // fanned across the hand, as painted
+    const dx = Math.sin(a); const dz = Math.cos(a); const px = Math.cos(a); const pz = -Math.sin(a);
+    const bx = dx * HS * 0.38 + px * f * HS * 0.3; const bz = PALM_AT + dz * HS * 0.38 + pz * f * HS * 0.3;
+    const kx = bx + dx * HS * 0.5; const kz = bz + dz * HS * 0.5;
+    handParts.push(S.skin([{ at: [bx, 0, bz], r: HS * 0.09 }, { at: [kx, 0, kz], r: HS * 0.075 }], { seed: 12 + i, sides: 6, detail: 1, budget: 40, noise: 0.1, color: D.FUR_DARK }));
+    const len = HS * (C.length / 0.46) * 0.95 * (1 - 0.25 * Math.abs(f * 2));
+    handParts.push(S.claw({ ...MAP.WEREWOLF_CLAW, fingers: 1, length: len, spread: 0, r: HS * 0.075, color: D.CLAW, tip: BONE, seed: 20 + i }).rotateY(Math.PI + a).translate(kx, 0, kz));
+  }
+  const handLen = PALM_AT + HS * 0.88 + HS * 0.95; // the painted wrist to the middle claws' tips
+  const mount = new THREE.Group(); // the painted elbow, in the canvas's frame (+z out into the room)
+  mount.position.set(elbow.x, elbow.y, 0.03).applyMatrix4(new THREE.Matrix4().compose(V(at.x, at.y, at.z), _q.setFromAxisAngle(_y.set(0, 1, 0), wyaw + Math.PI), ONE));
+  mount.rotation.set(0, wyaw + Math.PI, 0);
+  const pivot = new THREE.Group(); const body = new THREE.Group(); const hand = new THREE.Group();
+  const sleeve = mesh(sleeveGeo, armMat, true); const handMesh = mesh(S.merge(handParts), armMat, true);
+  hand.add(handMesh); body.add(sleeve, hand); pivot.add(body); mount.add(pivot);
+  const arm = mount;
   arm.visible = false;
   g.add(ghost.g, skel.g, art.group, arm);
-  let out = 0; let stay = 0; let swipe = 0; let aimYaw = wyaw; let raise = 0;
-  const armLen = Math.max(1, (Math.hypot(G.x - wall.x, G.z - wall.z) + reach) / 2.0);
+  // How far it reaches, and where it aims, set at each tell from where the warden's eye is: the claws
+  // stop short of the eye (0.45 m), at the face a little under it, so the hand reads coming at the
+  // warden rather than passing through the view; never past the gouges' ring (keepprops.js).
+  const reachOut = Math.hypot(G.x - wall.x, G.z - wall.z) + reach * 0.9;
+  const dims = { forearm: Math.hypot(wrist.x - elbow.x, wrist.y - elbow.y), hand: handLen, full: 0, pitch: CLAW_EMERGE.strike.pitch };
+  const target = (eye) => {
+    const dh = eye ? Math.hypot(eye.x - mount.position.x, eye.z - mount.position.z) : reachOut;
+    const dy = eye ? eye.y - 0.2 - mount.position.y : 0;
+    const d = clamp(dh - 0.45, 0.9, reachOut);
+    dims.pitch = clamp(Math.atan2(dy, dh), -0.45, 0.25);
+    dims.full = Math.max(dims.forearm, d / Math.cos(dims.pitch) - handLen * CLAW_EMERGE.grow);
+  };
+  target(null);
+  let retarget = false;
+  const pose = { e: {} }; const clock = {};
+  const qa = new THREE.Quaternion(); const qb = new THREE.Quaternion();
+  const AX = V(1, 0, 0); const AY = V(0, 1, 0); const AZ = V(0, 0, 1); const TIP = V();
+  let ta = -1; let hitAt = CLAW_EMERGE.time; let aimYaw = wyaw;
+  // the harness's window on it (scripts/smoke.mjs): hold pins the seconds since the tell, for stills
+  const shown = { hold: null, ta: -1, t: 0, paint: 1, arm: 0, ripple: 0, swipe: 0, sleeve: dims.forearm, tip: { x: 0, y: 0, z: 0 }, dims };
+  arm.userData.clawEmerge = shown;
+  const tell = (ctx.cfg && ctx.cfg.werewolf && ctx.cfg.werewolf.tell) || 0.4;
   return {
     g, figures: { ghost: ghost.g, skeleton: skel.g, 'werewolf painting': art.group, "werewolf's arm": arm },
-    reset() { ghost.reset(); out = 0; stay = 0; swipe = 0; arm.visible = false; },
+    reset() { ghost.reset(); ta = -1; arm.visible = false; art.hide(1, false); art.emerge(1, 1, 0, 1, 0, 0); },
     onEvent(ev) {
       if (ev.type === 'ghostScream') ghost.scream();
-      else if (ev.type === 'clawTell') { stay = 1.3; raise = 1; if (Number.isFinite(ev.x)) aimYaw = headingTo(ev.x - arm.position.x, ev.z - arm.position.z); }
-      else if (ev.type === 'claw') { swipe = 0.32; stay = Math.max(stay, 0.7); }
+      else if (ev.type === 'clawTell') { ta = ta >= 0 ? clawStrikeAt(ta, hitAt, clock).t : 0; hitAt = tell; retarget = true; } // from where it is: a tell while it goes home picks it up there
+      else if (ev.type === 'claw' && ta >= 0) hitAt = ta; // the swipe from the hit, as before
     },
     update(c) {
       ghost.update(c); skel.update(c);
       art.watch(c.eye, c.dt);
-      stay = Math.max(0, stay - c.dt);
-      swipe = Math.max(0, swipe - c.dt);
-      out = approach(out, stay > 0 ? 1 : 0, c.dt, stay > 0 ? (c.reduced ? 5 : 11) : 4);
-      raise = approach(raise, stay > 0 && swipe <= 0 ? 1 : 0, c.dt, 10);
-      arm.visible = out > 0.01;
-      if (arm.visible) {
-        const pl = c.pl;
-        if (pl && stay > 0) aimYaw = headingTo(pl.x - arm.position.x, pl.z - arm.position.z);
-        const s = swipe > 0 ? Math.sin(Math.PI * (1 - swipe / 0.32)) : 0;
-        arm.rotation.set(0.4 * raise - 0.55 * s, wyaw + clamp(wrap(aimYaw - wyaw), -1.0, 1.0) + 0.5 * s, 0.6 * s, 'YXZ');
-        arm.scale.set(1, 1, Math.max(0.02, out * armLen)); // it comes as far as the gouges, and no further
-      }
+      const held = Number.isFinite(shown.hold);
+      if (held) { ta = shown.hold; hitAt = tell; } else if (ta >= 0) ta += c.dt;
+      if ((held || retarget) && c.eye) { target(c.eye); retarget = false; }
+      const k = clawStrikeAt(ta, hitAt, clock);
+      if (!held && k.done) ta = -1;
+      const t = ta >= 0 ? k.t : 0; const swipe = ta >= 0 ? k.swipe : 0;
+      clawPoseAt(t, dims, pose);
+      const e = pose.e;
+      art.hide(1, e.paint <= 0);
+      art.emerge(1, e.paint, (c.reduced ? 0.35 : 1) * e.ripple, 1, c.time, c.reduced ? 0 : 0.3 * e.ripple);
+      arm.visible = e.arm > 0;
+      shown.ta = ta; shown.t = t; shown.paint = e.paint; shown.arm = arm.visible ? e.arm : 0; shown.ripple = e.ripple; shown.swipe = swipe; shown.sleeve = pose.sleeve;
+      if (!arm.visible) return;
+      const pl = c.pl;
+      if (pl && ta >= 0 && ta < CLAW_EMERGE.stay) aimYaw = headingTo(pl.x - arm.position.x, pl.z - arm.position.z);
+      const aim = clamp(wrap(aimYaw - wyaw), -1.0, 1.0) * e.swing;
+      armMat.opacity = e.arm;
+      // turn aside at the warden, lean as painted, pitch from upright on the canvas out at him, the rake's
+      // roll. The rake's sweep (0.5 aside, 0.55 down, at its height) is scaled to the arm's length, so the
+      // claws sweep about 0.3 m through the warden's view rather than out of it (the arm stops 0.45 m short of the eye)
+      const sweep = swipe * clamp(0.6 / (pose.sleeve + handLen * pose.scale), 0.2, 1);
+      pivot.quaternion.setFromAxisAngle(AY, aim + 0.5 * sweep)
+        .multiply(qa.setFromAxisAngle(AZ, pose.lean))
+        .multiply(qb.setFromAxisAngle(AX, -(pose.pitch - 0.55 * sweep)))
+        .multiply(qa.setFromAxisAngle(AZ, 0.6 * swipe));
+      body.scale.set(1, pose.depth, 1);
+      sleeve.scale.set(1, 1, pose.sleeve);
+      hand.position.set(0, 0, pose.sleeve);
+      hand.scale.setScalar(pose.scale);
+      hand.updateWorldMatrix(true, false); TIP.set(0, 0, handLen); hand.localToWorld(TIP); // the middle claws' tips, for the harness
+      shown.tip.x = TIP.x; shown.tip.y = TIP.y; shown.tip.z = TIP.z;
     },
   };
 }
