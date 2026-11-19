@@ -1,6 +1,7 @@
 // The Dracula pass's shared kit (game/logic/vamp.js holds its numbers and where everything stands):
 // the Count's coat of arms drawn once on canvas (a bat-winged dragon coiled round a bat under a crown,
-// on dusty crimson in tarnished gold; two Alice variants with a spade or a heart for the bat), used as
+// on dusty crimson in tarnished gold; three Alice variants with a spade, a heart or the Hatter's hat with
+// its 10/6 card for the bat), used as
 // a painted plaque and as a carved stone relief from one atlas; gargoyles (crouching, wings spread,
 // the Cheshire grin, one holding a teacup); carved bats (one with a pocket-watch on a chain); a coffin
 // stood in a niche with an iron-bound lid (one with a spade); an iron chandelier and a many-armed wall
@@ -17,13 +18,16 @@
 //
 // API (for the later groups):
 //   const kit = createVampKit({ time })     // time: the castle's { value } flame clock
-//   kit.gargoyle({ variant, h, seed, corbel, wings, edge }) -> { stone, fit }   (wings 'spread' on any variant, edge 'gilt')
-//   kit.bat({ variant, w, tilt, seed })             -> { stone, fit }
+//   every builder but crest takes o.lean (the lean build: fewer facets on its rounded parts; group 2)
+//   kit.gargoyle({ variant, h, seed, corbel, wings, edge, light, glow }) -> { stone, fit, glow }   (wings 'spread' on any variant, edge 'gilt',
+//                                                   light: a paler stone, glow: the Cheshire grin and eyes baked, for kit.materials.still)
+//   kit.bat({ variant, w, tilt, seed, light })      -> { stone, fit }
 //   kit.crest({ variant, finish, w, h, proud, frame }) -> { quad (uv'd, kit.materials.crest), stone, fit (frame 'gilt') }
-//   kit.coffin({ variant, w, h, proud })            -> { stone, fit }
-//   kit.chandelier({ variant, arms, w, h, seed })   -> { fit, flames: [[x, y, z, size]], webs: [[a, b, c]] }
+//                                                   variant: dracul, spade, heart or hatter (the Hatter's hat with its 10/6 card)
+//   kit.coffin({ variant, w, h, proud, lid })       -> { stone, fit }   (lid 'pale': a weathered lid)
+//   kit.chandelier({ variant, arms, w, h, seed, cups, ring }) -> { fit, flames: [[x, y, z, size]], webs: [[a, b, c]] }   (cups: teacup size, ring: ring thickness)
 //   kit.candelabra({ variant, arms, w, seed })      -> { fit, flames }
-//   kit.bottle({ w, h })                            -> { stone }   (the cracked DRINK ME, carved)
+//   kit.bottle({ w, h, gilt, label })               -> { stone | fit (gilt), quad (label: DRINK ME lettered, kit.materials.crest) }
 //   kit.webs(tris)                                  -> uv'd geometry for kit.materials.web
 //   kit.glowDisc(c, a, b, rgb, strength)            -> glow geometry (castle's flickering glowMat, or kit.materials.still)
 //   kit.motes(vols, seed)                           -> Points geometry for kit.materials.motes
@@ -43,8 +47,13 @@ const _up = V3(0, 1, 0);
 
 // ---- small parts (no uv, vertex colour) ----------------------------------------------------------
 
+// The lean build (group 2, o.lean on a builder): rounder parts drawn with fewer facets, for pieces seen
+// high up or in the dark, so a room's decor keeps to its triangle budget. Set only for the length of one build.
+let LEAN = false;
+const lean = (o, build) => { const was = LEAN; LEAN = !!o.lean; try { return build(); } finally { LEAN = was; } };
+
 function ell(rx, ry, rz, x, y, z, hex, vary = 0.12, seed = 0, ws = 7, hs = 5) {
-  const g = new THREE.SphereGeometry(1, ws, hs);
+  const g = new THREE.SphereGeometry(1, LEAN ? Math.min(ws, 5) : ws, LEAN ? Math.min(hs, 4) : hs);
   g.deleteAttribute('uv');
   g.scale(rx, ry, rz).translate(x, y, z);
   return S.tint(g, hex, vary, seed + x * 7 + y * 3);
@@ -59,7 +68,7 @@ function cone(r, h, x, y, z, hex, seg = 5, rx = 0, rz = 0, down = false) {
   return S.tint(g, hex, 0.08, x + z);
 }
 function cyl(r0, r1, h, x, y, z, hex, seg = 8, vary = 0.08) {
-  const g = new THREE.CylinderGeometry(r1, r0, h, seg);
+  const g = new THREE.CylinderGeometry(r1, r0, h, LEAN ? Math.min(seg, 6) : seg);
   g.deleteAttribute('uv');
   g.translate(x, y + h / 2, z);
   return S.tint(g, hex, vary, x - z + y);
@@ -81,14 +90,14 @@ function boxG(w, h, d, x, y, z, hex, vary = 0.1, ry = 0, rx = 0, rz = 0) {
   return S.tint(g, hex, vary, x + y + z);
 }
 function torus(R, r, x, y, z, hex, flat = true, seg = 16) {
-  const g = new THREE.TorusGeometry(R, r, 4, seg);
+  const g = new THREE.TorusGeometry(R, r, LEAN ? 3 : 4, LEAN ? Math.max(6, Math.round(seg * 0.6)) : seg);
   g.deleteAttribute('uv');
   if (flat) g.rotateX(Math.PI / 2);
   g.translate(x, y, z);
   return S.tint(g, hex, 0.1, x + z);
 }
 function lathe(pts, x, y, z, hex, seg = 10) {
-  const g = new THREE.LatheGeometry(pts.map(([a, b]) => new THREE.Vector2(a, b)), seg);
+  const g = new THREE.LatheGeometry(pts.map(([a, b]) => new THREE.Vector2(a, b)), LEAN ? Math.min(seg, 7) : seg);
   g.deleteAttribute('uv');
   g.translate(x, y, z);
   return S.tint(g, hex, 0.06, x + y);
@@ -139,8 +148,20 @@ export function placeMatrix(x, y, z, n, out = 0) {
 // ---- the coat of arms, drawn once ------------------------------------------------------------------
 
 const CELL_W = 320; const CELL_H = 384;
-const VARIANTS = ['dracul', 'spade', 'heart'];
+const VARIANTS = ['dracul', 'spade', 'heart', 'hatter'];
 const FINISHES = ['plaque', 'relief'];
+// under the arms, a strip for a bottle's label (group 2: DRINK ME lettered), LABEL_W by LABEL_H at its left
+const LABEL_W = 240; const LABEL_H = 100;
+const ATLAS_H = CELL_H * VARIANTS.length + LABEL_H;
+
+/** The DRINK ME label: old paper, a gilt rule, the words in dark ink, at (x, y) of the atlas canvas. */
+function drawLabel(g, x, y) {
+  g.save(); g.translate(x, y);
+  g.fillStyle = '#cdbf98'; g.fillRect(0, 0, LABEL_W, LABEL_H);
+  g.strokeStyle = '#8c6c30'; g.lineWidth = 6; g.strokeRect(5, 5, LABEL_W - 10, LABEL_H - 10);
+  g.fillStyle = '#2a1a0e'; g.font = 'bold 40px serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('DRINK ME', LABEL_W / 2, LABEL_H / 2 + 2);
+  g.restore();
+}
 
 // Palettes for the two finishes and the height map: the same shapes, three sets of paint.
 const PAINT = {
@@ -260,6 +281,16 @@ function drawArms(g, W, H, variant, p, rand, worn) {
   if (variant === 'dracul') {
     batPath(g, cx, cy + W * 0.01, W * 0.13); g.fillStyle = p.charge; g.fill(); g.strokeStyle = p.rim; g.lineWidth = 1.6; g.stroke();
     g.fillStyle = p.eye; for (const sd of [-1, 1]) { g.beginPath(); g.arc(cx + sd * W * 0.012, cy - W * 0.012, W * 0.006, 0, TAU); g.fill(); }
+  } else if (variant === 'hatter') { // the Hatter's hat, flared at the crown, the 10/6 card in its band (group 2, the tea room)
+    const s = W * 0.17; const hy = cy + W * 0.02;
+    g.fillStyle = p.charge; g.strokeStyle = p.rim; g.lineWidth = 1.8;
+    g.beginPath(); g.moveTo(cx - s * 0.5, hy + s * 0.36); g.lineTo(cx - s * 0.66, hy - s * 0.62); g.quadraticCurveTo(cx, hy - s * 0.74, cx + s * 0.66, hy - s * 0.62); g.lineTo(cx + s * 0.5, hy + s * 0.36); g.closePath(); g.fill(); g.stroke();
+    g.beginPath(); g.ellipse(cx, hy + s * 0.4, s * 0.98, s * 0.17, 0, 0, TAU); g.fill(); g.stroke();
+    g.fillStyle = p.heart; g.beginPath(); g.moveTo(cx - s * 0.53, hy + s * 0.12); g.lineTo(cx + s * 0.53, hy + s * 0.12); g.lineTo(cx + s * 0.51, hy + s * 0.3); g.lineTo(cx - s * 0.51, hy + s * 0.3); g.closePath(); g.fill(); g.stroke(); // the band
+    g.save(); g.translate(cx + s * 0.24, hy + s * 0.02); g.rotate(0.18);
+    g.fillStyle = p.crown; g.fillRect(-s * 0.2, -s * 0.24, s * 0.4, s * 0.44); g.strokeRect(-s * 0.2, -s * 0.24, s * 0.4, s * 0.44); // the card
+    g.fillStyle = p.borderDark; g.font = `bold ${Math.round(s * 0.17)}px serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('10/6', 0, -s * 0.02);
+    g.restore();
   } else {
     pipPath(g, variant, cx, cy + W * 0.01, W * 0.15); g.fillStyle = variant === 'heart' ? p.heart : p.charge; g.fill(); g.strokeStyle = p.rim; g.lineWidth = 2; g.stroke();
   }
@@ -291,11 +322,12 @@ function drawCanvas(w, h, draw) {
   return c;
 }
 
-/** The arms atlas: two columns (plaque, relief) by three rows (dracul, spade, heart), and its height map. */
+/** The arms atlas: two columns (plaque, relief) by four rows (dracul, spade, heart, hatter), and its height map. */
 function crestAtlas() {
-  const W = CELL_W * FINISHES.length; const H = CELL_H * VARIANTS.length;
+  const W = CELL_W * FINISHES.length; const H = ATLAS_H;
   const cell = (g, fi, vi, fn) => { g.save(); g.translate(fi * CELL_W, vi * CELL_H); g.beginPath(); g.rect(0, 0, CELL_W, CELL_H); g.clip(); fn(); g.restore(); };
   const colour = drawCanvas(W, H, (g) => {
+    drawLabel(g, 0, CELL_H * VARIANTS.length); // the DRINK ME label, in the strip under the arms
     VARIANTS.forEach((v, vi) => FINISHES.forEach((fin, fi) => cell(g, fi, vi, () => {
       const rand = S.rng(31 + vi * 7 + fi);
       drawArms(g, CELL_W, CELL_H, v, PAINT[fin], rand, true);
@@ -405,7 +437,8 @@ export function createVampKit(opts = {}) {
     const st = []; const fit = [];
     const c = (hex) => hex;
     const dark = lerp(0.88, 1.05, rand());
-    const tone = new THREE.Color(STONE).multiplyScalar(dark).getHex();
+    const tone = new THREE.Color(STONE).multiplyScalar(dark * (o.light || 1)).getHex(); // o.light: a paler stone (group 2), so it parts from a dark wall
+    let glow = null; // o.glow (the Cheshire one): a baked pale grin and cat's eyes, drawn additive over the carving
     if (o.corbel !== false) {
       st.push(boxG(0.44, 0.15, 0.5, 0, -0.075, 0.25, c(SOOT), 0.06));
       st.push(boxG(0.32, 0.12, 0.36, 0, -0.21, 0.18, c(SOOT), 0.06));
@@ -443,6 +476,16 @@ export function createVampKit(opts = {}) {
       const g = S.grin({ width: 0.25, teeth: 12, smile: 0.95, lip: SOOT, tooth: 0xd6d8da, sharp: true, seed });
       g.scale(1, 1, 0.55).translate(0, hy - 0.04, hz + 0.1);
       st.push(g);
+      if (o.glow) { // the same grin again, its lips black (nothing added) and its teeth a cool pale, and the eyes lit
+        const gg = S.grin({ width: 0.25, teeth: 12, smile: 0.95, lip: 0x000000, tooth: 0xd4e4ee, sharp: true, seed });
+        gg.scale(1, 1, 0.55).translate(0, hy - 0.04, hz + 0.1);
+        const eyes = [-1, 1].map((sd) => boxG(0.05, 0.016, 0.004, sd * 0.05, hy + 0.035, hz + 0.122, 0xb8f4cc, 0, 0, 0, sd * 0.35));
+        // and the grin's crescent itself, a little wider than the mouth, so it reads from across a dark room
+        const cr = new THREE.Shape(); const a0 = Math.PI * 1.12; const a1 = Math.PI * 1.88;
+        cr.absarc(0, 0.1, 0.17, a0, a1, false); cr.absarc(0, 0.135, 0.13, a1, a0, true);
+        const crescent = new THREE.ShapeGeometry(cr, 10); crescent.deleteAttribute('uv'); crescent.translate(0, hy - 0.12, hz + 0.135);
+        glow = S.merge([gg, ...eyes, S.tint(crescent, 0x9fb4c0, 0, 1)]);
+      }
       for (const sd of [-1, 1]) {
         st.push(cone(0.048, 0.11, sd * 0.075, hy + 0.12, hz - 0.01, tone, 4, -0.2, -sd * 0.35)); // cat's ears
         st.push(boxG(0.045, 0.012, 0.01, sd * 0.05, hy + 0.035, hz + 0.115, 0x101012, 0, 0, 0, sd * 0.35)); // slit eyes
@@ -482,13 +525,14 @@ export function createVampKit(opts = {}) {
     st.push(cone(0.03, 0.06, 0.1, 0.02, 0.41, tone, 4, Math.PI / 2));
     const stone = S.merge(st);
     stone.scale(k, k, k);
-    return { stone, fit: fit.length ? S.merge(fit) : null };
+    if (glow) glow.scale(k, k, k);
+    return { stone, fit: fit.length ? S.merge(fit) : null, glow };
   }
 
   /** A carved bat flat on a wall, wings spread, w across; the watch variant has a pocket-watch hanging from a claw. */
   function bat(o = {}) {
     const w = o.w || 0.6; const st = []; const fit = [];
-    const tone = PALETTE.stone;
+    const tone = new THREE.Color(PALETTE.stone).multiplyScalar(o.light || 1).getHex(); // o.light: paler (group 2)
     for (const sd of [-1, 1]) {
       const wing = extrude(wingShape(), 0.035, tone, 0.12);
       wing.scale(0.46, 0.46, 1).translate(0.05, 0.3, 0.015);
@@ -525,7 +569,7 @@ export function createVampKit(opts = {}) {
     const quad = new THREE.PlaneGeometry(w, h);
     const uv = quad.attributes.uv;
     const u0 = fi / FINISHES.length; const u1 = (fi + 1) / FINISHES.length;
-    const v1 = 1 - vi / VARIANTS.length; const v0 = 1 - (vi + 1) / VARIANTS.length;
+    const v1 = 1 - (vi * CELL_H) / ATLAS_H; const v0 = 1 - ((vi + 1) * CELL_H) / ATLAS_H;
     for (let i = 0; i < uv.count; i++) uv.setXY(i, lerp(u0, u1, uv.getX(i)), lerp(v0, v1, uv.getY(i)));
     quad.translate(0, h / 2, proud);
     const st = [];
@@ -575,7 +619,7 @@ export function createVampKit(opts = {}) {
     const half = (y) => { const k = (y - y0) / L; return k < 0.72 ? lerp(0.17, 0.29, k / 0.72) : lerp(0.29, 0.2, (k - 0.72) / 0.28); };
     const lid = new THREE.Shape();
     lid.moveTo(-0.17, y0); lid.lineTo(0.17, y0); lid.lineTo(0.29, y0 + 0.72 * L); lid.lineTo(0.2, y0 + L); lid.lineTo(-0.2, y0 + L); lid.lineTo(-0.29, y0 + 0.72 * L); lid.closePath();
-    const lg = extrude(lid, 0.085, PALETTE.wood, 0.28, 0.012); lg.translate(0, 0, 0.02);
+    const lg = extrude(lid, 0.085, o.lid === 'pale' ? 0x8a6444 : PALETTE.wood, 0.28, 0.012); // o.lid pale: a weathered lid that reads in a dim room lg.translate(0, 0, 0.02);
     fit.push(lg);
     const front = 0.02 + 0.085 + 0.012;
     for (const k of [0.16, 0.5, 0.84]) {
@@ -595,26 +639,27 @@ export function createVampKit(opts = {}) {
   }
 
   /** One candle in its pan or teacup at (x, y, z): the parts, and where its flame burns. */
-  function candle(fit, x, y, z, rand, cupped, drip = 1) {
+  function candle(fit, x, y, z, rand, cupped, drip = 1, K = 1) { // K: the teacup's size (a larger cup is a paler china, to read from the floor)
     const hc = 0.08 + rand() * 0.14;
     if (cupped) {
-      fit.push(cyl(0.07, 0.072, 0.01, x, y, z, PALETTE.china, 12));
-      fit.push(lathe([[0.001, 0], [0.025, 0.002], [0.036, 0.014], [0.045, 0.045], [0.048, 0.06], [0.044, 0.06], [0.04, 0.045], [0.001, 0.045]], x, y + 0.01, z, PALETTE.china, 10));
-      const handle = torus(0.016, 0.005, 0, 0, 0, PALETTE.china, false, 8); handle.rotateY(rand() * TAU).translate(x + 0.05, y + 0.045, z);
+      const china = K > 1 ? 0xf6f2ea : PALETTE.china;
+      fit.push(cyl(0.07 * K, 0.072 * K, 0.01 * K, x, y, z, china, 12));
+      fit.push(lathe([[0.001, 0], [0.025, 0.002], [0.036, 0.014], [0.045, 0.045], [0.048, 0.06], [0.044, 0.06], [0.04, 0.045], [0.001, 0.045]].map(([a, b]) => [a * K, b * K]), x, y + 0.01 * K, z, china, 10));
+      const handle = torus(0.016 * K, 0.005 * K, 0, 0, 0, china, false, 8); handle.rotateY(rand() * TAU).translate(x + 0.05 * K, y + 0.045 * K, z);
       fit.push(handle);
     } else {
       fit.push(cyl(0.065, 0.075, 0.018, x, y, z, PALETTE.iron, 10));
       fit.push(cyl(0.03, 0.03, 0.04, x, y + 0.018, z, PALETTE.iron, 8));
     }
-    const base = y + (cupped ? 0.03 : 0.05);
+    const base = y + (cupped ? 0.03 * K : 0.05);
     fit.push(cyl(0.021, 0.019, hc, x, base, z, PALETTE.wax, 7, 0.04));
     // wax: a long run down the side, a pool on the pan, drips hanging off its rim
     const a = rand() * TAU;
     fit.push(ell(0.007 * drip, hc * 0.35, 0.007 * drip, x + Math.cos(a) * 0.021, base + hc * 0.55, z + Math.sin(a) * 0.021, PALETTE.wax, 0.05));
     fit.push(ell(0.034, 0.011, 0.034, x, base + 0.002, z, PALETTE.wax, 0.06));
-    const drips = 2 + Math.floor(rand() * 3);
+    const dr = 2 + Math.floor(rand() * 3); const drips = LEAN ? 2 : dr;
     for (let i = 0; i < drips; i++) {
-      const b = rand() * TAU; const r = cupped ? 0.048 : 0.068;
+      const b = rand() * TAU; const r = cupped ? 0.048 * K : 0.068;
       fit.push(cone((0.007 + rand() * 0.004) * drip, (0.03 + rand() * 0.08) * drip, x + Math.cos(b) * r, y - 0.02 - rand() * 0.02, z + Math.sin(b) * r, PALETTE.wax, 4, 0, 0, true));
     }
     return [x, base + hc + 0.004, z, 0.065];
@@ -629,7 +674,8 @@ export function createVampKit(opts = {}) {
     fit.push(cone(0.05, 0.2, 0, 0.1, 0, I, 6, 0, 0, true));
     fit.push(cyl(0.035, 0.035, 0.6, 0, 0.18, 0, I, 6));
     fit.push(ell(0.075, 0.05, 0.075, 0, 0.3, 0, I, 0.1, 0, 8, 5), ell(0.06, 0.06, 0.06, 0, 0.72, 0, I, 0.1, 0, 8, 5));
-    fit.push(torus(R * 0.94, 0.024, 0, 0.42, 0, I, true, 28), torus(R * 0.46, 0.018, 0, 0.36, 0, I, true, 18));
+    const ring = o.ring || 1; // o.ring: the iron rings' thickness, a share of the first
+    fit.push(torus(R * 0.94, 0.024 * ring, 0, 0.42, 0, I, true, 28), torus(R * 0.46, 0.018 * ring, 0, 0.36, 0, I, true, 18));
     for (let i = 0; i < n; i++) {
       const a = (i / n) * TAU + 0.2;
       const ca = Math.cos(a); const sa = Math.sin(a);
@@ -637,7 +683,7 @@ export function createVampKit(opts = {}) {
       for (let k = 0; k + 1 < p.length; k++) fit.push(rod(p[k], p[k + 1], 0.017, I, 5));
       // a scroll under the arm
       fit.push(rod(V3(ca * R * 0.6, 0.29, sa * R * 0.6), V3(ca * R * 0.66, 0.2, sa * R * 0.66), 0.01, I, 4));
-      flames.push(candle(fit, ca * R, 0.49, sa * R, rand, cupped, 1.6)); // years of wax: thick drips
+      flames.push(candle(fit, ca * R, 0.49, sa * R, rand, cupped, 1.6, o.cups || 1)); // years of wax: thick drips
     }
     // the chains: four up from the ring to a hub, one from the hub to the rose on the ceiling
     const hub = V3(0, Math.min(1.3, H - 0.4), 0);
@@ -646,10 +692,11 @@ export function createVampKit(opts = {}) {
       fit.push(rod(V3(Math.cos(a) * R * 0.94, 0.42, Math.sin(a) * R * 0.94), hub, 0.009, I, 4));
     }
     fit.push(torus(0.05, 0.012, hub.x, hub.y, hub.z, I, true, 10));
-    for (let y = hub.y; y < H - 0.12; y += 0.16) { // links, alternately turned
+    const step = LEAN ? 0.24 : 0.16; // (lean: longer links, fewer of them, on a long chain)
+    for (let y = hub.y; y < H - 0.12; y += step) { // links, alternately turned
       const l = torus(0.035, 0.008, 0, 0, 0, I, false, 8);
-      if (Math.round(y / 0.16) % 2) l.rotateY(Math.PI / 2);
-      l.scale(1, 1.6, 1).translate(0, y + 0.08, 0);
+      if (Math.round(y / step) % 2) l.rotateY(Math.PI / 2);
+      l.scale(1, step * 10, 1).translate(0, y + step / 2, 0);
       fit.push(l);
     }
     fit.push(cyl(0.14, 0.1, 0.05, 0, H - 0.05, 0, I, 10));
@@ -685,7 +732,7 @@ export function createVampKit(opts = {}) {
   function bottle(o = {}) {
     const w = o.w || 0.3; const h = o.h || 0.5; const st = [];
     const k = h / 0.5;
-    const tone = 0xb4b7bb;
+    const tone = o.gilt ? PALETTE.gold : 0xb4b7bb; // o.gilt: the bottle gilded (group 2), so the candle's glow finds it
     st.push(lathe([[0.001, 0], [0.09, 0], [0.1, 0.03], [0.1, 0.2], [0.07, 0.27], [0.03, 0.31], [0.028, 0.4], [0.035, 0.42], [0.001, 0.43]], 0, 0, 0, tone, 10).scale(1, 1, 0.35));
     st.push(cyl(0.03, 0.024, 0.06, 0, 0.42, 0, 0x9a9da2, 6).scale(1, 1, 0.35)); // the cork
     st.push(ST.block(0, 0.08, 0.032, 0.13, 0.08, 0.012, 0xd0d2d4, 0.04)); // the label
@@ -693,7 +740,14 @@ export function createVampKit(opts = {}) {
     let x = 0.04; let y = 0.26;
     for (let i = 0; i < 4; i++) { const nx = x - 0.02 + (i % 2) * 0.03; const ny = y - 0.045; st.push(rod(V3(x, y, 0.036), V3(nx, ny, 0.036), 0.0045, 0x1a1a1c, 3)); x = nx; y = ny; }
     const g = S.merge(st); g.scale(k * w / 0.3 * 1.0, k, 1);
-    return { stone: g };
+    let quad = null; // o.label: DRINK ME lettered on the label (the arms' atlas, its strip under the arms)
+    if (o.label) {
+      quad = new THREE.PlaneGeometry(0.17, 0.07);
+      const uv = quad.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * LABEL_W / (CELL_W * FINISHES.length), uv.getY(i) * LABEL_H / ATLAS_H);
+      quad.translate(0, 0.12, 0.04).scale(k * w / 0.3, k, 1);
+    }
+    return o.gilt ? { stone: null, fit: g, quad } : { stone: g, quad };
   }
 
   /** Cobwebs: one triangle per [a, b, c] (world points), uv'd to the drawn web. */
@@ -778,8 +832,10 @@ export function createVampKit(opts = {}) {
     for (const m of [crestMat, webMat, moteMat, stillMat]) { if (m.map) m.map.dispose(); if (m.bumpMap) m.bumpMap.dispose(); m.dispose(); }
   }
 
+  const leanly = (fn) => (o = {}) => lean(o, () => fn(o)); // o.lean: the lean build
   return {
     materials: { crest: crestMat, web: webMat, motes: moteMat, still: stillMat },
-    gargoyle, bat, crest, coffin, chandelier, candelabra, bottle, webs, glowDisc, motes, mergeUV, dispose,
+    gargoyle: leanly(gargoyle), bat: leanly(bat), crest, coffin: leanly(coffin), chandelier: leanly(chandelier), candelabra: leanly(candelabra), bottle: leanly(bottle),
+    webs, glowDisc, motes, mergeUV, dispose,
   };
 }

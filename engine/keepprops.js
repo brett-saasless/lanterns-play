@@ -1081,6 +1081,9 @@ export function createKeepprops(scene, cfg, opts = {}) {
     const slab = new THREE.BoxGeometry(sq - 0.03, 0.09, sq - 0.03);
     slab.translate(0, -0.045, 0);
     ST.paint(slab, 0xffffff, { vary: 0 });
+    // the slab's underside (the box's -y face, vertices 12 to 15), seen from the crypt: dark old stone, not
+    // pale marble lit from below (the Dracula pass, round 2: it was the brightest thing in the crypt)
+    { const col = slab.attributes.color; for (let i = 12; i < 16; i++) col.setXYZ(i, 0.16, 0.14, 0.14); }
     // Four instanced meshes: black and white marble, each once on the layer both cameras see and
     // once on the layer only the eye sees. A tile's instance is in exactly one of them, or in none.
     const meshes = TILE_MESHES.map(({ layer, dark }) => {
