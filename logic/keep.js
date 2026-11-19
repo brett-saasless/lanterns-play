@@ -33,6 +33,7 @@ import {
   createCount, stepCount, pullCord, shotsAtCurtains, countDeath, startScene, stepScene, curtainReady, countHint, FINAL_CURTAIN,
 } from './count.js';
 import { seatSentries, sentryKilled, innerDoorOpen, lowerGarlic } from './sentries.js';
+import { LEAF_DOORS, doorLeafBoxes, swingToward } from './doorleaves.js'; // the door leaves, solid in every state
 import { createHaunts, stepHaunts, ghostScream, landRaven } from './haunts.js';
 import { reflectionLook } from './reflection.js';
 import { createRoad, settledRoad, stepRoad, roadBlock, footSeat } from './road.js'; // issue #29: the road up from the wood
@@ -59,7 +60,7 @@ export const KEEP_RESTORE_FIELDS = Object.freeze({
     writes: Object.freeze(['index', 'queue', 'phase', 'under', 'clocks', 'tiles', 'board', 'count', 'haunts', 'raised',
       'items', 'loot', 'stakes', 'bodies', 'pins', 'dropped', 'stock', 'hints', 'focus', 'line', 'notice', 'scene',
       'checkpoint', 'pressed', 'leap', 'struck', 'falling', 'snake', 'claw']),
-    keeps: Object.freeze(['done', 'game', 'log', 'talk', 'road']), // road (#29): the dark and both scares' latches, settled
+    keeps: Object.freeze(['done', 'game', 'log', 'talk', 'road', 'leaves']), // road (#29): the dark and both scares' latches, settled; leaves: each door's swing, as it stood
   }),
 });
 
@@ -136,6 +137,7 @@ export function createKeep(cfg, rng = () => 0.5) {
     snake: 0, // seconds to the next bite on the pit floor
     claw: { tell: 0, cool: 0 }, // the werewolf's arm
     road: createRoad(true), // issue #29: the road behind the warden (a journey from the wood seats a fresh one: enterRoad)
+    leaves: {}, // door id -> its leaves' swing, 0 shut to 1 open (doorleaves.js); a door not yet seen stands as the rules say
   };
 }
 
@@ -192,9 +194,32 @@ const thin = (minX, maxX, minZ, maxZ) => ({
  */
 const onGalleryFloor = (b) => b.floor === 'upper';
 
+/** Door d's leaves' swing now: the sim's own (stepLeaves), or, for a door not yet stepped, as the rules stand. */
+export function leafSwing(w, d) {
+  const p = w.leaves && w.leaves[d.id];
+  return typeof p === 'number' ? p : (doorOpen(w, d) ? 1 : 0);
+}
+
+/**
+ * Swings each leafed door toward what the rules say (open or shut) at the leaves' pace
+ * (doorleaves.js). Runs every frame, in a scene too (the strike's camera watches the tea room's door
+ * open), so the leaves the view draws are the ones that collide.
+ */
+export function stepLeaves(w, dt) {
+  if (!w.leaves) w.leaves = {};
+  for (const d of LEAF_DOORS) {
+    const goal = doorOpen(w, d) ? 1 : 0;
+    const p = w.leaves[d.id];
+    w.leaves[d.id] = typeof p === 'number' ? swingToward(p, goal, dt) : goal;
+  }
+}
+
 export function keepBoxes(cfg, w) {
   const out = w.under === 'crypt' ? cfg.boxes.filter((b) => !onGalleryFloor(b)) : [...cfg.boxes];
   for (const d of DOORS) {
+    // the leaves are solid wherever they stand: swinging, open, or swinging to (doorleaves.js)
+    const swing = d.key ? leafSwing(w, d) : 0;
+    if (swing > 0) doorLeafBoxes(d, swing, out);
     if (doorOpen(w, d)) continue;
     const r = d.rect;
     out.push({ kind: 'door', id: d.id, x: (r.minX + r.maxX) / 2, z: (r.minZ + r.maxZ) / 2, w: r.maxX - r.minX, d: r.maxZ - r.minZ, h: 4,
@@ -1142,7 +1167,12 @@ function finish(sim, events) {
 export function stepKeepScene(sim, input, dt, events) {
   const w = sim.waves;
   const used = w && w.scene && w.scene.kind === 'cutaway' ? stepCutaway(sim, input, dt, events) : stepScene(sim, input, dt, events);
-  if (used) { sim.waves.pressed = false; lowerGarlic(sim); }
+  if (used) {
+    sim.waves.pressed = false;
+    lowerGarlic(sim);
+    stepLeaves(sim.waves, dt); // the leaves swing on under a scene, as they are seen to
+    sim.boxes = keepBoxes(sim.cfg, sim.waves);
+  }
   return used;
 }
 
@@ -1238,6 +1268,7 @@ export function stepKeep(sim, dt, events, input = {}) {
   }
   if (!w.scene) stepKeepHints(sim, dt, events, where.zone);
   if (events.some((e) => CARD_EVENTS.includes(e.type))) { w.pressed = false; lowerGarlic(sim); }
+  stepLeaves(w, dt);
   sim.boxes = keepBoxes(cfg, w);
   w.focus = focusOf(sim);
 }

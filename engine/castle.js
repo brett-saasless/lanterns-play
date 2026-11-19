@@ -20,6 +20,7 @@ import { glowTexture } from './cave.js';
 import * as ST from './stone.js';
 import * as KM from '../logic/keepmap.js';
 import * as KEEP from '../logic/keep.js';
+import { LEAF, SWING, doorHeight, leafFrameOf, leafPose, swingToward, IRON_GATE } from '../logic/doorleaves.js'; // the leaves' make and swing, shared with the collision (keep.js)
 import { createRoadView } from './roadview.js'; // issue #29: the road up from the wood, and its evening
 import { cutawayAt, CUTAWAY } from '../logic/cutaway.js'; // the werewolf cutaway: its run beat plays on the real front
 import { buildDawnView, DAWN_SUN } from './dawnview.js'; // art pass K1: the sunrise out of the Count's windows
@@ -87,14 +88,13 @@ function makePlan() {
     z.rects = src.rects.map(toR);
   }
   const mine = (id) => (zones.some((z) => z.id === id) ? id : 'outside');
-  const SWING = { front: 'n', inner: 's', teaOut: 's', galleryOut: 'n', walkOut: 's' };
   const doors = KM.DOORS.map((d) => {
     const r = d.rect;
     const axis = (r.maxX - r.minX) >= (r.maxZ - r.minZ) ? 'x' : 'z'; // the way its wall runs
     const lo = axis === 'x' ? r.minZ : r.minX; const hi = axis === 'x' ? r.maxZ : r.maxX;
     const a = axis === 'x' ? r.minX : r.minZ; const b = axis === 'x' ? r.maxX : r.maxZ;
     const y = Math.max(...d.zones.map((id) => KM.ZONES.find((q) => q.id === id).y));
-    return { id: d.id, key: d.key, zones: d.zones.map(mine), axis, lo, hi, mid: (lo + hi) / 2, c: (a + b) / 2, w: b - a, h: d.id === 'front' ? 4.6 : 3.0, y, swing: SWING[d.id] };
+    return { id: d.id, key: d.key, zones: d.zones.map(mine), axis, lo, hi, mid: (lo + hi) / 2, c: (a + b) / 2, w: b - a, h: doorHeight(d), y, swing: SWING[d.id] };
   });
   // the head of the stairs opens straight onto the landing: an arch with no depth and no leaf
   const st = KM.STAIRS.rect;
@@ -783,19 +783,23 @@ export function buildCastle(scene, cfg) {
 
   // Only a door the rules can shut has leaves; the rest are open arches.
   const doors = PLAN.doors.filter((d) => d.key).map((d) => {
-    const south = d.swing === 's';
+    // logic/doorleaves.js is the one description of the leaves (keep.js stands the same leaves in the collision)
+    const src = KM.doorOf(d.id);
+    const F = leafFrameOf(src);
+    const south = F.south;
     const owner = byId[d.zones[south ? 0 : 1]];
-    const dz = south ? d.hi - 0.04 : d.lo + 0.04; // flush with the face of the room they open into
-    const lw = d.w / 2;
-    const h = d.h - d.w * 0.27; // the leaves stop under the arch; a fixed board fills its head
+    const dz = F.hz; // flush with the face of the room they open into
+    const lw = F.half;
+    const h = F.leafH; // the leaves stop under the arch; a fixed board fills its head
     const parts = [];
     const n = Math.round(lw / 0.22);
-    for (let i = 0; i < n; i++) parts.push(box((i + 0.5) * (lw / n), h / 2, 0, lw / n - 0.006, h, 0.07, 0x2d1f15, 0, 0.3));
+    for (let i = 0; i < n; i++) parts.push(box((i + 0.5) * (lw / n), h / 2, 0, lw / n - 2 * LEAF.seam, h, LEAF.board, 0x2d1f15, 0, 0.3));
     // the iron straps stop 3 mm short of the meeting edge, as the boards do: the shut pair meet on a
     // 6 mm seam, with no strap ends lying face to face (shimmer), and a leaf swinging to clears the
     // other's corner (logic/cutaway.js LEAF)
-    for (const yy of [0.35, h * 0.5, h - 0.35]) parts.push(box((lw - 0.003) / 2, yy, 0, lw - 0.003, 0.09, 0.1, 0x121010, 0, 0.1));
-    parts.push(box(lw - 0.14, h * 0.46, 0, 0.06, 0.2, 0.16, 0x8a6d36, 0, 0.1));
+    for (const yy of [0.35, h * 0.5, h - 0.35]) parts.push(box(F.length / 2, yy, 0, F.length, 0.09, LEAF.strap, 0x121010, 0, 0.1));
+    const R = LEAF.ring;
+    parts.push(box(lw - (R.from + R.to) / 2, h * R.y, 0, R.w, R.h, R.d, 0x8a6d36, 0, 0.1));
     const geo = S.merge(parts);
     const made = [0, 1].map((i) => {
       const hinge = new THREE.Group();
@@ -809,12 +813,13 @@ export function buildCastle(scene, cfg) {
       m.castShadow = true;
       m.receiveShadow = true;
       hinge.add(m);
-      hinge.position.set(d.c + (i === 0 ? -d.w / 2 : d.w / 2), d.y, dz);
+      const pose = leafPose(src, i, 0);
+      hinge.position.set(pose.hx, pose.y, pose.hz);
       owner.group.add(hinge);
       return { hinge, sign: (i === 0 ? 1 : -1) * (south ? -1 : 1) };
     });
     owner.fit.push(box(d.c, d.y + h + (d.h - h) / 2, dz, d.w, d.h - h, 0.07, 0x2d1f15, 0, 0.3));
-    return { d, made, open: 1 };
+    return { d, src, made, open: 1 };
   });
 
   // What the rules say about a door, read from the run's state; with no run (the title) all stand open.
@@ -1217,13 +1222,15 @@ export function buildCastle(scene, cfg) {
     // the iron gate stands open (#29: the warden comes in by it, up the road): a leaf swung back
     // against the parapet's outer face either side
     for (const sd of [-1, 1]) {
-      const gz = A.z1 + WALL_T + 0.08;
-      for (let i = 0; i <= 7; i++) {
-        const gx = sd * (2.35 + i * 0.2);
-        z.fit.push(box(gx, 1.35 - 0.02 * (7 - i), gz, 0.04, 2.7 - 0.04 * (7 - i), 0.04, 0x0e0d0c, 0.78, 0.05));
-        z.fit.push(cone(gx, 2.7 - 0.04 * (7 - i), gz, 0.035, 0.18, 0x0e0d0c, 4));
+      const G = IRON_GATE; // logic/doorleaves.js: tests/doorleaves.test.js holds it outside the road's walls
+      const gz = A.z1 + WALL_T + G.off;
+      const last = G.bars - 1;
+      for (let i = 0; i <= last; i++) {
+        const gx = sd * (G.x0 + i * G.pitch);
+        z.fit.push(box(gx, 1.35 - 0.02 * (last - i), gz, G.bar, 2.7 - 0.04 * (last - i), G.bar, 0x0e0d0c, 0.78, 0.05));
+        z.fit.push(cone(gx, 2.7 - 0.04 * (last - i), gz, 0.035, 0.18, 0x0e0d0c, 4));
       }
-      for (const yy of [0.3, 2.1]) z.fit.push(box(sd * 3.05, yy, gz, 1.5, 0.06, 0.05, 0x0e0d0c, 0, 0.05));
+      for (const yy of [0.3, 2.1]) z.fit.push(box(sd * G.rail.x, yy, gz, G.rail.w, 0.06, G.rail.d, 0x0e0d0c, 0, 0.05));
     }
     // the bridge: a timber deck with no rails, on two stone piers
     const len = B.z1 - B.z0;
@@ -1705,11 +1712,14 @@ export function buildCastle(scene, cfg) {
     // doors
     for (let i = 0; i < doors.length; i++) {
       const dr = doors[i];
+      // in a run the swing is the rules' own (keep.js w.leaves: the leaves are solid where they are
+      // drawn); with no run (the title) the view eases them itself, at the same pace
+      const ruled = inRun && sim.waves && sim.waves.leaves ? sim.waves.leaves[dr.d.id] : undefined;
       const goal = doorOpen(dr.d, sim) ? 1 : 0;
-      dr.open = dt > 0 ? (goal > dr.open ? Math.min(goal, dr.open + dt / 1.4) : Math.max(goal, dr.open - dt / 0.8)) : goal;
-      const a = smooth(dr.open) * 1.75;
-      dr.made[0].hinge.rotation.y = dr.made[0].sign * a;
-      dr.made[1].hinge.rotation.y = dr.made[1].sign * a;
+      if (typeof ruled === 'number') dr.open = ruled;
+      else dr.open = dt > 0 ? swingToward(dr.open, goal, dt) : goal;
+      dr.made[0].hinge.rotation.y = leafPose(dr.src, 0, dr.open).rotY;
+      dr.made[1].hinge.rotation.y = leafPose(dr.src, 1, dr.open).rotY;
     }
     // the film's front door: its two leaves where the film has them (west, east), the door's own
     // state (dr.open, the rules' answer) untouched, so after the film it stands exactly as it did
