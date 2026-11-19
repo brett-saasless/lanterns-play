@@ -1,6 +1,23 @@
-// Circle-vs-AABB slide in the XZ plane, plus an arena bounds clamp.
+// Circle-vs-AABB slide in the XZ plane, plus an arena bounds clamp. A box marked round (r: its
+// radius about (x, z), as keepmap.js pieceCollider makes for a chessman's turned foot) is met as
+// a circle; everything else that reads boxes (sight, shots) still sees its AABB.
+
+function pushRound(pos, radius, b) {
+  const dx = pos.x - b.x;
+  const dz = pos.z - b.z;
+  const need = radius + b.r;
+  const d2 = dx * dx + dz * dz;
+  if (d2 >= need * need) return false;
+  const d = Math.sqrt(d2);
+  if (d > 1e-9) {
+    pos.x = b.x + (dx / d) * need;
+    pos.z = b.z + (dz / d) * need;
+  } else pos.z = b.z + need; // dead centre: out to the south (+z), toward the board's near edge
+  return true;
+}
 
 function pushOut(pos, radius, b) {
+  if (b.round) return pushRound(pos, radius, b);
   const cx = Math.max(b.minX, Math.min(pos.x, b.maxX));
   const cz = Math.max(b.minZ, Math.min(pos.z, b.maxZ));
   const dx = pos.x - cx;
@@ -55,6 +72,10 @@ export function moveCircle(pos, delta, radius, boxes, half) {
 /** True when the circle at (x, z) overlaps any box. */
 export function circleBlocked(x, z, radius, boxes) {
   for (const b of boxes) {
+    if (b.round) {
+      if ((x - b.x) ** 2 + (z - b.z) ** 2 < (radius + b.r) ** 2) return true;
+      continue;
+    }
     const cx = Math.max(b.minX, Math.min(x, b.maxX));
     const cz = Math.max(b.minZ, Math.min(z, b.maxZ));
     if ((x - cx) ** 2 + (z - cz) ** 2 < radius * radius) return true;

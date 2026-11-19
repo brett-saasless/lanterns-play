@@ -1,10 +1,12 @@
 // Synthesis for the castle: a cue for each of the keep's new events, the armour's and the wife's
-// own voices, and the bed that changes by stage (wind on the approach, the hush of stone rooms,
-// a low drone that deepens toward the Count). Called only from audio.js, which owns the gate.
+// own voices, and the bed that changes by stage (the snakes hissing in the pit, heard on the
+// bridge and the forecourt; the hush of stone rooms; a low drone that deepens toward the Count).
+// Called only from audio.js, which owns the gate.
 // The ghost makes no sound; the shades howl once as they escape (owner Q12); the Count's scream is one sound effect (noise and
 // sliding saws), never a voice.
 
 import { CATALOGUE } from '../logic/sounds.js';
+import { HISS, SNAKES, hissPattern, hissEnvelope } from '../logic/hiss.js';
 
 // Kit contract (read at call time, so audio.js may fill it in at unlock):
 //   kit.ctx    AudioContext
@@ -22,8 +24,11 @@ export const KEEP_STAGES = 7;
 
 // The bed, layer by stage (linear gain inside the ambient bus): the bridge and forecourt, the
 // hall, the tea room, the gallery, the Knight's Walk and stair, the upper rooms, the Count's room.
-const BED = {
-  wind: [0.5, 0.12, 0.05, 0.03, 0.06, 0.04, 0.03], // moaning round the walls; only outside is it open
+// Owner, 2026-11-18: no wind on the bridge or the forecourt (it was the loudest thing there and did
+// not read as wind); the snakes' hiss (below, hissLevel) is what is heard outside. Indoors the wind
+// is the faint draught it was.
+export const BED = {
+  wind: [0, 0.12, 0.05, 0.03, 0.06, 0.04, 0.03], // a draught through the house; none outside
   hush: [0.05, 0.14, 0.15, 0.2, 0.22, 0.17, 0.19], // the air of a stone room
   drone: [0, 0.01, 0.03, 0.05, 0.06, 0.08, 0.18], // two low notes that beat, thicker toward the Count
 };
@@ -432,10 +437,12 @@ export function createKeepCues(kit) {
   // audio.js fades the whole of it with the room. Calls are one-shots.
 
   let layers = null; // { wind, hush, drone }: one gain each
+  let hiss = null; // the snakes' gain: HISS.gain * hissLevel (setHiss); 0 until the warden is near the pit
+  let hissAt = 0;
   let perches = null; // three fixed places in the stereo field a call can come from
   let far = null; // a lowpass: a far sound
   let stage = 0;
-  let still = 0; // issue #29: on the road the world holds its breath: no wind, no owl, no gust
+  let still = 0; // issue #29: on the road the world holds its breath: no wind, no owl
 
   /** Builds the running layers into `dest` (a GainNode). Does nothing a second time. */
   function start(dest) {
@@ -490,7 +497,66 @@ export function createKeepCues(kit) {
       return pan;
     });
     far = filter('lowpass', 900, 0.5, perches[0]);
+    hiss = gain(0, filter('lowpass', 10000, 0.5, dest)); // the top kept to a sibilant's 4 to 10 kHz, not static
+    try { snakes(ctx, filter); } catch { /* no hiss; the rest of the bed stands */ }
     layers = made;
+  }
+
+  // The snakes in the pit: three, each breath through teeth (high-passed noise near 4 kHz, the
+  // snakeBite cue's breath, held 0.6 to 1.6 s) on its own loop of hisses (hiss.js), drifting slowly
+  // across the stereo field. Each is its own read of the noise, a gain whose curve is the drawn
+  // envelope, a high-pass and a panner on a very slow sine: 7 nodes, 21 for the three, made once;
+  // with the shared gain and its lowpass, 23.
+  function snakes(ctx, filter) {
+    SNAKES.forEach((sn, i) => {
+      const env = hissEnvelope(hissPattern(sn.seed, sn.loop), sn.loop, HISS.rate);
+      const buf = ctx.createBuffer(1, env.length, HISS.rate);
+      buf.getChannelData(0).set(env);
+      const pan = ctx.createStereoPanner();
+      pan.pan.value = sn.pan;
+      pan.connect(hiss);
+      const vca = ctx.createGain();
+      vca.gain.value = 0; // the envelope is the whole of its gain
+      vca.connect(pan);
+      const hp = filter('highpass', sn.hz, 0.7, vca);
+      const src = ctx.createBufferSource();
+      src.buffer = kit.noise;
+      src.loop = true;
+      src.connect(hp);
+      src.start(0, (i * 0.37) % 1); // three reads of the noise, out of step, so no two snakes are one
+      const curve = ctx.createBufferSource();
+      curve.buffer = buf;
+      curve.loop = true;
+      curve.connect(vca.gain);
+      curve.start();
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = sn.drift;
+      const lg = ctx.createGain();
+      lg.gain.value = sn.swing;
+      lfo.connect(lg).connect(pan.pan);
+      lfo.start();
+    });
+  }
+
+  /** The snakes' level, 0 to 1 (hissLevel): a parameter write only. */
+  function setHiss(k, t) {
+    const v = Math.max(0, Math.min(1, Number.isFinite(k) ? k : 0));
+    if (v === hissAt || (v > 0 && Math.abs(v - hissAt) < 0.002)) return;
+    hissAt = v;
+    if (!hiss) return;
+    if (v > 0) {
+      hiss.gain.setTargetAtTime(HISS.gain * v, t, 0.03);
+      return;
+    }
+    // hissLevel has already brought it down over a second: land on exactly 0.
+    hiss.gain.cancelScheduledValues(t);
+    hiss.gain.setValueAtTime(hiss.gain.value, t);
+    hiss.gain.linearRampToValueAtTime(0, t + 0.06);
+  }
+
+  /** The snakes' gain as it stands (the smoke run reads it through audio.js stats). */
+  function hissGain() {
+    return hiss ? hiss.gain.value : 0;
   }
 
   /** Crossfades the layers to a stage (0 the bridge to 6 the Count's room). */
@@ -543,8 +609,7 @@ export function createKeepCues(kit) {
     const perch = perches[(Math.random() * perches.length) | 0];
     const r = Math.random();
     if (stage === 0) {
-      if (r < 0.5) owl(t, 0.26, far);
-      else gust(t, 0.22, perch);
+      if (r < 0.5) owl(t, 0.26, far); // no gust outside (owner, 2026-11-18): the snakes are heard instead
     } else if (stage === 1 || stage === 2) {
       if (r < 0.6) creak(t, 0.2, perch);
       else settle(t, 0.2, far);
@@ -560,7 +625,7 @@ export function createKeepCues(kit) {
     } else settle(t, 0.16, far); // the Count's room: the box of earth, and little else
   }
 
-  return { cues, creatures, bed: { start, setStage, setStill, wait, call } };
+  return { cues, creatures, bed: { start, setStage, setStill, setHiss, hissGain, wait, call } };
 }
 
 function squareFile(sq) {

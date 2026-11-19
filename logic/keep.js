@@ -13,11 +13,12 @@
 // what they return (damage through the shipped hurtPlayer, done flags, under).
 
 import {
-  SPAWNS, OPENING, SENTRIES, CLOCKS, PIT, CRYPT, GALLERY, BOARD, CRYPT_PROPS, HALL, COUNT_ROOM, END, COUNTWAY,
+  SPAWNS, OPENING, SENTRIES, chessColliders, CLOCKS, PIT, CRYPT, GALLERY, BOARD, CRYPT_PROPS, HALL, COUNT_ROOM, END, COUNTWAY,
   STOCK, WINDOWS, HAUNT_PLACES, CURTAIN_TARGETS, TEA, DOORS, PIKES,
   floorZoneAt, zoneAt, stageOf, tileAt, tileRect, squareRect, squareCell, squareAt,
 } from './keepmap.js';
 import { CASTLE_PLACES, ENTRIES } from './script.js';
+import { cryptSolids, pitPiers, furnitureBoxes } from './solids.js';
 import { addEntry } from './journal.js';
 import { MATERIALS, surfaceAt } from './surfaces.js';
 import { hurtPlayer } from './enemy.js';
@@ -227,9 +228,15 @@ export function keepBoxes(cfg, w) {
   }
   const swarm = roadBlock(w.road); // issue #29: nothing passes the bats' trigger point while they are on the road
   if (swarm) out.push(swarm);
-  if (w.under === 'pit') out.push(...PIT.walls);
-  else if (w.under === 'crypt') out.push(...CRYPT.walls, ...CRYPT.props);
+  if (w.under === 'pit') out.push(...PIT.walls, ...pitPiers());
+  else if (w.under === 'crypt') out.push(...CRYPT.walls, ...CRYPT.props, ...cryptSolids());
   else out.push(...CRYPT.rails);
+  // the mirror room's jumpy furniture, where haunts.js has it now (solids.js)
+  out.push(...furnitureBoxes(w.haunts));
+  // the chessmen are solid wherever they are drawn: every black piece standing on its square (won
+  // or not) and the three white ones by the west wall (keepmap.js chessColliders, PIECE_FOOT); but
+  // not while the knight is in the air: he leaps over them, as a knight does (stepLeap carries him)
+  if (!w.leap) out.push(...chessColliders(w.board));
   if (!w.done.knight && !w.leap) {
     const at = w.board && w.board.at;
     const s = at && squareRect(at);

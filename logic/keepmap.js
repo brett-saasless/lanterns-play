@@ -288,6 +288,38 @@ export function keepWalls() {
   return WALLS;
 }
 
+let CORNERS = null;
+
+/**
+ * The stone at the outside of every corner: keepWalls runs each side's box only along its own side,
+ * so two walls meeting at a room's corner touch at a point and leave the square outside the corner
+ * open. Nothing as wide as the warden passes a point, but a thin thing could (a fallen pike, slid
+ * along the floor: debris.js), so each corner square that no clear rectangle or doorway takes is a
+ * post WALL.t square.
+ */
+export function keepCorners() {
+  if (CORNERS) return CORNERS;
+  const all = regions();
+  const T = WALL.t;
+  const out = [];
+  const seen = new Set();
+  for (const r of all) {
+    for (const [cx, sx] of [[r.minX, -1], [r.maxX, 1]]) {
+      for (const [cz, sz] of [[r.minZ, -1], [r.maxZ, 1]]) {
+        const minX = sx < 0 ? cx - T : cx; const maxX = minX + T;
+        const minZ = sz < 0 ? cz - T : cz; const maxZ = minZ + T;
+        const key = `${minX.toFixed(3)},${minZ.toFixed(3)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const open = all.some((o) => o.minX < maxX - EPS && o.maxX > minX + EPS && o.minZ < maxZ - EPS && o.maxZ > minZ + EPS);
+        if (!open) out.push(aabb(minX, maxX, minZ, maxZ, WALL.h, 'wall'));
+      }
+    }
+  }
+  CORNERS = f(out);
+  return CORNERS;
+}
+
 // ---- checkpoints --------------------------------------------------------------------------
 
 /**
@@ -382,10 +414,10 @@ export const TEA = f({
     { x: 23.6, y: 1.0, z: -34.6, on: 'pocket' }, { x: 31.6, y: 2.14, z: -28.4, on: 'wall' }],
   drawer: { x: 13.7, z: -38.3 }, // ajar, salt in it (PADS)
   // A dim candle on a low wall shelf just east of the exit door (teaOut), so that corner reads. The shelf hangs
-  // from the door wall (the room's minZ); x, z: the candle on it, y: the shelf top. power: its glow, below every
-  // other flame in the room (castle.js: sconce 0.45, candelabras 0.7, gouge sconce 0.9, hearth 1.3). It is a baked
-  // glow, not one of the pool's five real lights (the room already keeps five), so it costs no light.
-  exitCandle: { x: 16.85, y: 1.05, z: -40.39, power: 0.22, shelf: { w: 0.46, d: 0.22, top: 1.05 } },
+  // from the door wall (the room's minZ); x, z: the candle on it, y: the shelf top. power: its glow, the same as the
+  // table's candelabra candles (castle.js: 0.7; it was 0.22, the owner: "as bright as the other candles in the room").
+  // It is a baked glow, not one of the pool's five real lights (the room already keeps five), so it costs no light.
+  exitCandle: { x: 16.85, y: 1.05, z: -40.39, power: 0.7, shelf: { w: 0.46, d: 0.22, top: 1.05 } },
 });
 
 /** The werewolf's claws: the arm (keepcast.js) and the scores it leaves in the flags (clawrake.js) both read this, so they cannot drift apart. */
@@ -426,6 +458,55 @@ export const BOARD = f({
   ],
   window: { x: 25, z: -105 },
 });
+
+/**
+ * Each chessman's turned base and height (metres), the one description of its size: chessmen.js
+ * carves every piece from it (R: the foot's radius, H: the base's height, top: the figure above
+ * the base), and pieceCollider stands the same foot in the collision list, so what is drawn and
+ * what stops the warden cannot drift apart (the owner, 2026-11-18: "they are solid pieces").
+ */
+export const PIECE_FOOT = f({
+  pawn: { R: 0.5, H: 0.8, top: 2.1 },
+  knight: { R: 0.6, H: 0.95, top: 3.05 },
+  bishop: { R: 0.58, H: 0.95, top: 3.0 },
+  rook: { R: 0.66, H: 0.9, top: 2.75 },
+  queen: { R: 0.64, H: 1.0, top: 2.75 },
+  king: { R: 0.7, H: 1.0, top: 3.0 },
+  turtle: { R: 0.62, H: 0.95, top: 2.6 },
+  dormouse: { R: 0.6, H: 0.95, top: 2.1 },
+  duchess: { R: 0.66, H: 0.95, top: 2.12 },
+});
+
+/**
+ * A chessman standing at (x, z) as a round collider (collide.js reads `r`: circle against circle),
+ * its AABB the foot's square for everything that reads boxes (sight, shots). Null for an unknown kind.
+ */
+export function pieceCollider(kind, x, z, extra = {}) {
+  const p = PIECE_FOOT[kind];
+  if (!p) return null;
+  const r = p.R;
+  return { kind: 'piece', piece: kind, round: true, r, x, z, w: 2 * r, d: 2 * r, h: p.H + p.top,
+    minX: x - r, maxX: x + r, minY: 0, maxY: p.H + p.top, minZ: z - r, maxZ: z + r, ...extra };
+}
+
+/**
+ * Every chessman the Knight's Walk draws now, as colliders: the black pieces standing on the board
+ * (knight.js: not taken; a taken piece dies and is gone) and the three white ones watching along the
+ * west wall. board: sim.waves.board ({ pieces[] each { kind, square, taken } }), or null.
+ */
+export function chessColliders(board) {
+  const out = [];
+  if (board && board.pieces) {
+    for (const p of board.pieces) {
+      if (p.taken) continue;
+      const s = squareRect(p.square);
+      const c = s && pieceCollider(p.kind, s.x, s.z, { square: p.square });
+      if (c) out.push(c);
+    }
+  }
+  for (const w of BOARD.whites) out.push(pieceCollider(w.kind, w.x, w.z, { white: true }));
+  return out;
+}
 
 /** The opening position (design, Data): white's view. */
 export const OPENING = f([

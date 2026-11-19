@@ -22,6 +22,7 @@ import { COURT } from '../logic/courtmap.js';
 import { CLOCKS as CLOCK_SPOTS, zoneAt as keepZoneAt } from '../logic/keepmap.js';
 import { tickGain } from '../logic/clocks.js';
 import { weatherNow } from '../logic/weather.js';
+import { newHiss, hissLevel } from '../logic/hiss.js'; // the snakes in the pit, by where the warden is
 
 const _sky = { rain: 1, cloud: 1, sun: 0 }; // #28: scratch, so the frame allocates nothing
 
@@ -77,6 +78,8 @@ const FLOW_LEVEL = 0.6; // of the gulp it ends on (waterArrive): a quiet loop
 const FLOW_FADE = 0.25; // seconds: the loop's own way out if its arrival is never heard
 
 // Sound state (never game state); all of it is dropped by setRoom.
+let hissMem = newHiss(); // hissLevel's memory: the level, the metres walked into it, the last place
+let hissClock = NaN; // the sim time of the last hiss step
 let scareUsed = false; // the Cantor's first Call of a run has been spent
 let played = {}; // cues sounded since the run began, by name
 let peakHums = 0;
@@ -232,7 +235,7 @@ function startCourtBed() {
   } catch { /* silent */ }
 }
 
-// The castle's bed: wind on the approach, stone-room hush, the drone that deepens to the Count.
+// The castle's bed: the snakes in the pit outside, stone-room hush, the drone that deepens to the Count.
 function startCastleBed() {
   try {
     castleBed = ctx.createGain();
@@ -514,6 +517,9 @@ export function setRoom(name, cfg) {
   if (cfg && cfg.pool && cfg.pool.life) poolLife = cfg.pool.life;
   if (cfg && cfg.bellows && cfg.bellows.boltLife) boltLife = cfg.bellows.boltLife;
   veils = (cfg && cfg.veils) || null;
+  hissMem = newHiss(); // a new room starts silent: the snakes build up again from the warden's first steps
+  hissClock = NaN;
+  try { if (ctx) keep.bed.setHiss(0, ctx.currentTime); } catch { /* silent */ }
   releaseWorld();
   spatial.resetCounts();
   try {
@@ -1481,6 +1487,21 @@ function followRoad(sim) {
 }
 
 /**
+ * The snakes in the pit (owner, 2026-11-18): their level from where the warden is (hissLevel: the
+ * pit loudest, the bridge medium, the forecourt lower, nothing on the road, the approach or inside),
+ * built up over the first steps in, stepped by the sim's own clock. Writes parameters only.
+ */
+function followHiss(sim) {
+  const pl = sim && sim.player;
+  if (!pl) return;
+  const now = Number.isFinite(sim.time) ? sim.time : NaN;
+  const dt = Number.isFinite(hissClock) && now > hissClock ? now - hissClock : 0;
+  hissClock = now;
+  const under = sim.waves ? sim.waves.under : null;
+  keep.bed.setHiss(hissLevel(pl.x, pl.z, hissMem, dt, under), ctx.currentTime);
+}
+
+/**
  * Once per playing frame, after the event fan-out: listener is { x, z, yaw } of the player.
  * Moves the strips and ends the hum of a bolt that is gone. It writes parameters on what
  * already exists and never creates a voice (security A4).
@@ -1497,6 +1518,7 @@ export function update(sim, at) {
     if (flowing.length) followFlows(sim);
     if (room === 'castle') followClocks(sim);
     if (room === 'castle') followRoad(sim); // issue #29
+    if (room === 'castle') followHiss(sim); // the snakes in the pit
     if (room === 'court' && courtBed) court.bed.setRain(weatherNow(sim, _sky).rain, ctx.currentTime); // #28
     spatial.update(sim, at);
     for (let i = hums.length - 1; i >= 0; i--) {
@@ -1535,6 +1557,7 @@ export function stats() {
     peakStrips: s.peakStrips,
     muted,
     paused,
+    hiss: { level: hissMem.level, walked: hissMem.walked, gain: keep.bed.hissGain() }, // the snakes, as they stand
   };
 }
 

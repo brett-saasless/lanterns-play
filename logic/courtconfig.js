@@ -5,6 +5,7 @@
 
 import { CONFIG } from './config.js';
 import { CAVE_CONFIG } from './caveconfig.js';
+import { courtSolids, mazeSolids } from './solids.js';
 import { COURT, MAZE, LOOT, PADS, TRAIL_SPACING, mazeBoxes } from './courtmap.js';
 
 function deepFreeze(o) {
@@ -303,7 +304,7 @@ export const COURT_CONFIG = deepFreeze({
   softlockDelay: 1.2,
 
   // Always-solid collision. The briar and the four gates are added by trail.js while closed.
-  boxes: [...COURT.boxes, ...mazeBoxes(), MAZE.rabbit.table, ...MAZE.hatter.cover, MAZE.hatter.stand],
+  boxes: [...COURT.boxes, ...mazeBoxes(), MAZE.rabbit.table, ...MAZE.hatter.cover, MAZE.hatter.stand, ...courtSolids(), ...mazeSolids()], // solids.js: the drawn solids the audit found with no box
   pads: PADS,
   loot: LOOT,
 });

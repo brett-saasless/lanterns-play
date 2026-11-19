@@ -1,7 +1,7 @@
 // The castle's things, drawn from sim state every frame so a restored checkpoint shows exactly
 // what the state says: the tea room's five clocks (minute hands at twelve, the hour hand
 // where the rules put it, a right clock ticking, all five shivering as they strike) and its set
-// table (a rotting boar's head with flies, wilted flowers, mouldy bread, a steaming turkey, two
+// table (a dish of rotten fruit with flies, wilted flowers, mouldy bread, a fresh cake and a plate of cookies, two
 // candelabras, the spilled and broken wine bottle); the gallery's sixty marble tiles and its red
 // runner; the crypt's boxes of earth and its closed coffin; the brass plate by the board; the
 // mirror room's five pieces of furniture, its salt box and the figure-mirror; the nursery's cot,
@@ -30,6 +30,7 @@ import {
   MIRROR_ROOM, FURNITURE, NURSERY, COUNT_ROOM, COUNTWAY,
 } from '../logic/keepmap.js';
 import { isTrue, TILE_COUNT } from '../logic/gallery.js';
+import { teaChairs, longcaseAt } from '../logic/solids.js'; // the tea room's chairs and the longcase clock stand where their boxes do
 import { CLOCK_RULES, CLOCK_NAMES, faceOf, createClocks } from '../logic/clocks.js';
 import { createCount, poseOf, triumphStage } from '../logic/count.js';
 import { READS, ENTRIES } from '../logic/script.js';
@@ -637,9 +638,8 @@ export function createKeepprops(scene, cfg, opts = {}) {
   M.food.customProgramCacheKey = () => 'keepprops-food';
   const glow = glowTexture();
   const haloMat = new THREE.PointsMaterial({ map: glow, color: HUE.fire, size: 0.34, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true, fog: false, toneMapped: false });
-  const steamMat = new THREE.PointsMaterial({ map: glow, color: 0xcfd6dc, size: 0.7, transparent: true, opacity: 0.4, depthWrite: false, sizeAttenuation: true });
   const flyMat = new THREE.PointsMaterial({ color: 0x050505, size: 0.034, sizeAttenuation: true });
-  const shared = [...Object.values(M), haloMat, steamMat, flyMat];
+  const shared = [...Object.values(M), haloMat, flyMat];
   let reduced = false;
 
   /** Bakes tagged parts into one mesh per material under `group`. */
@@ -762,7 +762,7 @@ export function createKeepprops(scene, cfg, opts = {}) {
 
     // The longcase clock, by the door: hood, trunk with a glazed door, the pendulum behind it.
     {
-      const c = at('longcase'); const z0 = room.maxZ - 0.3;
+      const c = at('longcase'); const z0 = longcaseAt().z; // logic/solids.js: its box stands there too
       const body = [
         box('polish', 0.56, 0.5, 0.34, 0, 0.25, 0, OAK, 0, 0.2), box('polish', 0.62, 0.06, 0.4, 0, 0.03, 0, OAK_LIGHT, 0, 0.2),
         box('polish', 0.4, 1.05, 0.05, 0, 1.03, 0.115, OAK, 0, 0.2), box('polish', 0.05, 1.05, 0.26, -0.2, 1.03, 0, OAK, 0, 0.2), box('polish', 0.05, 1.05, 0.26, 0.2, 1.03, 0, OAK, 0, 0.2),
@@ -849,38 +849,61 @@ export function createKeepprops(scene, cfg, opts = {}) {
       parts.push(lathe('wax', [[0.0, 0.004], [0.09, 0.004], [0.14, 0.02], [0.145, 0.024]], st.x, ty, st.z, 0xd8d2c2, 14, 0.08));
       parts.push(lathe('metal', [[0.035, 0], [0.008, 0.02], [0.008, 0.08], [0.036, 0.11], [0.04, 0.17]], st.x - st.sd * 0.05, ty, st.z - 0.26, 0x8a8a84, 10, 0.2));
       parts.push(box('metal', 0.02, 0.004, 0.2, st.x, ty + 0.003, st.z + 0.2, 0x9a9a94, 0.1, 0.1));
-      // the place the skeleton sits at has his chair instead, drawn back, exactly where the rules seat him
-      const his = Math.hypot(st.x + st.sd * 0.72 - TEA.skeleton.x, st.z - TEA.skeleton.z) < 1.2;
-      if (!his) parts.push(...place(chair(), st.x + st.sd * 0.5, 0, st.z, st.sd > 0 ? Math.PI / 2 : -Math.PI / 2));
     }
-    parts.push(...place(chair(), tx + 0.6, 0, T.minZ - 0.25, Math.PI)); // the foot of the table, empty
-    // the two that are sat in (keepcast.js seats its figures on these): the ghost's at the head, the skeleton's turned to his watch
-    parts.push(...place(chair(), TEA.ghost.x, 0, T.maxZ + 0.42, 0));
-    parts.push(...place(chair(), TEA.skeleton.x, 0, TEA.skeleton.z, Math.atan2(TEA.skeleton.x - CLOCKS[3].x, TEA.skeleton.z - CLOCKS[3].z)));
+    // the chairs, where logic/solids.js teaChairs stands them (and their boxes): a chair at each laid place but the
+    // skeleton's (his own is drawn back), one at the foot, empty, and the two that are sat in (keepcast.js seats its
+    // figures on these): the ghost's at the head, the skeleton's turned to his watch
+    for (const c of teaChairs()) parts.push(...place(chair(), c.x, 0, c.z, c.yaw));
 
-    // the boar's head: weeks old, grey-green, sunk, on a pewter charger, an apple gone black in its jaw
+    // the rotten fruit: a dark dish of apples, pears and a bunch of grapes, brown-black over half their skin, dented and
+    // split, furred with white-grey mould, the juice dried round them
     const flies = [];
     let flyAt = null;
-    let steamAt = null;
     {
       const bx2 = tx - 0.3; const bz = tz + 1.9; const hd = [];
-      hd.push(lathe('metal', [[0, 0.004], [0.27, 0.004], [0.36, 0.03], [0.37, 0.036]], 0, 0, 0, 0x77786f, 18, 0.2));
-      const HIDE = 0x4b4a3a; const DARK = 0x2c2b22;
-      hd.push(ball('wood', 0.17, 0, 0.16, 0.1, HIDE, 1.05, 0.88, 1, 0.6, 14)); // the skull, sunk on the neck's stump
-      hd.push(ball('wood', 0.15, 0, 0.1, 0.2, DARK, 1.1, 0.6, 0.6, 0.5, 10));
-      hd.push(part('wood', S.tint(new THREE.CylinderGeometry(0.062, 0.125, 0.3, 12).rotateX(-Math.PI / 2).translate(0, 0.115, -0.13), HIDE, 0.6))); // the long snout
-      hd.push(part('wood', S.tint(new THREE.CylinderGeometry(0.066, 0.066, 0.025, 12).rotateX(Math.PI / 2).translate(0, 0.115, -0.29), 0x322a26, 0.3))); // the disc of the nose
-      for (const sd of [-1, 1]) {
-        hd.push(ball('wood', 0.012, sd * 0.024, 0.118, -0.305, 0x0c0a09, 1, 1.4, 0.6, 0, 6)); // nostrils
-        hd.push(part('wax', S.tint(new THREE.ConeGeometry(0.02, 0.15, 7).rotateX(-0.35).rotateZ(-sd * 0.45).translate(sd * 0.085, 0.16, -0.2), 0xd6ccae, 0.12))); // tusks
-        hd.push(part('wood', S.tint(new THREE.ConeGeometry(0.065, 0.14, 4).scale(1, 1, 0.35).rotateX(0.5).rotateZ(-sd * 1.0).translate(sd * 0.16, 0.3, 0.1), DARK, 0.5))); // ears, fallen sideways
-        hd.push(ball('wood', 0.026, sd * 0.115, 0.215, -0.02, 0x0c0b09, 1, 0.55, 1, 0, 6)); // sockets
-        hd.push(ball('wax', 0.02, sd * 0.12, 0.15, 0.02, 0xaab89a, 1.4, 0.5, 1.6, 0.3, 5)); // mould under the eye
+      hd.push(lathe('metal', [[0, 0.004], [0.27, 0.004], [0.36, 0.03], [0.37, 0.036]], 0, 0, 0, 0x3a3a35, 18, 0.2)); // a dull dark platter
+      const rand = S.rng(41);
+      const wob = (x, y, z, sd) => Math.sin(x * 57 + sd) * Math.sin(y * 43 + z * 31 + sd * 2) + Math.sin(z * 61 - sd) * 0.6; // a cheap dent field, -1.6..1.6
+      // a fruit: a lathe profile (r, y), squashed, dented, then coloured vertex by vertex: flesh where it is sound, brown then black where it has gone (cover is the share gone)
+      const fruit = (pts, flesh, cover, sd, sy, x, z, tilt = 0, yaw = 0) => {
+        const g = new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(Math.max(0.0005, r), y)), 12);
+        g.scale(1, sy, 1);
+        const pos = g.attributes.position; const col = new Float32Array(pos.count * 3);
+        const F = new THREE.Color(flesh); const BR = new THREE.Color(0x4a2c14); const BL = new THREE.Color(0x120c08); const c = new THREE.Color();
+        for (let i = 0; i < pos.count; i++) {
+          const px = pos.getX(i); const py = pos.getY(i); const pz = pos.getZ(i);
+          const d = wob(px, py, pz, sd); const k = 1 + 0.07 * d; // dents
+          pos.setXYZ(i, px * k, py, pz * k);
+          const n = 0.5 + 0.5 * Math.sin(px * 34 + sd) * Math.sin(py * 29 + pz * 23 + sd * 1.7) + 0.25 * wob(py, pz, px, sd + 3); // 0..~1.3
+          const rotN = n < cover * 1.1 ? 1 : 0; const black = n < cover * 0.55;
+          c.copy(F).lerp(BR, rotN ? 0.8 : 0.15); if (black) c.lerp(BL, 0.85);
+          col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+        }
+        g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        g.rotateZ(tilt).rotateY(yaw).translate(x, 0.036 + (tilt ? 0.045 : 0), z);
+        return part('wood', g);
+      };
+      // the apple's profile: shoulders, a dimple at the crown
+      const APPLE = [[0, 0], [0.04, -0.004], [0.075, 0.02], [0.088, 0.065], [0.08, 0.105], [0.052, 0.128], [0.022, 0.12], [0.01, 0.1]];
+      const PEAR = [[0, 0], [0.045, 0.006], [0.078, 0.045], [0.074, 0.088], [0.05, 0.128], [0.034, 0.17], [0.034, 0.205], [0.018, 0.232], [0.004, 0.232]];
+      const stalk = (x, y, z, l) => rod('wood', [x, y, z], [x + 0.012, y + l, z + 0.004], 0.005, 0x2a1c10, 4);
+      hd.push(fruit(APPLE, 0x8a3a24, 0.62, 3, 0.8, -0.13, -0.06, 0, 0.3), stalk(-0.13, 0.036 + 0.09, -0.06, 0.05));
+      hd.push(fruit(APPLE, 0x7a5a24, 0.55, 8, 0.78, 0.09, 0.1, 0.12, 1.4), stalk(0.095, 0.036 + 0.1, 0.1, 0.04));
+      hd.push(fruit(APPLE, 0x6a3a1c, 0.7, 13, 0.76, 0.06, -0.17, -0.1, 2.6));
+      hd.push(fruit(PEAR, 0x9a9a3a, 0.5, 21, 0.8, -0.02, 0.18, 1.0, 0.8), stalk(-0.1, 0.1, 0.18, 0.04)); // the sickly yellow-green one, slumped on its side
+      hd.push(fruit(PEAR, 0x7a5a28, 0.6, 27, 0.8, 0.22, -0.02, -0.9, -0.5));
+      // split open: a paler brown flesh showing, a bite gone from one apple
+      hd.push(ball('wood', 0.04, -0.14, 0.036 + 0.075, -0.015, 0xb48a56, 0.9, 0.5, 0.55, 0.3, 7), ball('wood', 0.022, -0.115, 0.036 + 0.1, -0.015, 0x120c08, 1, 0.7, 1, 0.2, 6));
+      hd.push(ball('wood', 0.034, 0.1, 0.036 + 0.07, 0.17, 0xc09c64, 1.1, 0.45, 0.6, 0.3, 7), ball('wood', 0.03, 0.045, 0.036 + 0.095, -0.2, 0xa8804c, 0.5, 0.6, 1.1, 0.3, 7));
+      // the grapes: a bunch gone to raisins, dark purple-black, hanging over the rim
+      for (let i = 0; i < 18; i++) {
+        const k = i / 18; const x = -0.22 - 0.06 * Math.sin(k * 5) + (rand() - 0.5) * 0.06; const z = 0.12 + k * 0.2 + (rand() - 0.5) * 0.05;
+        hd.push(ball('wood', 0.02 + rand() * 0.006, x, 0.068 - k * 0.02 + (rand() - 0.5) * 0.02, z, i % 3 ? 0x2a1630 : 0x3c2a24, 1, 0.7, 1, 0.5, 6));
       }
-      for (let i = 0; i < 8; i++) hd.push(part('wood', S.tint(new THREE.ConeGeometry(0.014, 0.07, 4).rotateX(0.5).translate(0, 0.3 - i * 0.004, 0.2 - i * 0.045), 0x17150f, 0.3))); // the ridge of bristle
-      hd.push(ball('wood', 0.05, 0, 0.068, -0.3, 0x15100c, 1, 0.9, 1, 0.3, 8)); // the apple in its jaw, gone black
-      for (let i = 0; i < 9; i++) { const a = i * 0.7; hd.push(ball('wax', 0.014, Math.cos(a) * (0.11 + (i % 3) * 0.025), 0.27 - (i % 4) * 0.035, 0.1 + Math.sin(a) * 0.09, 0xaab89a, 1.3, 0.45, 1.3, 0.3, 5)); } // mould
-      for (let i = 0; i < 7; i++) hd.push(part('decal', S.tint(new THREE.CircleGeometry(0.05 + (i % 3) * 0.03, 9).rotateX(-Math.PI / 2).translate(Math.cos(i * 0.9) * 0.24, 0.04 + i * 0.0004, Math.sin(i * 0.9) * 0.24), 0x1c170e, 0.3))); // what has run out of it
+      hd.push(rod('wood', [-0.22, 0.15, 0.08], [-0.22, 0.08, 0.2], 0.006, 0x2a2110, 4));
+      // white-grey mould fuzz in tufts on the skins
+      for (let i = 0; i < 12; i++) { const a = rand() * TAU; const d = 0.04 + rand() * 0.22; hd.push(ball('wax', 0.011 + rand() * 0.01, Math.cos(a) * d, 0.08 + rand() * 0.1, Math.sin(a) * d, i % 2 ? 0xd6d9ca : 0xb9bfb0, 1.4, 0.7, 1.4, 0.25, 5)); }
+      for (let i = 0; i < 4; i++) hd.push(part('decal', S.tint(new THREE.CircleGeometry(0.05 + (i % 3) * 0.03, 10).rotateX(-Math.PI / 2).translate(Math.cos(i * 1.7 + 1) * 0.25, 0.04 + i * 0.0004, Math.sin(i * 1.7 + 1) * 0.25), 0x24120a, 0.3))); // the dark juice, dried
       for (const p of hd) if (p.m !== 'decal' && p.m !== 'metal') p.m = 'food';
       parts.push(...place(hd, bx2, ty, bz, Math.PI + 0.45, 2.3));
       for (let i = 0; i < 22; i++) flies.push([bx2, ty + 0.3, bz]);
@@ -911,22 +934,38 @@ export function createKeepprops(scene, cfg, opts = {}) {
       for (const p of b) if (p.m !== 'metal') p.m = 'food';
       parts.push(...place(b, tx - 0.35, ty, tz - 1.2, 0.3, 2.2));
     }
-    // the turkey: just dressed, golden, on a white dish with greens; it steams
-    const steam = [];
+    // the cake and the cookies: on the old turkey dish, the cake tiered, freshly frosted, a slice cut out; beside it a stack of cookies on a small plate
     {
       const kx = tx + 0.1; const kz = tz - 2.9; const k = [lathe('wax', [[0, 0.004], [0.24, 0.004], [0.36, 0.03], [0.37, 0.036]], 0, 0, 0, 0xe8e4d8, 18, 0.05)];
-      k.push(ball('polish', 0.19, 0, 0.16, 0, 0x8f5220, 1, 0.78, 1.32, 0.3, 16));
-      k.push(ball('polish', 0.1, 0, 0.26, -0.05, 0x9c6026, 1.3, 0.6, 1.5, 0.3, 12)); // the breast
-      for (const sd of [-1, 1]) {
-        k.push(ball('polish', 0.075, sd * 0.17, 0.14, 0.13, 0x7c4517, 0.9, 0.9, 1.5, 0.2, 9));
-        k.push(rod('wax', [sd * 0.18, 0.15, 0.22], [sd * 0.2, 0.2, 0.34], 0.012, 0xe8dcc0, 5), ball('wax', 0.022, sd * 0.2, 0.205, 0.345, 0xf3ecd8, 1, 1, 1, 0.05, 6)); // frilled drumstick ends
-        k.push(ball('polish', 0.05, sd * 0.19, 0.17, -0.1, 0x7c4517, 0.7, 0.6, 1.6, 0.2, 8)); // wings
+      const FROST = 0xf1e8d0; const SPONGE = 0xd9a85a; const GREY = 0xfaf4e4;
+      const cx = -0.09; const cz = -0.03; const y0 = 0.036; const PHI0 = 0.55; const PHI = Math.PI * 2 - 0.9; // the cut: 0.9 rad out of the ring
+      const tier = (r, h, y, hex) => {
+        const g = new THREE.LatheGeometry([[0.0005, y + h], [r * 0.5, y + h - 0.012], [r - 0.012, y + h], [r, y + h - 0.012], [r, y]].map(([rr, yy]) => new THREE.Vector2(rr, yy)), 16, PHI0, PHI).translate(cx, y0, cz); // the top sunk toward the middle
+        return part('food', S.tint(g, hex, 0.12));
+      };
+      const cutFace = (r, h, y, ang) => { // a flat sponge face where the slice was
+        const g = new THREE.BoxGeometry(r, h, 0.004).translate(r / 2, y + h / 2, 0).rotateY(ang - Math.PI / 2).translate(cx, y0, cz);
+        return part('food', S.tint(g, SPONGE, 0.15));
+      };
+      k.push(tier(0.2, 0.09, 0, FROST), tier(0.135, 0.075, 0.09, FROST));
+      for (const ang of [PHI0, PHI0 + PHI]) k.push(cutFace(0.2, 0.09, 0, ang), cutFace(0.135, 0.075, 0.09, ang));
+      k.push(ball('food', 0.016, cx - 0.02, y0 + 0.19, cz + 0.02, 0xb3121f, 1, 1, 1, 0.2, 7)); // a fresh cherry
+      // piped frosting where the cake meets the plate, and dollops on the top
+      for (let i = 0; i < 9; i++) { const a = PHI0 + 0.3 + (i / 9) * (PHI - 0.5); k.push(ball('wax', 0.022, cx + Math.sin(a) * 0.195, y0 + 0.012 + (i % 3) * 0.004, cz + Math.cos(a) * 0.195, GREY, 1.3, 0.5, 1.3, 0.3, 5)); }
+      for (let i = 0; i < 5; i++) { const a = i * 1.3; k.push(ball('wax', 0.018, cx + Math.sin(a) * 0.07, y0 + 0.158, cz + Math.cos(a) * 0.07, GREY, 1.4, 0.35, 1.4, 0.3, 5)); }
+      // the plate of cookies: a small white plate, a stack of four and four more leaning on it
+      const px = 0.2; const pz = 0.14;
+      k.push(lathe('wax', [[0, y0 + 0.004], [0.1, y0 + 0.004], [0.13, y0 + 0.016], [0.135, y0 + 0.02]], px, 0, pz, 0xe8e4d8, 14, 0.05));
+      for (let i = 0; i < 4; i++) {
+        k.push(part('food', S.tint(new THREE.CylinderGeometry(0.043, 0.043, 0.014, 10).rotateY(i * 0.7).translate(px - 0.01 + (i % 2) * 0.012, y0 + 0.027 + i * 0.015, pz + 0.005 - (i % 2) * 0.01), i % 2 ? 0xc98f3a : 0xdca552, 0.15)));
+        k.push(ball('food', 0.007, px - 0.025 + i * 0.016, y0 + 0.037 + i * 0.015, pz + 0.01, 0x2a1a0e, 1, 0.6, 1, 0.2, 4)); // a chip
       }
-      for (let i = 0; i < 12; i++) { const a = (i / 12) * TAU; k.push(ball('cloth', 0.04, Math.cos(a) * 0.29, 0.035, Math.sin(a) * 0.3, i % 2 ? 0x4f7a2c : 0x6a9a3a, 1.2, 0.4, 1, 0.3, 5)); }
+      for (let i = 0; i < 4; i++) {
+        const a = 0.6 + i * 1.5;
+        k.push(part('food', S.tint(new THREE.CylinderGeometry(0.043, 0.043, 0.014, 10).rotateZ(0.3).rotateY(a).translate(px + Math.cos(a) * 0.075, y0 + 0.03, pz + Math.sin(a) * 0.075), i % 2 ? 0xdca552 : 0xc98f3a, 0.15)));
+      }
       for (const p of k) p.m = 'food';
       parts.push(...place(k, kx, ty, kz, -0.2, 2.3));
-      for (let i = 0; i < 16; i++) steam.push([kx, ty + 0.3, kz]);
-      steamAt = { x: kx, y: ty + 0.7, z: kz };
     }
     // the two candelabras: their flames light the room
     const flames = [];
@@ -974,7 +1013,6 @@ export function createKeepprops(scene, cfg, opts = {}) {
     }
     bake(group, parts);
     const fliesP = points(group, flies, flyMat);
-    const steamP = points(group, steam, steamMat);
 
     function tick(sim, w, dt, time) {
       const cl = w.clocks || IDLE.clocks;
@@ -1003,12 +1041,6 @@ export function createKeepprops(scene, cfg, opts = {}) {
         fp.setXYZ(i, flyAt.x + Math.cos(t * 1.3 + i) * r, flyAt.y + 0.2 * Math.sin(t * 2.1 + i * 1.7) + 0.06 * Math.sin(t * 7.3), flyAt.z + Math.sin(t * 1.1 + i * 0.6) * r);
       }
       fp.needsUpdate = true;
-      const sp = steamP.geometry.attributes.position;
-      for (let i = 0; i < sp.count; i++) {
-        const k = ((time * 0.22 + i / sp.count) % 1);
-        sp.setXYZ(i, steamAt.x + 0.16 * Math.sin(i * 2.4 + k * 3) * (0.4 + k), steamAt.y + k * 1.3, steamAt.z + 0.16 * Math.cos(i * 1.9 + k * 2.2) * (0.4 + k));
-      }
-      sp.needsUpdate = true;
       haloMat.opacity = reduced ? 0.8 : 0.72 + 0.1 * Math.sin(time * 11.3) + 0.06 * Math.sin(time * 27.1);
       void halos;
     }

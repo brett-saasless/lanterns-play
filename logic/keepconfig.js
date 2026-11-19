@@ -5,9 +5,10 @@
 // time and the hint ladder's 90 s and 210 s are the court's values. Positions are keepmap.js's.
 
 import { COURT_CONFIG } from './courtconfig.js';
+import { castleSolids } from './solids.js'; // the drawn solids the audit found with no box (tests/solids.test.js)
 import { ARMOUR_TUNE, WIFE_TUNE } from './sentries.js';
 import {
-  ZONES, SPAWNS, PADS, LOOT, SENTRIES, HAUNT_PLACES, PIT, GALLERY, keepWalls, keepProps,
+  ZONES, SPAWNS, PADS, LOOT, SENTRIES, HAUNT_PLACES, PIT, GALLERY, keepWalls, keepCorners, keepProps,
 } from './keepmap.js';
 
 function deepFreeze(o) {
@@ -123,7 +124,7 @@ export const CASTLE_CONFIG = deepFreeze({
 
   // Always-solid collision: the walls and the props. keep.js keepBoxes adds the shut doors, the
   // pit's or the crypt's walls while the warden is down there, the stairwell's rails, the board.
-  boxes: [...keepWalls(), ...keepProps()],
+  boxes: [...keepWalls(), ...keepCorners(), ...keepProps(), ...castleSolids()], // keepCorners: the stone at each room's outside corners (debris.js)
   pads: PADS,
   loot: LOOT,
 });

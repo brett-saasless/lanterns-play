@@ -28,6 +28,7 @@ import { DRESS } from './roadcreature.js'; // the werewolf-beefeater's uniform: 
 import { bustGeometry, bustSet, BUST } from './busts.js';
 import { headYawToward, headSeen, HEAD_TURN } from '../logic/headturn.js';
 import { EMERGE, emergeAt } from '../logic/emerge.js'; // the wife coming out of her painting
+import { SUIT_RODS, SUIT_REST, heapLayout, planFall, trackAt } from '../logic/debris.js'; // a fallen suit's pieces, kept out of stone
 import { cutawayAt, CUTAWAY } from '../logic/cutaway.js'; // the werewolf cutaway: it poses the fighting suit at the real door
 const CUT_SUIT = CUTAWAY.guard.suit;
 
@@ -946,22 +947,15 @@ function buildArmour(e, cfg, ctx) {
 
   // where each piece lies once the suit has come apart
   const lay = (x, y, z, rx, ry, rz) => ({ p: V(x, y, z), q: new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), wait: rand() * 0.3 });
-  const REST = {
-    torso: lay(0.1, 0.34, -1.05, Math.PI / 2 - 0.1, 0.4, 0.2), helm: lay(-0.55, 0.19, -1.0, 1.9, 0.6, 0.5),
-    claw: lay(-0.7, 0.05, 0.1, 0.1, 2, 0), pike: lay(0.75, 0.04, 0.5, Math.PI / 2 + 0.02, 0.5, 0),
-  };
-  const segA = []; const segB = []; const segR = []; const heapA = []; const heapB = []; const heapW = [];
-  for (let i = 0; i < 12; i++) {
-    segA.push(V()); segB.push(V()); segR.push(0.08);
-    const a = rand() * TAU; const r = 0.25 + rand() * 0.75; const d = rand() * TAU; const len = 0.22 + 0.2 * rand();
-    const c = V(Math.cos(a) * r, 0.07, Math.sin(a) * r - 0.2);
-    heapA.push(V(c.x - Math.cos(d) * len, 0.07 + 0.1 * rand(), c.z - Math.sin(d) * len)); heapB.push(V(c.x + Math.cos(d) * len, 0.07, c.z + Math.sin(d) * len));
-    heapW.push(rand() * 0.35);
-  }
+  const REST = {}; // logic/debris.js SUIT_REST: the same places its fall planner lays them
+  for (const k of ['torso', 'helm', 'claw', 'pike']) { const R = SUIT_REST[k]; REST[k] = lay(...R.p, ...R.e); }
+  const segA = []; const segB = []; const segR = [];
+  const heap = heapLayout(rand); const heapA = heap.A.map((p) => V(...p)); const heapB = heap.B.map((p) => V(...p)); const heapW = heap.W;
+  for (let i = 0; i < 12; i++) { segA.push(V()); segB.push(V()); segR.push(0.08); }
   const rec = { place(i, a, b, r) { segA[i].copy(a); segB[i].copy(b); segR[i] = r; } };
   /** It comes apart now: its pieces will lie clear of the forecourt's cover. */
   function startFall() {
-    v.fallT = 0; v.heap = true;
+    v.fallT = 0; v.fallSec = 0; v.waitK = 1; v.heap = true;
     const f = g.rotation.y;
     clearOfCover(g.position.x - Math.sin(f) * 0.6, g.position.z - Math.cos(f) * 0.6, 1.25, _a);
     const wx = _a.x - (g.position.x - Math.sin(f) * 0.6); const wz = _a.z - (g.position.z - Math.cos(f) * 0.6);
@@ -973,19 +967,52 @@ function buildArmour(e, cfg, ctx) {
 
   const v = {
     g, type: 'armour', suit: e.suit, seed, eye: V(), face: e.heading || 0, first: true, phase: frac(seed * 0.37), move: 0, awake: 0,
-    tellAmt: 0, tellOn: false, tellClock: 0, tellDur: 0.8, strikeT: 0, flash: 0, jolt: 0, stun: 0, talk: 0, fallT: -1, fallRate: 1, dead: false, heap: false, lit: 0,
+    tellAmt: 0, tellOn: false, tellClock: 0, tellDur: 0.8, strikeT: 0, flash: 0, jolt: 0, stun: 0, talk: 0, fallT: -1, fallSec: -1, waitK: 1, fallRate: 1, dead: false, heap: false, lit: 0,
   };
   const mat = new THREE.Matrix4(); const eul = new THREE.Euler();
   const cur = hold([0, 0, 0], [0, 1, 0], [0, 0, -1]); const base = hold([0, 0, 0], [0, 1, 0], [0, 0, -1]);
   const sh = [V(), V()]; const hip = [V(), V()]; const hand = [V(), V()]; const foot = [V(), V()];
   const elbow = V(); const knee = V(); const butt = V(); const toe = V(); const bendA = V(); const bendL = V(); const pq = new THREE.Quaternion();
 
-  function settle(obj, rest, k) {
-    if (k <= 0) return;
-    const u = smooth(clamp((k - rest.wait) / 0.5));
-    obj.position.lerp(rest.p, u);
-    obj.position.y += 0.12 * Math.sin(Math.PI * clamp((k - rest.wait - 0.5) / 0.25)) * (1 - clamp(k - 1.2)); // one bounce
-    obj.quaternion.slerp(rest.q, u);
+  // The fall (logic/debris.js): planned once, from the pose each piece stood in as the suit came
+  // apart, against the live collision boxes, so nothing falls into or lies in stone. Each piece is a
+  // rod; the meshes keep their designed turn toward the rest pose, squared onto the rod's way.
+  const PIECES = ['torso', 'helm', 'claw', 'pike'];
+  const MESH = { torso, helm, claw, pike };
+  let plan = null; // { tracks[16]: the four pieces then the twelve plates, in the suit's frame; q0: the pieces' turn as they stood }
+  const _ra = [0, 0, 0]; const _rb = [0, 0, 0]; const _pa = V(); const _pb = V(); const _ax = V(); const _dq = new THREE.Quaternion();
+  const ends = (obj, rod) => ({
+    a: _pa.set(...rod.a).applyQuaternion(obj.quaternion).add(obj.position).toArray(),
+    b: _pb.set(...rod.b).applyQuaternion(obj.quaternion).add(obj.position).toArray(),
+  });
+  const restOf = (k) => {
+    const rod = SUIT_RODS[k]; const R = REST[k];
+    return { a: _pa.set(...rod.a).applyQuaternion(R.q).add(R.p).toArray(), b: _pb.set(...rod.b).applyQuaternion(R.q).add(R.p).toArray() };
+  };
+  function makePlan() {
+    const bodies = PIECES.map((k) => ({ start: ends(MESH[k], SUIT_RODS[k]), rest: restOf(k), r: SUIT_RODS[k].r }));
+    for (let i = 0; i < 12; i++) bodies.push({ start: { a: segA[i].toArray(), b: segB[i].toArray() }, rest: { a: heapA[i].toArray(), b: heapB[i].toArray() }, r: Math.max(0.08, segR[i]) });
+    const boxes = ctx.boxes || (ctx.cfg && ctx.cfg.boxes) || [];
+    plan = { tracks: planFall({ x: g.position.x, y: g.position.y, z: g.position.z, f: g.rotation.y }, bodies, boxes), q0: PIECES.map((k) => MESH[k].quaternion.clone()) };
+  }
+  /**
+   * A piece's seconds into its own fall: real seconds since the suit came apart, less its wait (in a
+   * slow crumble the waits are drawn out, so it sheds them one by one, each falling at its own pace).
+   */
+  const own = (fall, wait) => (fall < 0 ? -1 : v.fallSec - wait * v.waitK);
+  function settle(k, i, fall) {
+    const obj = MESH[k]; const R = REST[k];
+    const t = own(fall, R.wait);
+    if (t <= 0) return;
+    const tr = plan.tracks[i];
+    const len = trackAt(tr, t, _ra, _rb);
+    _pa.fromArray(_ra); _pb.fromArray(_rb);
+    obj.quaternion.copy(plan.q0[i]).slerp(R.q, smooth(clamp(t / Math.max(0.3, len))));
+    const rod = SUIT_RODS[k];
+    _ax.set(...rod.b).sub(_t.set(...rod.a)).applyQuaternion(obj.quaternion).normalize();
+    _d.subVectors(_pb, _pa).normalize();
+    obj.quaternion.premultiply(_dq.setFromUnitVectors(_ax, _d));
+    obj.position.copy(_pa).sub(_t.set(...rod.a).applyQuaternion(obj.quaternion));
   }
 
   // o: mv, ph, awake, tell, chop, recover, jolt, stun, talk, wobble, fall (seconds since it came apart, or -1), time
@@ -1051,19 +1078,22 @@ function buildArmour(e, cfg, ctx) {
       jointAt[6 + i].copy(foot[i]); jointDir[6 + i].subVectors(foot[i], knee);
     }
     if (fall >= 0) {
-      settle(torso, REST.torso, fall); settle(helm, REST.helm, fall); settle(claw, REST.claw, fall); settle(pike, REST.pike, fall);
+      if (!plan) makePlan();
+      PIECES.forEach((k, i) => settle(k, i, fall));
     }
     for (let i = 0; i < 12; i++) {
-      if (fall >= 0) {
-        const u = smooth(clamp((fall - heapW[i]) / 0.5));
-        _a.copy(segA[i]).lerp(heapA[i], u); _b.copy(segB[i]).lerp(heapB[i], u);
+      const t = fall >= 0 ? own(fall, heapW[i]) : -1;
+      if (t > 0) {
+        trackAt(plan.tracks[4 + i], t, _ra, _rb);
+        _a.fromArray(_ra); _b.fromArray(_rb);
+        heapB[i].copy(_b); // the joints follow their plate's lower end
         L.place(i, _a, _b, segR[i]);
       } else L.place(i, segA[i], segB[i], segR[i]);
     }
     L.commit();
     for (let i = 0; i < 8; i++) {
       _o.position.copy(jointAt[i]);
-      if (fall >= 0) { const sgi = JSEG[i]; _o.position.lerp(heapB[sgi], smooth(clamp((fall - heapW[sgi]) / 0.5))); }
+      if (fall >= 0) { const sgi = JSEG[i]; if (own(fall, heapW[sgi]) > 0) _o.position.copy(heapB[sgi]); } // on its plate's falling end
       _o.quaternion.setFromUnitVectors(_y.set(0, 1, 0), _t.copy(jointDir[i]).normalize());
       _o.scale.setScalar(JSIZE[i]);
       _o.updateMatrix();
@@ -1090,16 +1120,16 @@ function buildArmour(e, cfg, ctx) {
     if (v.first) { v.face = num(en.heading); v.first = false; }
     const st = String(en.state || '');
     const heap = st === 'heap' || (en.dead && first);
-    if (heap && v.fallT < 0) { if (v.seen) startFall(); else { v.fallT = 9; v.heap = true; } } // seated already fallen: it lies as it fell
+    if (heap && v.fallT < 0) { if (v.seen) startFall(); else { v.fallT = 9; v.fallSec = 9; v.heap = true; } } // seated already fallen: it lies as it fell
     // The first suit's slow collapse (#14): the same fall, played over the crumble's own length so the pieces drop one by one.
-    if (st === 'crumble' && v.fallT < 0 && v.seen) { startFall(); v.fallRate = 1.2 / Math.max(1, (cfg2 && cfg2.armour && cfg2.armour.crumbleTime) || 6); }
+    if (st === 'crumble' && v.fallT < 0 && v.seen) { startFall(); v.fallRate = 1.2 / Math.max(1, (cfg2 && cfg2.armour && cfg2.armour.crumbleTime) || 6); v.waitK = 1 / v.fallRate; }
     if (heap) v.fallRate = 1;
     v.seen = true;
     if (!v.heap) v.face += wrap(num(en.heading) - v.face) * Math.min(1, dt * 7);
     g.rotation.y = v.face;
     g.visible = force || Math.hypot(eye.x - en.x, eye.z - en.z) < FAR;
     if (!g.visible) return;
-    if (v.fallT >= 0) v.fallT += dt * v.fallRate;
+    if (v.fallT >= 0) { v.fallT += dt * v.fallRate; v.fallSec += dt; }
     const asleep = st === 'stand' && !en.called;
     const walking = num(en.speedNow) > 0.05 && !v.heap;
     if (walking) v.phase += (en.speedNow * dt) / A_STRIDE;
@@ -1187,7 +1217,7 @@ function buildArmour(e, cfg, ctx) {
   /** Lies as a heap from the start (laid again after a death, from the run's record). */
   v.layDown = (x, y, z, yaw) => {
     clearOfCover(x, z, 1.25, _a);
-    g.position.set(_a.x, y, _a.z); g.rotation.y = yaw; v.fallT = 9; v.heap = true; v.dead = true;
+    g.position.set(_a.x, y, _a.z); g.rotation.y = yaw; v.fallT = 9; v.fallSec = 9; v.heap = true; v.dead = true;
     pose({ mv: 0, ph: v.phase, awake: 0, tell: 0, chop: 0, recover: 0, jolt: 0, stun: 0, talk: 0, wobble: 0, fall: 9, time: 0 });
     lightEyes(0, 0);
     for (const m of [...looks, pike]) m.castShadow = false;
@@ -1196,7 +1226,7 @@ function buildArmour(e, cfg, ctx) {
   v.die = () => { v.dead = true; if (v.fallT < 0) startFall(); v.heap = true; setFlash(false); };
   v.updateDeath = (dt, time) => {
     if (v.fallT > 2) return false; // lies where it fell
-    v.fallT += dt;
+    v.fallT += dt; v.fallSec += dt;
     pose({ mv: 0, ph: v.phase, awake: 1, tell: 0, chop: 0, recover: 0, jolt: 0, stun: 0, talk: 0, wobble: 0, fall: v.fallT, time });
     lightEyes(0.9 * (1 - clamp(v.fallT / 0.8)), 0);
     if (v.fallT > 2) for (const m of [...looks, pike]) m.castShadow = false;
@@ -2908,7 +2938,7 @@ export function registerKeepcast(actors, scene, castle = null) {
         filmed.clear();
         ctx.filmHold = false;
       }
-      if (inRun) ctx.cfg = sim.cfg;
+      if (inRun) { ctx.cfg = sim.cfg; ctx.boxes = sim.boxes; } // a fallen suit's pieces fall against the warden's own walls (debris.js)
       const at = inRun ? MAP.floorZoneAt(sim.player.x, sim.player.z, num(sim.player.y), sim.waves) : null;
       c.zone = at ? (at.zone === 'crypt' ? 'gallery' : at.zone === 'pit' ? 'bridge' : at.zone) : MAP.zoneAt(eye.x, eye.z);
       const now = performance.now() / 1000;

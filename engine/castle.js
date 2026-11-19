@@ -24,6 +24,8 @@ import { LEAF, SWING, doorHeight, leafFrameOf, leafPose, swingToward, IRON_GATE 
 import { createRoadView } from './roadview.js'; // issue #29: the road up from the wood, and its evening
 import { cutawayAt, CUTAWAY } from '../logic/cutaway.js'; // the werewolf cutaway: its run beat plays on the real front
 import { buildDawnView, DAWN_SUN } from './dawnview.js'; // art pass K1: the sunrise out of the Count's windows
+import { nightSky, SKY } from '../logic/nightsky.js'; // fix/wives-window: the moon and stars seen through a passage's slit
+import { SIGHT } from '../logic/sightlines.js'; // fix/doorway-sky: which zones are in sight of which
 
 const HUE = ST.STONE;
 const INSET = 0; // walls stand just outside a zone's clear floor, as keepmap.js builds them
@@ -115,9 +117,10 @@ function makePlan() {
   return {
     zones,
     doors,
-    // straight sight lines through two or more doorways: beyond its neighbours a zone shows these
-    sees: [['cor1', 'outside'], ['cor2', 'cor3'], ['cor3', 'stairs'], ['walk', 'landing'], ['stairs', 'mirror'],
-      ['landing', 'countway'], ['landing', 'count'], ['mirror', 'count']],
+    // straight sight lines through two or more doorways: beyond its neighbours a zone shows these.
+    // fix/doorway-sky: worked out from the plan (logic/sightlines.js), no longer a list by hand that
+    // missed some (from the passage's end the mirror room's far doors were holes onto the sky)
+    sees: Object.entries(SIGHT).flatMap(([a, ids]) => ids.map((b) => [mine(a), mine(b)])).filter(([a, b]) => a !== b),
     outside: {
       // south: the road's hillside (roadview.js, #29) begins at the approach's parapet
       half: 80, south: 44.75, north: -62, front: 0.5, frontHalf: 36, frontH: 14,
@@ -401,6 +404,13 @@ export function buildCastle(scene, cfg) {
   const litMat = new THREE.MeshBasicMaterial({ vertexColors: true, fog: true }); // lit windows seen from outside
   const windowMats = [0, 1, 2, 3].map(() => litMat.clone()); // #29: the front's windows in four sets (finish)
   const darkMat = new THREE.MeshBasicMaterial({ color: 0x080b12, fog: false });
+  // fix/wives-window: the night through a passage's moon slit, drawn once (logic/nightsky.js) and shared
+  // by the four slits. Untoned, so its brightest pixel is the moon's core (SKY.cap) at any exposure
+  const skyTex = new THREE.DataTexture(nightSky({ bottomUp: true }), SKY.w, SKY.h, THREE.RGBAFormat);
+  skyTex.colorSpace = THREE.SRGBColorSpace;
+  skyTex.magFilter = THREE.LinearFilter; skyTex.minFilter = THREE.LinearMipmapLinearFilter; skyTex.generateMipmaps = true;
+  skyTex.needsUpdate = true;
+  const slitSkyMat = new THREE.MeshBasicMaterial({ map: skyTex, fog: true, toneMapped: false });
   // K9: the far crags graded into the night air: under the horizon's sky by about 15 values and in
   // its hue, not the near roofs' black (the road's evening grades them with the roofs, as before)
   const RIDGE = 0x1a2234;
@@ -440,7 +450,7 @@ export function buildCastle(scene, cfg) {
   // ---- zones ----
   const zones = PLAN.zones.map((z, i) => ({
     ...z, index: i, group: new THREE.Group(), neighbours: new Set(),
-    stone: [], worn: [], floorParts: {}, fit: [], cloth: [], rug: [], glass: [], lit: [], dark: [], ridge: [], glow: [],
+    stone: [], worn: [], floorParts: {}, fit: [], cloth: [], rug: [], glass: [], lit: [], dark: [], ridge: [], glow: [], sky: [],
     flames: flameBuilder(), halos: [], fires: [], leaves: [],
   }));
   const byId = Object.fromEntries(zones.map((z) => [z.id, z]));
@@ -761,22 +771,17 @@ export function buildCastle(scene, cfg) {
   }
 
   /**
-   * K2: a passage's moon slit. The opening stays open to the night; a pale moonlit haze fills its
-   * outer end (so the slit reads as moon-silver from down the passage), and the zone's key light
-   * is the moon through it (buildPassage): one spot already in the fixed set, no light added.
+   * K2: a passage's moon slit. The opening stays open to the night, and the zone's key light is the
+   * moon through it (buildPassage): one spot already in the fixed set, no light added.
+   * fix/wives-window: its outer end shows the night (the moon in a starry sky, the slit's bars in
+   * silhouette: logic/nightsky.js) where a pale panel was, so light comes in but nothing is white.
    */
   function slitFill(z, q, op, from, to, y0) {
     const w = q.w; const hh = q.h;
-    const g = new THREE.PlaneGeometry(w + 0.1, hh + 0.1);
-    g.deleteAttribute('uv');
+    const g = new THREE.PlaneGeometry(w + 0.1, hh + 0.1); // 0.6 m by 1.8 m: the sky raster's 1 by 3
     g.translate(op.at, y0 + (op.y || 0) + hh / 2, -0.45); // wall space z (+ into the room): at the outer face
     g.applyMatrix4(ST.wallMatrix(from, to));
-    const moon = new THREE.Color(HUE.moon);
-    const col = new Float32Array(12);
-    for (let i = 0; i < 4; i++) { const k = i < 2 ? 0.62 : 0.4; col[i * 3] = moon.r * k; col[i * 3 + 1] = moon.g * k; col[i * 3 + 2] = moon.b * k; }
-    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    g.computeVertexNormals();
-    z.lit.push(g);
+    z.sky.push(g);
   }
 
   // ---- doors ----
@@ -931,7 +936,7 @@ export function buildCastle(scene, cfg) {
       const midY = z.y + w.sill + w.h / 2;
       keys[z.id] = {
         kind: 'moon', pos: [f.x - f.n[0] * 4.6, midY + 3.6, f.z - f.n[1] * 4.6], target: [f.x + f.n[0] * 1.6, z.y, f.z + f.n[1] * 1.6],
-        intensity: 9, angle: 0.5, penumbra: 0.5, decay: 0, distance: 0, color: HUE.moon,
+        intensity: 9, angle: 0.5, penumbra: 0.5, decay: 0, distance: 0, color: HUE.moon, // fix/wives-window: the light through the slit is kept as it was (the owner)
       };
     }
     // the carved grin over the arch into the room ahead
@@ -964,7 +969,7 @@ export function buildCastle(scene, cfg) {
     z.ambient = 3.2;
   }
 
-  // The owner: a dim candle near the tea room's exit door, so that corner is a bit more visible. A short candle in a
+  // The owner: a candle (once dim, now as bright as the table's candles) near the tea room's exit door, so that corner is a bit more visible. A short candle in a
   // brass saucer on a low shelf on the door wall (keepmap TEA.exitCandle). The room's five flames already fill the
   // light pool, so this one gets no real light: its flame and halo ride the shared flame and halo draws, and its
   // light is one small additive glow (a half-disc on the floor before the shelf, an ellipse up the wall), 1 draw call.
@@ -978,7 +983,7 @@ export function buildCastle(scene, cfg) {
     z.halos.push(c.x, c.y + 0.16, c.z);
     // the glow: bright at the flame, nothing at the rim. Floor: a half-disc (the wall cuts it), at the flag's height.
     const SEG = 14; const pos = []; const col = []; const idx = [];
-    const k = c.power; // strength of the pool, the same number the test holds below every other flame
+    const k = c.power; // strength of the pool, the same number as the candelabras' (the test holds them equal)
     // two rings (a soft shoulder, then nothing) so the pool has no hard-looking edge
     const RINGS = [[0.45, 0.3], [1, 0]]; // [radius fraction, share of the centre's strength]
     const fan = (cx, cy, cz, point, strength) => { // point(a, f) -> [x, y, z]: the rim at fraction f of the full radius, a in 0..1
@@ -1386,6 +1391,7 @@ export function buildCastle(scene, cfg) {
         if (set.length) add(new THREE.Mesh(S.merge(set), windowMats[k]), false, false);
       }
     } else if (z.lit.length) add(new THREE.Mesh(S.merge(z.lit), litMat), false, false);
+    if (z.sky.length) add(new THREE.Mesh(mergeMapped(z.sky), slitSkyMat), false, false); // the night through the slits
     if (z.dark.length) add(new THREE.Mesh(S.merge(z.dark.map((g) => { g.computeVertexNormals(); return S.tint(g, 0xffffff); })), darkMat), true, false);
     if (z.ridge.length) add(new THREE.Mesh(S.merge(z.ridge.map((g) => { g.computeVertexNormals(); return S.tint(g, 0xffffff); })), ridgeMat), false, false);
     if (z.glass.length) {
@@ -1406,7 +1412,7 @@ export function buildCastle(scene, cfg) {
       halo.renderOrder = 4;
       z.group.add(halo);
     }
-    z.stone = z.worn = z.fit = z.cloth = z.rug = z.glass = z.lit = z.dark = z.ridge = z.glow = null;
+    z.stone = z.worn = z.fit = z.cloth = z.rug = z.glass = z.lit = z.dark = z.ridge = z.glow = z.sky = null;
     z.floorParts = null;
     z.group.visible = false;
   }
@@ -1423,8 +1429,71 @@ export function buildCastle(scene, cfg) {
       const covered = zones.some((q) => q.rects.some((qr) => cx > qr.x0 && cx < qr.x1 && cz > qr.z0 && cz < qr.z1));
       if (!covered) floorOf(z, z.kind === 'passage' ? 'flagWorn' : 'flag').push(flat(cut.x0, cut.x1, cut.z0, cut.z1, pd.y));
     }
+    // fix/doorway-sky: a sub-floor 2 cm down under the whole threshold and half a metre into each
+    // room, so the hairline seams where the floors of two zones and the doorway's own meet show
+    // stone, never the sky under the house (merged into the floor's own mesh: no draw call)
+    const m = 0.5;
+    floorOf(z, z.kind === 'passage' ? 'flagWorn' : 'flag').push(flat(r.minX - m, r.maxX + m, r.minZ - m, r.maxZ + m, pd.y - 0.02));
+  }
+  // and the same under the seam where two runs of one passage meet (the passage's dog-leg to the nursery)
+  for (const z of zones) {
+    if (z.kind === 'outside' || z.id === 'stairs') continue;
+    z.rects.forEach((r, i) => z.rects.forEach((q, j) => {
+      if (j <= i) return;
+      const xs = [Math.max(r.x0, q.x0), Math.min(r.x1, q.x1)]; const zs = [Math.max(r.z0, q.z0), Math.min(r.z1, q.z1)];
+      const touchZ = Math.abs(xs[1] - xs[0]) > 1e-6 && Math.abs(zs[1] - zs[0]) < 1e-6; // the shared edge runs along x
+      const touchX = Math.abs(zs[1] - zs[0]) > 1e-6 && Math.abs(xs[1] - xs[0]) < 1e-6;
+      if (!touchZ && !touchX) return;
+      const m = 0.5;
+      floorOf(z, z.kind === 'passage' ? 'flagWorn' : 'flag').push(touchZ
+        ? flat(xs[0], xs[1], zs[0] - m, zs[0] + m, z.y - 0.02)
+        : flat(xs[0] - m, xs[0] + m, zs[0], zs[1], z.y - 0.02));
+    }));
   }
   zones.forEach(finish);
+
+  // ---- end caps (fix/doorway-sky) ----
+  // A passage as wide as its door has no end wall of its own there (shell() leaves it out: the room
+  // beyond's wall, with the door cut in it, closes it). Seen from a zone that draws the passage but not
+  // the room beyond (the Count's room looking down the stairs, whose foot opens onto the walk), that
+  // end was a hole the passage's full height onto the sky. Each such end gets the room beyond's wall
+  // over the door's width, door cut and all, in the passage's own group, drawn only while the room
+  // beyond is not (show()), so the two never stand in the same place at once.
+  const caps = [];
+  for (const d of PLAN.doors) {
+    for (const aId of d.zones) {
+      const a = byId[aId];
+      const bId = d.zones.find((id) => id !== aId);
+      const b = byId[bId];
+      if (!a || !b || a.kind === 'outside' || b.kind === 'outside') continue;
+      const along = d.axis === 'x' ? ['x0', 'x1', 'z0', 'z1'] : ['z0', 'z1', 'x0', 'x1'];
+      const open = a.rects.some((r) => Math.abs(r[along[0]] - (d.c - d.w / 2)) < 1e-6 && Math.abs(r[along[1]] - (d.c + d.w / 2)) < 1e-6
+        && (Math.abs(r[along[2]] - d.mid) < 1e-6 || Math.abs(r[along[3]] - d.mid) < 1e-6));
+      if (!open) continue;
+      // the room beyond's face on the door: its rect's edge at the door, its wall standing outward from it
+      let edge = null;
+      for (const r of b.rects) {
+        if (d.c < r[along[0]] - 1e-6 || d.c > r[along[1]] + 1e-6) continue;
+        for (const k of [along[2], along[3]]) if (Math.abs(r[k] - d.lo) < 1e-6 || Math.abs(r[k] - d.hi) < 1e-6) edge = r[k];
+      }
+      if (edge === null) continue;
+      const aMid = a.rects.reduce((s, r) => s + (r[along[2]] + r[along[3]]) / 2, 0) / a.rects.length;
+      const at = edge + Math.sign(aMid - edge) * WALL_T / 2;
+      const lo = d.c - d.w / 2 - WALL_T; const hi = d.c + d.w / 2 + WALL_T;
+      const from = d.axis === 'x' ? [lo, at] : [at, lo]; const to = d.axis === 'x' ? [hi, at] : [at, hi];
+      const y0 = b.y;
+      const rise = a.ceil && a.ceil.rise ? a.ceil.rise : 0;
+      const op = { at: d.c - lo, w: d.w, h: d.h, y: d.y - y0, rise: d.w * 0.5 };
+      const cut = op.y > 0.001 ? { ...op, y: op.y + 0.05 } : { ...op, h: op.h + 0.05 };
+      const g = ST.wall({ from, to, y0: y0 - 0.05, y1: Math.max(a.y + a.h + rise + 0.25, d.y + d.h + 0.3), t: WALL_T, openings: [cut], seed: 91 });
+      const kind = b.kind === 'passage' ? 'worn' : 'ashlar';
+      const m = new THREE.Mesh(g, ST.stoneMaterial(kind, { floorY: b.y }));
+      m.name = `castle:cap-${d.id}-${a.id}`;
+      m.castShadow = true; m.receiveShadow = true;
+      a.group.add(m);
+      caps.push({ mesh: m, beyond: b });
+    }
+  }
 
   // ---- sky: a dome that rides with the eye, the stars on it, the moon ----
   const sky = new THREE.Group();
@@ -1641,6 +1710,7 @@ export function buildCastle(scene, cfg) {
       z.group.visible = only ? z.id === only : (z === cur || cur.neighbours.has(z.id));
       if (z.group.visible) visibleIds.push(z.id);
     }
+    for (const c of caps) c.mesh.visible = !c.beyond.group.visible; // fix/doorway-sky: a passage's open end closed while the room beyond is not drawn
     sky.visible = true;
   }
   const shellOf = (id) => (byId[id] ? id : id === 'crypt' ? 'gallery' : 'outside'); // a keepmap zone id -> the shell's

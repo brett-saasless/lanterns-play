@@ -42,7 +42,7 @@
 
 import * as THREE from 'three';
 import * as S from './sculpt.js';
-import { BOARD, squareRect } from '../logic/keepmap.js';
+import { BOARD, PIECE_FOOT, squareRect } from '../logic/keepmap.js';
 
 const EBONY = 0x121116; const IVORY = 0xe9e2cf; const RED = 0x7a0f14; const GILT = 0x9c7a3c;
 const EARTH = 0x2b2019; const EMBER = 0xff2a1a; const MOON = 0xc9d3e0; const VOID = 0x030304;
@@ -247,7 +247,7 @@ const folds = (n, amp, twist = 0) => (a, y) => 1 + amp * Math.sin(n * a + twist 
 // ---- the black pieces -----------------------------------------------------------------------------
 
 function carveCarrier(seed) {
-  const k = carver(seed, EBONY); const R = 0.5; const H = 0.8;
+  const k = carver(seed, EBONY); const { R, H } = PIECE_FOOT.pawn;
   baseInto(k, R, H, seed);
   // the robe: a long habit hanging in folds, girdled with a rope
   k.to('body').lathe([[0.3, H], [0.41, H + 0.02], [0.43, H + 0.08], [0.38, H + 0.4], [0.33, H + 0.72], [0.31, H + 0.95], [0.36, H + 1.08], [0.3, H + 1.2], [0.16, H + 1.28], [0, H + 1.3]],
@@ -292,7 +292,7 @@ function finished(g, rough) {
 const baseInto = (k, R, H, seed) => { (k.parts.base = k.parts.base || []).push(finished(turnedBase(R, H, k.wood, seed), k.wood === IVORY ? 0.5 : 0.35)); };
 
 function carveHorse(seed) {
-  const k = carver(seed, EBONY); const R = 0.6; const H = 0.95;
+  const k = carver(seed, EBONY); const { R, H } = PIECE_FOOT.knight;
   baseInto(k, R, H, seed);
   k.to('horse');
   // the breast and the arched neck: deep through the crest, narrow across
@@ -347,7 +347,7 @@ function carveHorse(seed) {
 }
 
 function carveLady(seed) {
-  const k = carver(seed, EBONY); const R = 0.58; const H = 0.95;
+  const k = carver(seed, EBONY); const { R, H } = PIECE_FOOT.bishop;
   baseInto(k, R, H, seed);
   // the woman inside the wrappings
   k.to('lady').lathe([[0.2, H], [0.3, H + 0.03], [0.27, H + 0.5], [0.24, H + 0.95], [0.28, H + 1.2], [0.34, H + 1.36], [0.28, H + 1.5], [0.12, H + 1.58], [0.1, H + 1.7]],
@@ -380,7 +380,7 @@ function carveLady(seed) {
 }
 
 function carveCaptain(seed) {
-  const k = carver(seed, EBONY); const R = 0.66; const H = 0.9;
+  const k = carver(seed, EBONY); const { R, H } = PIECE_FOOT.rook;
   baseInto(k, R, H, seed);
   const hub = [0, H + 1.18, -0.16];
   // the wheel on its post: rim, felloe, hub, eight turned spokes that run on into handles
@@ -458,7 +458,7 @@ function carveCaptain(seed) {
 }
 
 function carveBride(seed) {
-  const k = carver(seed, EBONY); const R = 0.64; const H = 1.0;
+  const k = carver(seed, EBONY); const { R, H } = PIECE_FOOT.queen;
   baseInto(k, R, H, seed);
   k.to('bride');
   // the gown: three scalloped flounces, a tight waist, a square neck
@@ -515,7 +515,7 @@ function carveBride(seed) {
 }
 
 function carveLikeness(seed) {
-  const k = carver(seed, EBONY); const R = 0.7; const H = 1.0;
+  const k = carver(seed, EBONY); const { R, H } = PIECE_FOOT.king;
   baseInto(k, R, H, seed);
   // the stand: a turned pole on three feet, a cross-bar for shoulders, a blank wig-block for a head
   k.to('stand').lathe([[0.07, H], [0.09, H + 0.04], [0.05, H + 0.1], [0.045, H + 0.7], [0.07, H + 0.76], [0.07, H + 0.82], [0.045, H + 0.88], [0.04, H + 1.56], [0.065, H + 1.62], [0.065, H + 1.68], [0.035, H + 1.74], [0.035, H + 1.94]], EBONY, { seg: 12 });
@@ -550,7 +550,7 @@ function carveLikeness(seed) {
 
 function carveTurtle(seed) {
   // shell and body rubbed smooth: its carving is the scutes and ridges cut in the form, not nicks
-  const k = carver(seed, IVORY, 0.64); const R = 0.62; const H = 0.95;
+  const k = carver(seed, IVORY, 0.64); const { R, H } = PIECE_FOOT.turtle;
   baseInto(k, R, H, seed);
   k.to('figure');
   k.ell([0, H + 0.16, 0], [0.5, 0.2, 0.44], IVORY, { ws: 14, hs: 8, vary: 0.1 }); // the rock it sits on
@@ -603,7 +603,7 @@ function carveTurtle(seed) {
 }
 
 function carveDormouse(seed) {
-  const k = carver(seed, IVORY); const R = 0.6; const H = 0.95;
+  const k = carver(seed, IVORY); const { R, H } = PIECE_FOOT.dormouse;
   baseInto(k, R, H, seed);
   k.to('figure');
   // a tasselled cushion, and the dormouse slumped on it as if dead
@@ -655,7 +655,7 @@ function carveDormouse(seed) {
 }
 
 function carveDuchess(seed) {
-  const k = carver(seed, IVORY); const R = 0.66; const H = 0.95;
+  const k = carver(seed, IVORY); const { R, H } = PIECE_FOOT.duchess;
   baseInto(k, R, H, seed);
   k.to('figure');
   const fur = (n) => (a, y) => 1 + 0.035 * Math.abs(Math.sin((n * a) / 2)) + 0.02 * Math.sin(5 * a + y * 2);
