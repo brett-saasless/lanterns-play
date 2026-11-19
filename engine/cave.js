@@ -479,6 +479,30 @@ export function buildCave(scene, cfg) {
     map: rockMap, bumpMap: rockBump, bumpScale: 1.6, roughness: 0.36, metalness: 0.08,
     vertexColors: true, side: THREE.DoubleSide,
   }), 0.4);
+  // #29, the rubble ways (the owner, 2026-11-18): the Cantor's last blast bores a REAL hole in the
+  // vault. The shell is one skin and cannot be cut, so its fragments inside the hole's ragged edge
+  // (passages.js holeRadius, the same curve the chimney above it is built on) and above `y` are
+  // dropped. The program always has the cut (off with r 0), so nothing is rebuilt as it opens.
+  const holeCut = { value: new THREE.Vector4(0, 0, 0, 99) }; // x, z, r, y
+  {
+    const tri = shellMat.onBeforeCompile;
+    shellMat.onBeforeCompile = (sh, r) => {
+      tri(sh, r);
+      sh.uniforms.uHoleCut = holeCut;
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', `#include <common>
+          uniform vec4 uHoleCut;`)
+        .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+          if ( uHoleCut.z > 0.0 && vTriPos.y > uHoleCut.w ) {
+            vec2 hq = vTriPos.xz - uHoleCut.xy;
+            float ha = atan( hq.y, hq.x );
+            float hr = uHoleCut.z * ( 1.0 + 0.14 * sin( 5.0 * ha + 1.3 ) + 0.07 * sin( 11.0 * ha + 0.4 ) + 0.05 * sin( 17.0 * ha + 2.2 ) );
+            if ( length( hq ) < hr ) discard;
+          }`);
+    };
+    const key = shellMat.customProgramCacheKey;
+    shellMat.customProgramCacheKey = () => `${key()}hole`;
+  }
   const spikeMat = worldUV(new THREE.MeshStandardMaterial({
     map: rockMap, bumpMap: rockBump, bumpScale: 1.6, roughness: 0.5, metalness: 0.05,
   }), 0.4);
@@ -1377,6 +1401,8 @@ export function buildCave(scene, cfg) {
       h.mesh.instanceMatrix.needsUpdate = true;
     },
     floorAt: (x, z) => floorY(x, z, caveField(x, z)),
+    /** #29: the hole bored in the vault: centre (x, z), ragged radius r (0: the vault is whole), cut only above y. */
+    setHole(x, z, r, y) { holeCut.value.set(x, z, r > 0 ? r : 0, y); },
     get shadowLevel() { return shadowLevel; },
     get zone() { return zoneNow; },
   };

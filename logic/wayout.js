@@ -1,13 +1,22 @@
 // The ways out of the yard and the cave open in a short cut scene (issue #29, the owner, 23:0x and
 // 23:3x PST). The yard: the last foe killed spins off through the air and slams into the concrete;
-// its blast leaves the crater. The cave: the Cantor, dying, fires one last blast up at the vault;
-// the vault cracks and falls in, and daylight pours down through the hole (the shaft).
+// its blast breaks the floor and leaves a ramp of rubble down into the dark under it (the owner,
+// 2026-11-18: rubble.js). The cave: the Cantor, dying, fires one last blast up at the vault; it
+// bores a ragged hole, the rock falls over about two seconds and settles into the heap that is
+// climbed up to it, and daylight pours down through the hole (the shaft).
 //
 // Where: anywhere in the room's open space (the yard's concrete, the Nave's floor under its vault)
 // with room for the mouth and what falls round it, clear of crates, walls, rock, water, pads and
-// pores, reachable on foot, and never within WAYOUT.min metres of the warden as it opens. Seeded
-// and pure (no Math.random, no DOM). The site is kept in sim.waves.wayout, and journey.js reads it
-// as the room's mouth.
+// pores, reachable on foot, and never within WAYOUT.min metres of the warden as it opens. And the
+// rubble's lane: the site is the path's END (the yard's black opening, the top of the cave's heap),
+// and the path runs RUBBLE.length back from it along one of sixteen headings to its start, with
+// RUBBLE.apron of clear floor before that for the approach. A site is only taken with a heading
+// whose whole corridor (approach, lane, the rim or the heap's flank, the far edge) is clear by the
+// same rules, whose lane stands clear of the warden, and (the cave) whose vault leaves an eye's
+// headroom over the heap all the way up; of a site's clear headings, the one whose start is
+// nearest the warden (laneFor). Seeded and pure (no Math.random, no DOM). The site is kept in
+// sim.waves.wayout ({ x, z, r, dx, dz: the heading, start to end }), and journey.js reads it as
+// the room's mouth and its rubble path.
 //
 // The scene (sim.waves.scene, kind 'crater' or 'vault'): sim.js steps it first and returns, so the
 // warden is held and nothing else moves (the same freeze as the Rose Court's bloom scene, A4).
@@ -17,6 +26,7 @@
 
 import { makeRng } from './rng.js';
 import { caveField, spaceIndexAt, ceilingAt, isOpen, SPACE_DEFS, BOUNDS } from './cavemap.js';
+import { RUBBLE, pathFor, heightAt, seatAllOnPath } from './rubble.js';
 
 const f = Object.freeze;
 const clamp = (k, a = 0, b = 1) => Math.max(a, Math.min(b, k));
@@ -50,15 +60,17 @@ export const WAYOUT = f({
     shot: 0.35, // seconds the blast takes to reach the vault
     trail: 0.16, // seconds the blast's tail runs behind its head
     crack: 0.5, // seconds the cracks take to run out across the vault from where it is struck
-    drop: 0.3, // seconds after the strike the first piece of the vault lets go
-    dropSpan: 0.4, // seconds over which the rest follow, from the middle outward
+    drop: 0.5, // seconds after the strike the first piece of the vault lets go (the rim's chunks and dust lead it)
+    dropSpan: 1.1, // seconds over which the rest follow, from the middle outward: rock coming down for about two seconds (the owner, 2026-11-18)
     gravity: 13, // metres a second squared the pieces fall at
-    fall: 1.8, // seconds after the strike by which every piece is down
+    fall: 2.6, // seconds after the strike by which every piece is down, on the heap
+    bore: 0.6, // seconds the hole takes to open from a 0.3 m bore to its full size, from the strike
+    hold: 1.0, // seconds the view holds on the hole after the strike before it comes down with the rock
     light: 1.5, // seconds from the first daylight in the shaft to the shaft fully lit
     lightAt: 0.55, // seconds after the strike the first daylight comes down the shaft
     chest: 2.0, // metres above its feet the Cantor's blast leaves from
     home: 1.0, // seconds at the end over which the view comes home, to the warden's eye turned toward the way out (CS-1)
-    length: 4.6,
+    length: 6.4, // (4.6 before the heap; 5.4 with the two-second fall; 6.4 with the 1 s hold on the hole, the art critic)
   }),
 });
 
@@ -151,13 +163,87 @@ function caveOpen(cfg, boxes) {
   return out;
 }
 
+/** The sixteen headings a rubble path may run along (start to end), in a fixed order. */
+const HEADINGS = Object.freeze(Array.from({ length: 16 }, (_, i) => Object.freeze([Math.cos((i * Math.PI) / 8), Math.sin((i * Math.PI) / 8)])));
+
+/** How far round the approach's centre line it must be clear: room to walk (the warden's radius and a little). Water and pads may lie on it. */
+const APRON_NEED = 0.6;
+
+/** The places along a path's corridor that must be clear: [u, need] (metres along from its start; how far round the centre line). */
+function corridor(cave) {
+  const far = RUBBLE.length + (cave ? RUBBLE.back.cave : RUBBLE.back.yard);
+  const side = RUBBLE.half + (cave ? RUBBLE.flank : RUBBLE.rim);
+  const out = [];
+  for (let u = -RUBBLE.apron; u <= far + 1e-9; u += 0.5) out.push([u, u < 0 ? APRON_NEED : side]);
+  return out;
+}
+const CORRIDOR = Object.freeze({ yard: corridor(false), cave: corridor(true) });
+const UP = Object.freeze({ sign: 1, height: RUBBLE.height, length: RUBBLE.length, run: RUBBLE.run }); // the heap's slope, for its headroom
+
 /**
- * Where the way out opens: { x, z, r }. room 'yard' or 'cave'; seed: the run's; warden: { x, z }
+ * True when a path ending at `site` along (dx, dz) has its whole corridor clear (the approach, the
+ * lane, the rim or the flank, the far edge), its lane clear of the warden (the lane's side room and
+ * 0.6 m more: nothing opens under their feet) and of a body that stays, and (the cave) its approach
+ * reachable on foot and a vault over its lane with an eye's headroom over the heap.
+ * ctx: { cfg, boxes, warden, body, reach }.
+ */
+function laneClear(cave, site, dx, dz, ctx) {
+  const { cfg } = ctx;
+  const L = RUBBLE.length;
+  const eye = ((cfg.player && cfg.player.eyeHeight) || 1.65) + 0.4;
+  const keep = RUBBLE.half + (cave ? RUBBLE.flank : RUBBLE.rim) + 0.6;
+  const zones = (cfg.surfaces && cfg.surfaces.zones) || [];
+  const pr = cfg.pickupRadius || 1.1;
+  for (const [u, need] of CORRIDOR[cave ? 'cave' : 'yard']) {
+    const x = site.x - dx * (L - u); const z = site.z - dz * (L - u);
+    const lane = u >= 0;
+    if (lane && Math.hypot(x - ctx.warden.x, z - ctx.warden.z) < keep) return false;
+    if (lane && ctx.body && Math.hypot(x - ctx.body.x, z - ctx.body.z) < need + (ctx.body.r || 0)) return false;
+    if (ctx.boxes.some((b) => toRect(x, z, b) < need)) return false;
+    if (lane && (cfg.pads || []).some((p) => Math.hypot(p.x - x, p.z - z) < need + pr)) return false;
+    if (cave) {
+      if (caveField(x, z) < need || !isOpen(x, z)) return false;
+      if (lane && spaceIndexAt(x, z) !== NAVE) return false;
+      if (lane && u <= L && ceilingAt(x, z) < heightAt(UP, u) + eye) return false;
+      // a pool: the lane never in its bowl; the heap's flank may reach the bowl's dry rim (as the old rubble's C.edge rule)
+      if (lane && zones.some((q) => q.material === 'pool' && Math.hypot(q.x - x, q.z - z) < Math.min(need, RUBBLE.half + 0.3) + q.r)) return false;
+      if (lane && (cfg.pores || []).some((p) => Math.hypot(p.x - x, p.z - z) < need + 0.5)) return false;
+      if (u <= -RUBBLE.apron + 1e-9 && ctx.reach && !ctx.reach.has(`${Math.round(x / WAYOUT.cell)},${Math.round(z / WAYOUT.cell)}`)) return false;
+    } else {
+      const half = cfg.arena.half;
+      if (Math.abs(x) > half - need || Math.abs(z) > half - need) return false;
+      if (lane && zones.some((q) => q.shape === 'ellipse' && Math.hypot(q.x - x, q.z - z) < need + Math.max(q.rx, q.rz))) return false;
+      if (lane && zones.some((q) => q.shape === 'rect' && toRect(x, z, q) < need)) return false; // the steel plates: the floor breaks on concrete
+    }
+  }
+  return true;
+}
+
+/**
+ * The heading of the rubble path at a site, start to end ({ dx, dz }), or null when no heading has
+ * its corridor clear: of the clear ones, the one whose start is nearest the warden, so they walk
+ * straight on to it. reach: the cave's cells reachable on foot from the warden (siteFor's).
+ */
+export function laneFor(room, cfg, site, warden, boxes = cfg.boxes, body = null, reach = null) {
+  const cave = room === 'cave';
+  const ctx = { cfg, boxes: cave ? boxes : [...cfg.boxes, ...(cfg.levels || []).map((L) => L.rect)], warden, body, reach };
+  let best = null; let bd = Infinity;
+  for (const [dx, dz] of HEADINGS) {
+    const d = Math.hypot(site.x - dx * RUBBLE.length - warden.x, site.z - dz * RUBBLE.length - warden.z);
+    if (d < bd - 1e-9 && laneClear(cave, site, dx, dz, ctx)) { best = { dx, dz }; bd = d; }
+  }
+  return best;
+}
+
+/**
+ * Where the way out opens: { x, z, r, dx, dz }. room 'yard' or 'cave'; seed: the run's; warden: { x, z }
  * where the warden stands as it opens; boxes: the live collision list (the cave's closed veils
  * keep what is behind them out of reach). Uniform over the open places at least WAYOUT.min from the
- * warden (and, in the cave, reachable from where they stand); with none, the farthest open place.
- * body: { x, z, r } of a foe that stays where it fell (the Cantor's folded body): the shaft and its
- * rubble keep off it (review 3); null for none (the yard's foe flies into the crater).
+ * warden (and, in the cave, reachable from where they stand) that also have a clear rubble lane
+ * (laneFor: drawn in seeded order, the first draw as before, until one has); with none, the
+ * farthest open place with no heading (no rubble path: the old mouth). body: { x, z, r } of a foe that stays where
+ * it fell (the Cantor's folded body): the shaft, its heap and its lane keep off it (review 3); null
+ * for none (the yard's foe flies into the crater).
  */
 export function siteFor(room, cfg, seed, warden, boxes = cfg.boxes, body = null) {
   const cave = room === 'cave';
@@ -167,13 +253,15 @@ export function siteFor(room, cfg, seed, warden, boxes = cfg.boxes, body = null)
     const clearOf = open.filter((p) => Math.hypot(p.x - body.x, p.z - body.z) >= P.r + P.clear + (body.r || 0));
     if (clearOf.length) open = clearOf;
   }
+  let reach = null;
   if (cave) {
     const rad = (cfg.player && cfg.player.radius) || 0.4;
     const s = cfg.spaces[NAVE]; // the Nave and a margin: its entry veil is sealed behind the warden
-    const reach = reachable(boxes, warden.x, warden.z, rad, { minX: s.minX - 2, maxX: s.maxX + 2, minZ: s.minZ - 2, maxZ: s.maxZ + 2 });
+    reach = reachable(boxes, warden.x, warden.z, rad, { minX: s.minX - 2, maxX: s.maxX + 2, minZ: s.minZ - 2, maxZ: s.maxZ + 2 });
     const c = WAYOUT.cell;
     const near = open.filter((p) => reach.has(`${Math.round(p.x / c)},${Math.round(p.z / c)}`));
     if (near.length) open = near;
+    else reach = null; // the warden is not in the Nave (a level ended directly): nothing there is asked to be reached from them
   }
   let far = open.filter((p) => Math.hypot(p.x - warden.x, p.z - warden.z) >= WAYOUT.min);
   if (!cave) {
@@ -186,11 +274,29 @@ export function siteFor(room, cfg, seed, warden, boxes = cfg.boxes, body = null)
   if (!far.length) {
     let best = open[0] || { x: 0, z: 0 };
     for (const p of open) if (Math.hypot(p.x - warden.x, p.z - warden.z) > Math.hypot(best.x - warden.x, best.z - warden.z)) best = p;
-    return { x: best.x, z: best.z, r };
+    const h = laneFor(room, cfg, best, warden, boxes, body, reach);
+    return h ? { x: best.x, z: best.z, r, dx: h.dx, dz: h.dz } : { x: best.x, z: best.z, r }; // (no heading: the old mouth, journey.js)
   }
   const rng = makeRng(((seed >>> 0) ^ (cave ? 0x5ca7e : 0xc4a7e5)) >>> 0);
-  const p = far[Math.floor(rng() * far.length)];
-  return { x: p.x, z: p.z, r };
+  const first = far[Math.floor(rng() * far.length)];
+  // drawn in seeded order (the first draw as before) until a site has a clear lane
+  const left = far.slice();
+  let p = first;
+  for (let n = 0; n < 600 && left.length; n++) {
+    const h = laneFor(room, cfg, p, warden, boxes, body, reach);
+    if (h) return { x: p.x, z: p.z, r, dx: h.dx, dz: h.dz };
+    left.splice(left.indexOf(p), 1);
+    if (!left.length) break;
+    p = left[Math.floor(rng() * left.length)];
+  }
+  // none far enough has a clear lane: the first open place (in grid order) that has one; failing
+  // all, the first draw with NO heading: no rubble path, so the way on is the old mouth stood in
+  // (journey.js PASSAGE.through), never a lane that cannot be walked (the technical critic)
+  for (const q of open) {
+    const hq = laneFor(room, cfg, q, warden, boxes, body, reach);
+    if (hq) return { x: q.x, z: q.z, r, dx: hq.dx, dz: hq.dz };
+  }
+  return { x: first.x, z: first.z, r };
 }
 
 /**
@@ -206,7 +312,7 @@ export function startWayout(sim, foe, input, events) {
   const from = foe && Number.isFinite(foe.x) ? { id: foe.id, enemy: foe.enemy, x: foe.x, y: foe.y || 0, z: foe.z } : { id: null, enemy: null, x: pl.x, y: 0, z: pl.z };
   const stays = kind === 'vault' && from.id != null ? { x: from.x, z: from.z, r: (sim.cfg.cantor && sim.cfg.cantor.radius) || 1.2 } : null;
   const site = siteFor(sim.cfg.room, sim.cfg, sim.seed, { x: pl.x, z: pl.z }, sim.boxes || sim.cfg.boxes, stays);
-  w.wayout = { kind, x: site.x, z: site.z, r: site.r, open: false };
+  w.wayout = { kind, x: site.x, z: site.z, r: site.r, dx: site.dx, dz: site.dz, open: false };
   if (kind === 'vault') w.wayout.vault = ceilingAt(site.x, site.z);
   const home = homeLook(sim, site, kind);
   w.scene = { kind, t: 0, length: WAYOUT[sim.cfg.room === 'cave' ? 'cave' : 'yard'].length, foe: from, struck: false, fireHeld: !!(input && input.fire), homeYaw: home.yaw, homePitch: home.pitch };
@@ -244,10 +350,13 @@ export function strikeAt(kind) {
 /** Seconds into the cave's scene at which the shaft is fully lit. */
 export const LIT_AT = strikeAt('vault') + WAYOUT.cave.lightAt + WAYOUT.cave.light;
 
-function strike(w, s, events, skipped) {
+function strike(sim, w, s, events, skipped) {
   s.struck = true;
   w.wayout.open = true;
   const o = w.wayout;
+  // the rubble's lane is ground from now: whatever lies on it is laid on its floor, and whatever
+  // lies in its walls' footprint is moved onto it, within reach (rubble.js seatAllOnPath)
+  seatAllOnPath(pathFor(sim.cfg.room, o), sim.pickups, (sim.cfg.player && sim.cfg.player.radius) || 0.4);
   if (s.kind === 'vault') events.push({ type: 'vaultBreak', x: o.x, z: o.z, y: o.vault, skipped: !!skipped });
   else events.push({ type: 'craterBlast', x: o.x, z: o.z, y: 0, skipped: !!skipped });
 }
@@ -269,7 +378,7 @@ export function stepWayoutScene(sim, input, dt, events) {
   if (s.fireHeld && !fire) s.fireHeld = false;
   const click = fire && !s.fireHeld;
   const skip = !!(input && (input.interact || click || input.jump || input.skip));
-  if (!s.struck && (skip || s.t >= strikeAt(s.kind))) strike(w, s, events, skip && s.t < strikeAt(s.kind));
+  if (!s.struck && (skip || s.t >= strikeAt(s.kind))) strike(sim, w, s, events, skip && s.t < strikeAt(s.kind));
   if (skip || s.t >= s.length) {
     w.scene = null;
     faceHome(sim, s);
@@ -453,6 +562,30 @@ export function vaultCrack(scene, t) {
 export function vaultDropAt(i, n, jitter = 0.5) {
   const C = WAYOUT.cave;
   return C.drop + C.dropSpan * clamp((i + 0.6 * (jitter - 0.5)) / Math.max(1, n - 1));
+}
+
+/**
+ * How far the heap has risen, 0 to 1, t seconds into the cave's scene (1 with none playing: kept
+ * open): from the first pieces down (the middle's slabs) to the last, as the rock lands on it.
+ */
+export function heapRise(scene, t) {
+  if (!scene || scene.kind !== 'vault') return 1;
+  const C = WAYOUT.cave;
+  return smooth((t - strikeAt('vault') - C.drop - 0.6) / (C.fall - C.drop - 0.6));
+}
+
+/**
+ * How open the hole in the vault is, 0 to 1 of its radius, t seconds into the cave's scene (1 with
+ * none playing): nothing before the strike; at the strike a 0.3 m bore, opening to its full size
+ * over WAYOUT.cave.bore seconds (the art critic: the blast is seen to bore it).
+ */
+export function holeOpen(scene, t) {
+  if (!scene || scene.kind !== 'vault') return 1;
+  const C = WAYOUT.cave;
+  const bt = t - strikeAt('vault');
+  if (bt < 0) return 0;
+  const k0 = 0.3 / C.r;
+  return k0 + (1 - k0) * smooth(bt / C.bore);
 }
 
 /** How lit the shaft is, 0 to 1, t seconds into the cave's scene (1 with no scene playing: kept open). */

@@ -23,7 +23,8 @@ import { splashStun } from './courtiers.js';
 import { raiseGarlic, stepGarlic } from './sentries.js';
 import { stepHazards } from './hazards.js';
 import { restockPads, rollDrop, addDrop, stepPickups } from './pickups.js';
-import { openPassage, stepPassage } from './journey.js'; // issue #29: the way on from a won level
+import { openPassage, stepPassage, stepFollow, pathOf } from './journey.js'; // issue #29: the way on from a won level
+import { laneFloor, keepToPath } from './rubble.js'; // the rubble ways: the yard's ramp, the cave's heap (real ground)
 import { startWayout, stepWayoutScene, releaseLatch, wayoutKind } from './wayout.js'; // #29: the crater's and the vault's cut scenes
 
 export { hostilesLeft };
@@ -67,6 +68,10 @@ const ENCOUNTERS = {
  * one plan, keepmap.js floorZoneAt), the Rose Court's pit once open, else 0.
  */
 function floorOf(sim, x, z, y) {
+  // the rubble ways (journey.js pathOf, once the way out is open): the ramp's floor falls under
+  // the yard's, the heap's rises over the cave's (rubble.js laneFloor), as the castle's stairs do
+  const lane = laneFloor(pathOf(sim), x, z);
+  if (lane != null) return lane;
   const enc = encounterOf(sim.cfg);
   if (enc.floor) return enc.floor(sim, x, z, y);
   return sim.cfg.encounter === 'trail' ? floorAt(sim.waves, x, z) : 0;
@@ -219,6 +224,8 @@ function movePlayer(sim, input, dt, events) {
   const z0 = pl.z;
   if (climbs(cfg)) climbMove(sim, pl, { x: vx * dt, z: vz * dt }, pc.radius, pl.grounded, dt); // the yard's crates (#21)
   else moveCircle(pl, { x: vx * dt, z: vz * dt }, pc.radius, sim.boxes, cfg.arena.half);
+  const rubble = pathOf(sim);
+  if (rubble) keepToPath(rubble, x0, z0, pl, pc.radius); // the trench's edge, the heap's flank: walls where the lane stands off the floor
 
   // Ground height (zero but for the Rose Court's opened pit): follow it down a slope, or drop.
   const floor = floorOf(sim, pl.x, pl.z, pl.y);
@@ -650,13 +657,19 @@ export function stepSim(sim, input = IDLE_INPUT, dt = 1 / 60) {
 
 /**
  * Issue #29: a won level with a way on (journey.js): the warden walks on to it. Only the feet
- * move: nothing fires, nothing is left to fight, and no clock but the run's own runs.
+ * move and the pickups are there for the taking (the owner, 2026-11-18: every ammo and health
+ * pickup in the room, the last kills' drops too, until the warden leaves through the rubble):
+ * nothing fires, nothing is left to fight, and no clock but the run's own runs. Once the warden
+ * has walked far enough down the ramp (or up the heap) the follow plays (journey.js stepFollow):
+ * it takes the whole frame, as the way-out scenes do (A4).
  */
 function walkOn(sim, input, dt, events) {
   dt = Math.max(0, Math.min(dt, MAX_DT));
+  if (stepFollow(sim, input, dt)) return events;
   sim.time += dt;
   movePlayer(sim, input, dt, events);
-  stepPassage(sim, dt);
+  stepPickups(sim, dt, events);
+  stepPassage(sim, dt, input);
   return events;
 }
 

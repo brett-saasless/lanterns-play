@@ -295,7 +295,7 @@ async function boot() {
   function journeyOn(to) {
     const key = JOURNEY_CARD[to];
     const way = passageOf(sim);
-    const hex = to === 'castle' ? TUNNEL_DARK : way && way.way === 'up' ? 0xfff4dc : 0x000000;
+    const hex = to === 'castle' ? TUNNEL_DARK : way && way.way === 'up' ? 0xfff4dc : 0x050403; // (the yard's dark: an amber-black, not pure black)
     if (!key || (to === 'castle' && !keepRules)) { handOver(to, hex); handover.arrive(hex, PASSAGE.arrive); return; }
     handover.fade(hex, 1);
     handover.update(0); // (fade only sets the strength: update writes it, holding every timer)
@@ -830,7 +830,9 @@ async function boot() {
     const fall = dying ? Math.min(1, 1 - Math.max(0, sim.statusTimer) / sim.cfg.loseBeat) : 0;
     camera.rotation.order = 'YXZ';
     const way = passageOf(sim); // #29: down into the crater, up toward the daylight
-    const lift = way ? (way.way === 'up' ? 1.2 : -1.6) * way.k * way.k : 0;
+    // (the rubble ways: the feet themselves go down the ramp or up the heap, and the follow is a
+    // scene with its own camera; only a passage with no path still dips the view)
+    const lift = way && !way.path ? (way.way === 'up' ? 1.2 : -1.6) * way.k * way.k : 0;
     const quakeY = quake();
     camera.position.set(
       pl.x + (Math.random() - 0.5) * 0.05 * jolt,
@@ -961,7 +963,7 @@ async function boot() {
       if (sceneBefore === 'cutaway' && !sceneNow) cutDip = CUTAWAY.fade; // the werewolf cutaway: back to the warden out of black
       const way = passageOf(sim); // #29: the crater's dark, the shaft's light, as the warden goes through
       if (way) {
-        handover.fade(way.way === 'up' ? 0xfff4dc : 0x000000, way.k * way.k);
+        handover.fade(way.way === 'up' ? 0xfff4dc : 0x050403, way.cover != null ? way.cover : way.k * way.k); // the rubble's: a touch walking on, then the follow's fade
         if (way.done && NEXT[runRoom]) journeyDue = NEXT[runRoom];
       }
       ear.x = sim.player.x;

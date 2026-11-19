@@ -296,7 +296,7 @@ export function buildWorld(canvas) {
   const forest = buildForest(scene, COURT_CONFIG);
   court.hide();
   forest.hide();
-  const crater = createCrater(yard); // #29: the yard's way down, once the last surge is held
+  const crater = createCrater(yard, [ground.material, stripeMat]); // #29: the yard's way down, once the last surge is held (the floor and its stripes cut where it opens)
   const shaft = createShaft(cave.group, cave); // #29: the Nave's way up, once the Cantor falls
   let room = 'yard';
 
@@ -419,12 +419,16 @@ export function buildWorld(canvas) {
 
   /**
    * A scene's camera, or null: { position, target, fov? }. The castle's two (strike, pyre:
-   * castle.sceneCamera), and #29's two ways out (passages.js): the yard's crater, the cave's vault.
+   * castle.sceneCamera), and #29's two ways out (passages.js): the yard's crater, the cave's vault,
+   * and the follow along each one's rubble (descent, ascent).
    */
   function sceneCamera(sim, sc) {
     const o = sim && sim.waves && sim.waves.wayout;
     if (sc && o && sc.kind === 'crater' && room === 'yard') return crater.camera(sim, sc);
     if (sc && o && sc.kind === 'vault' && room === 'cave') return shaft.camera(sim, sc);
+    // the rubble ways' follow: down the ramp into the dark, up the heap toward the light
+    if (sc && o && sc.kind === 'descent' && room === 'yard') return crater.follow(sim, sc);
+    if (sc && o && sc.kind === 'ascent' && room === 'cave') return shaft.follow(sim, sc);
     return room === 'castle' && castle ? castle.sceneCamera(sim, sc) : null;
   }
 
