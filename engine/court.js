@@ -12,6 +12,10 @@ import { COURT, MAZE, routeOf, stageAt } from '../logic/courtmap.js';
 import { weatherNow } from '../logic/weather.js';
 import { SUN_LIGHT, SUN_SEEN, SKY_DITHER, greyAt, depthOf, LEAF_TONES } from '../logic/courtlook.js';
 import * as S from './sculpt.js';
+import { bustGeometry, bustSet, BUST } from './busts.js';
+import { headYawToward, headSeen } from '../logic/headturn.js';
+import { runAt } from '../logic/wetpaint.js';
+import { reflectionLook } from '../logic/reflection.js';
 
 const _sky = { rain: 1, cloud: 1, sun: 0 }; // #28: scratch, so the frame allocates nothing
 
@@ -482,6 +486,303 @@ export function daylight(scene, cfg) {
 
 const GROUND = { minX: -24, maxX: 24, minZ: -24, maxZ: 24 };
 const LAWN = { minX: 14.2, maxX: 19.3, minZ: 7.2, maxZ: 15.5, peg: [16.7, 11.4] }; // the croquet lawn
+
+
+// ---- the easel (owner, 2026-11-18) -------------------------------------------------------------
+// "put a half finished painting on an easel in the rose court that has this behavior. painting
+// supplies should be scattered near the painting." A portrait of the warden, half done: the head
+// finished and alive (a sculpted head, busts.js, turning toward him by logic/headturn.js as the
+// castle's portraits do), the body only pencil lines and a few flat blocks of colour, the rest of
+// the canvas bare or sketched. Behind the head the painter has laid in the roses' red, and it is
+// still wet: a few thin red runs creep down the bare canvas, slowly, and dry back into it. About it
+// on a drop cloth: a stool with a smeared palette on it, brushes in a tin and loose on the ground,
+// pots of mostly red paint, one tipped over in a spill. No rags, no blank canvases.
+// Where it stands is COURT.easel (logic/courtmap.js). It has no box: a thing to look at only.
+// Draw calls: the easel and the painter's things merge into the garden's matte and decal bakes
+// (none added); the canvas 1, the head 1, the wet paint (spill, smears) 1, the runs 2.
+
+const RUNS = 5; // the wet red runs on the canvas
+const CANVAS = { w: 0.76, h: 1.0, bottom: 0.8, lean: 0.14 }; // metres; lean is radians back from upright
+const HEAD_S = 0.095; // the warden's face, half its width (metres)
+const HEAD_UP = 0.19; // the face's middle above the canvas's middle (metres)
+const WET = 0xc0141f; // fresh rose red
+const LIVE = 0x7e0c12; // a run still moving: wet, a tenth darker than the dried ones painted on the canvas
+/** Where the live runs start on the canvas (canvas metres, from its middle): under the red ground's lower edge. */
+function runSpots() {
+  const s = HEAD_S; const fy = -HEAD_UP; // the face's middle, y down from the canvas middle as on the canvas
+  return [[-2.35, 1.75], [-1.55, 1.95], [1.7, 1.85], [2.55, 1.65], [0.95, 2.05]].map(([x, y]) => ({ x: x * s, y: -(fy + y * s) }));
+}
+
+
+/** The half-finished portrait, drawn once: bare primed canvas, pencil, flat colour, the red ground. */
+function easelCanvas(look) {
+  const W = 512; const H = Math.round((W * CANVAS.h) / CANVAS.w);
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const rnd = S.rng(41);
+  const px = W / CANVAS.w; // pixels a metre
+  const fx = W / 2; const fy = H / 2 - HEAD_UP * px; const s = HEAD_S * px; // the face's middle and half width
+  const root = fy + BUST.root * s; // the neck's root
+  // primed canvas: a warm off-white, the weave just showing
+  g.fillStyle = '#e6dfcb'; g.fillRect(0, 0, W, H);
+  g.globalAlpha = 0.05;
+  for (let y = 0; y < H; y += 2) { g.fillStyle = y % 4 ? '#8a7d62' : '#fffaf0'; g.fillRect(0, y, W, 1); }
+  for (let x = 0; x < W; x += 2) { g.fillStyle = x % 4 ? '#8a7d62' : '#fffaf0'; g.fillRect(x, 0, 1, H); }
+  g.globalAlpha = 1;
+  // pencil: the squaring-up grid, faint, and the centre line
+  g.strokeStyle = 'rgba(70,66,60,0.22)'; g.lineWidth = 1;
+  for (let k = 1; k < 4; k++) { g.beginPath(); g.moveTo((W * k) / 4, 0); g.lineTo((W * k) / 4, H); g.stroke(); g.beginPath(); g.moveTo(0, (H * k) / 5); g.lineTo(W, (H * k) / 5); g.stroke(); }
+  // the ground behind the head: the roses' red, laid in with a loaded brush, its edges ragged and dry-brushed out
+  const reds = ['#b3121b', '#c0141f', '#8a0e15', '#d3202a', '#9c1018'];
+  g.fillStyle = '#a3111a'; g.globalAlpha = 0.9; // a first thin wash, then the brushwork over it
+  g.beginPath(); g.ellipse(fx, fy - s * 0.3, s * 2.5, s * 2.4, 0, 0, Math.PI * 2); g.fill();
+  g.lineCap = 'round';
+  for (let i = 0; i < 150; i++) { // long diagonal strokes of a broad brush, thinning out to dry brush at the edge
+    const a = rnd() * Math.PI * 2; const r = Math.sqrt(rnd());
+    const x = fx + Math.cos(a) * r * s * 3.2; const y = fy - s * 0.3 + Math.sin(a) * r * s * 2.9;
+    g.strokeStyle = reds[i % reds.length]; g.globalAlpha = r > 0.78 ? 0.25 + 0.35 * rnd() : 0.9;
+    g.lineWidth = r > 0.78 ? 4 + rnd() * 6 : 14 + rnd() * 12;
+    const ang = -0.75 + rnd() * 0.3; const len = 30 + rnd() * 40;
+    g.beginPath(); g.moveTo(x - Math.cos(ang) * len / 2, y - Math.sin(ang) * len / 2); g.lineTo(x + Math.cos(ang) * len / 2, y + Math.sin(ang) * len / 2); g.stroke();
+  }
+  g.globalAlpha = 1;
+  // where the head stands out of the paint: its shadow, down and to the right
+  const sh = g.createRadialGradient(fx + s * 0.35, fy + s * 0.5, s * 0.3, fx + s * 0.35, fy + s * 0.5, s * 2.6);
+  sh.addColorStop(0, 'rgba(20,6,8,0.7)'); sh.addColorStop(1, 'rgba(20,6,8,0)');
+  g.fillStyle = sh; g.beginPath(); g.ellipse(fx + s * 0.35, fy + s * 0.5, s * 1.9, s * 2.8, 0, 0, Math.PI * 2); g.fill();
+  // red that has already run and dried: a few runs from the ground's lower edge, a shade lighter than the live ones
+  for (const [x0, len] of [[-2.6, 1.5], [-1.9, 0.9], [2.2, 1.9], [2.9, 0.7], [1.3, 1.1]]) {
+    const x = fx + x0 * s; const y = fy + s * 1.6 + rnd() * s * 0.6;
+    g.strokeStyle = 'rgba(150,24,30,0.85)'; g.lineWidth = 4 + rnd() * 2;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + (rnd() - 0.5) * 3, y + len * s); g.stroke();
+    g.fillStyle = 'rgba(150,24,30,0.9)'; g.beginPath(); g.arc(x, y + len * s, 4.5, 0, Math.PI * 2); g.fill();
+  }
+  // the body in pencil: the coat's shoulders and lapels, the scarf, an arm, drawn and drawn again
+  const coat = look === 'female' ? 0.92 : 1;
+  const pencil = (w, a) => { g.strokeStyle = `rgba(48,46,44,${a})`; g.lineWidth = w; };
+  for (let pass = 0; pass < 3; pass++) {
+    const j = () => (rnd() - 0.5) * 3;
+    pencil(1.2 + pass * 0.3, 0.55 - pass * 0.12);
+    g.beginPath(); // shoulders, from the neck out and down off the canvas
+    g.moveTo(fx - s * 0.6 + j(), root - s * 0.2); g.quadraticCurveTo(fx - s * 2.6 * coat + j(), root + s * 0.1, fx - s * 3.4 * coat + j(), H + 4);
+    g.moveTo(fx + s * 0.6 + j(), root - s * 0.2); g.quadraticCurveTo(fx + s * 2.6 * coat + j(), root + s * 0.1, fx + s * 3.4 * coat + j(), H + 4);
+    g.stroke();
+    g.beginPath(); // the lapels, a button line
+    g.moveTo(fx - s * 0.7 + j(), root + s * 0.2); g.lineTo(fx - s * 0.1 + j(), root + s * 2.4); g.lineTo(fx + j(), H + 4);
+    g.moveTo(fx + s * 0.7 + j(), root + s * 0.2); g.lineTo(fx + s * 0.15 + j(), root + s * 2.4);
+    g.stroke();
+    g.beginPath(); // the scarf, wound once round the throat, its end hanging
+    g.ellipse(fx + j(), root + s * 0.15, s * 0.95, s * 0.42, 0, 0, Math.PI * 2);
+    g.moveTo(fx + s * 0.4, root + s * 0.5); g.quadraticCurveTo(fx + s * 0.9, root + s * 1.6, fx + s * 0.6 + j(), root + s * 2.6);
+    g.stroke();
+    g.beginPath(); // the near arm, only begun, and the lantern at the belt as a box
+    g.moveTo(fx - s * 2.9 + j(), root + s * 1.6); g.quadraticCurveTo(fx - s * 2.5, root + s * 3.6, fx - s * 1.9 + j(), H + 4);
+    g.rect(fx - s * 2.2 + j(), root + s * 4.0, s * 0.7, s * 0.9);
+    g.stroke();
+  }
+  // hatching where the shadow will go, under the far shoulder
+  pencil(0.8, 0.3);
+  for (let k = 0; k < 14; k++) { const x = fx + s * (1.4 + k * 0.12); g.beginPath(); g.moveTo(x, root + s * 0.8); g.lineTo(x - s * 0.6, root + s * 2.2); g.stroke(); }
+  // flat colour, blocked in and stopped short: the coat's teal on the left shoulder, the scarf's mustard
+  const flat = (hex, path) => { g.fillStyle = hex; g.globalAlpha = 0.92; g.beginPath(); path(); g.fill(); g.globalAlpha = 1; };
+  flat('#1f3a3a', () => { g.moveTo(fx - s * 0.7, root + s * 0.25); g.quadraticCurveTo(fx - s * 2.5, root + s * 0.3, fx - s * 3.1, root + s * 3.2); g.lineTo(fx - s * 1.6, root + s * 3.6); g.lineTo(fx - s * 1.1, root + s * 2.2); g.lineTo(fx - s * 0.35, root + s * 1.7); g.closePath(); });
+  for (let i = 0; i < 18; i++) { // the block's lower edge left as dry brush strokes
+    g.strokeStyle = 'rgba(31,58,58,0.7)'; g.lineWidth = 4 + rnd() * 5;
+    const x = fx - s * (1.6 + rnd() * 1.5); const y = root + s * (3.0 + rnd() * 0.6);
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + 6 + rnd() * 12, y + 10 + rnd() * 14); g.stroke();
+  }
+  flat('#5e4a22', () => { g.ellipse(fx - s * 0.2, root + s * 0.2, s * 0.85, s * 0.36, 0, Math.PI * 0.95, Math.PI * 2.05); });
+  // a test patch of colour mixed in the corner, and a thumbprint
+  for (const [hex, x, y] of [['#c0141f', W - 52, H - 60], ['#1f3a3a', W - 34, H - 64], ['#5e4a22', W - 44, H - 40]]) { g.fillStyle = hex; g.fillRect(x, y, 14, 12); }
+  g.fillStyle = 'rgba(160,20,26,0.5)'; g.beginPath(); g.ellipse(26, H - 30, 7, 9, 0.4, 0, Math.PI * 2); g.fill();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
+/** The easel, its canvas and head, the wet runs and the painter's things (see the head of this part). */
+function buildEasel(group, lists) {
+  const E = COURT.easel;
+  const { solid, flat, decals } = lists;
+  const rnd = S.rng(53);
+  const rr = (a, b) => a + rnd() * (b - a);
+  const place = matrixOf([E.x, 0, E.z], [0, E.yaw, 0]);
+  const local = []; const ground = []; const marks = []; const wet = [];
+  const wood = PAL.wood; const dark = 0x4a3524;
+  // the easel: two front legs leaning back to a head, a back leg, the ledge, the top clamp
+  const legTop = [0, 1.92, 0.08 + Math.sin(CANVAS.lean) * 1.1];
+  for (const sx of [-1, 1]) local.push(part(limb([sx * 0.4, 0, 0.02], [sx * 0.08, legTop[1], legTop[2]], 0.026, 0.02, 6), wood, { vary: 0.25, seed: sx }));
+  local.push(part(limb([0, 0, 0.78], [0, 1.78, legTop[2] + 0.02], 0.024, 0.02, 6), wood, { vary: 0.25 }));
+  const zAt = (y) => 0.02 + (legTop[2] - 0.02) * (y / legTop[1]); // the front legs' depth at a height
+  local.push(part(G.box(0.9, 0.035, 0.09), wood, { at: [0, CANVAS.bottom - 0.02, zAt(CANVAS.bottom) - 0.05], vary: 0.25 }));
+  local.push(part(G.box(0.9, 0.03, 0.02), wood, { at: [0, CANVAS.bottom + 0.005, zAt(CANVAS.bottom) - 0.095], vary: 0.25 })); // its lip
+  local.push(part(G.box(0.26, 0.05, 0.06), dark, { at: [0, CANVAS.bottom + CANVAS.h + 0.02, zAt(CANVAS.bottom + CANVAS.h) - 0.03], vary: 0.2 }));
+  local.push(part(G.box(0.06, 0.03, 0.62), wood, { at: [0, 0.55, 0.42], rot: [0.12, 0, 0], vary: 0.25 })); // the brace to the back leg
+  // red smeared on the ledge where the brush was wiped
+  for (let i = 0; i < 4; i++) marks.push(part(G.box(rr(0.04, 0.1), 0.004, rr(0.02, 0.05)), WET, { at: [rr(-0.35, 0.35), CANVAS.bottom - 0.0005, zAt(CANVAS.bottom) - rr(0.03, 0.07)], rot: [0, rr(-0.4, 0.4), 0], vary: 0.2 }));
+
+  // the canvas on its stretcher, leaning back with the legs
+  const mid = CANVAS.bottom + CANVAS.h / 2;
+  const canvasAt = [0, mid, zAt(mid) - 0.05];
+  const face = new THREE.Group();
+  face.position.set(...canvasAt);
+  face.rotation.x = CANVAS.lean * 0.55;
+  local.push(part(G.box(CANVAS.w, CANVAS.h, 0.03), 0xd8d0ba, { at: canvasAt, rot: [CANVAS.lean * 0.55, 0, 0], vary: 0.08 }));
+
+  // the painter's things, on a drop cloth spread in front
+  const cloth = G.plane(1.8, 1.5, 16, 14);
+  const cp = cloth.attributes.position;
+  for (let i = 0; i < cp.count; i++) { // folds over the whole of it, and the edge rucked and lifted (up to 8 cm)
+    const x = cp.getX(i); const z = cp.getZ(i);
+    const edge = Math.max(0, 1 - Math.min(0.9 - Math.abs(x), 0.75 - Math.abs(z)) / 0.18);
+    cp.setY(i, 0.012 + 0.025 * Math.max(0, S.noise(x * 2.2, 0, z * 2.2, 5)) + edge * 0.08 * Math.max(0, S.noise(x * 5, 1, z * 5, 9) * 0.5 + 0.5));
+    cp.setX(i, x + edge * 0.05 * S.noise(x * 4, 2, z * 4, 4)); cp.setZ(i, z + edge * 0.05 * S.noise(x * 4, 3, z * 4, 6));
+  }
+  cloth.computeVertexNormals();
+  ground.push(part(cloth, 0xe9dfc4, { at: [0.12, 0, -0.55], rot: [0, 0.08, 0], vary: 0.14, seed: 3 })); // cream
+  for (let i = 0; i < 22; i++) { // splashes on the cloth, mostly red
+    const r = rr(0.015, 0.06);
+    marks.push(part(G.disc(r, 8), i % 5 === 0 ? 0x1f3a3a : i % 7 === 0 ? 0x5e4a22 : WET, { at: [rr(-0.7, 0.9), 0.045, rr(-1.2, 0.1)], scale: [1, 1, rr(0.5, 1.4)], rot: [0, rr(0, 6), 0], vary: 0.2 }));
+  }
+  // the stool, and the palette left on it
+  const stool = [-0.85, -0.7];
+  local.push(part(G.cyl(0.18, 0.18, 0.04, 12), wood, { at: [stool[0], 0.46, stool[1]], vary: 0.25 }));
+  for (let k = 0; k < 3; k++) { const a = (k / 3) * Math.PI * 2 + 0.4; local.push(part(limb([stool[0] + Math.cos(a) * 0.2, 0, stool[1] + Math.sin(a) * 0.2], [stool[0] + Math.cos(a) * 0.1, 0.45, stool[1] + Math.sin(a) * 0.1], 0.018, 0.016, 5), dark, { vary: 0.2 })); }
+  const pal = [stool[0] + 0.02, 0.49, stool[1]];
+  local.push(part(G.cyl(0.16, 0.16, 0.012, 16), 0x9a7048, { at: pal, scale: [1.35, 1, 1], rot: [0, 0.6, 0.04], vary: 0.15 }));
+  for (const [hex, dx, dz, r] of [[0xf1ece0, -0.12, -0.06, 0.025], [0xd9b23a, -0.06, -0.11, 0.02], [0x1f3a3a, 0.03, -0.12, 0.02], [0x15110f, 0.11, -0.08, 0.018],
+    [WET, 0.15, 0.0, 0.03], [0x8a0e15, 0.12, 0.07, 0.024], [WET, 0.04, 0.09, 0.028]]) {
+    wet.push(part(G.ball(r, 8, 5), hex, { at: [pal[0] + dx, pal[1] + 0.008, pal[2] + dz], scale: [1, 0.45, 1], vary: 0.15 }));
+  }
+  for (let i = 0; i < 5; i++) wet.push(part(G.ball(1, 8, 4), i % 2 ? 0xd3202a : 0x9c1018, { at: [pal[0] + rr(-0.12, 0.1), pal[1] + 0.008, pal[2] + rr(-0.05, 0.08)], scale: [rr(0.03, 0.06), 0.004, rr(0.01, 0.02)], rot: [0, rr(0, 3), 0], vary: 0.2 })); // the smears where the reds were mixed
+  // brushes: four in a tin by the easel's foot, three loose on the cloth and the grass
+  const brush = (len, tip) => S.merge([
+    part(G.cyl(0.006, 0.0045, len, 6), rnd() < 0.5 ? 0x1b1712 : 0x8a5a32, { at: [0, len / 2, 0], vary: 0.2 }),
+    part(G.cyl(0.0065, 0.0065, 0.03, 6), 0xb8b2a4, { at: [0, len + 0.015, 0], vary: 0.1 }),
+    part(G.cone(0.006, 0.03, 6), tip, { at: [0, len + 0.045, 0], rot: [Math.PI, 0, 0], vary: 0.2 }),
+  ]);
+  const tin = [0.5, -0.32];
+  local.push(part(G.cyl(0.045, 0.045, 0.13, 12, true), 0x6b6b66, { at: [tin[0], 0.065, tin[1]], vary: 0.2 }));
+  local.push(part(G.disc(0.043, 12), 0x3a2a20, { at: [tin[0], 0.11, tin[1]], vary: 0.1 }));
+  [[0.2, 0.1, WET], [-0.15, 0.25, 0x5e4a22], [0.05, -0.2, WET], [-0.22, -0.05, 0x1f3a3a]].forEach(([ax, az, tip], i) => {
+    local.push(part(brush(0.22 + i * 0.02, tip), null, { at: [tin[0] + ax * 0.08, 0.02, tin[1] + az * 0.08], rot: [az, 0, -ax] }));
+  });
+  [[0.25, -0.95, 1.1, WET], [-0.3, -1.15, -0.4, 0x1f3a3a], [1.05, -0.75, 2.2, WET]].forEach(([x, z, ry, tip]) => {
+    local.push(part(brush(0.2, tip), null, { at: [x, 0.05, z], rot: [0, ry, Math.PI / 2] }));
+  });
+  // pots of paint, most of them red, put down wherever the painter stood: over nearly 2 m, two of
+  // them off the cloth on the grass; one tipped over, its red spreading across the cloth
+  const pots = [[0.68, -0.22, WET, 0.03], [1.55, -0.4, 0x8a0e15, 0], [0.92, -1.12, WET, 0.03], [-0.42, -1.22, 0xf1ece0, 0.03], [-1.3, -1.5, 0xd3202a, 0]];
+  for (const [x, z, hex, up] of pots) { // up: standing on the cloth (3 cm of folds) or on the grass
+    local.push(part(G.cyl(0.05, 0.045, 0.075, 12), 0x8d8a82, { at: [x, 0.0375 + up, z], rot: [rr(-0.05, 0.05), 0, rr(-0.05, 0.05)], vary: 0.2 }));
+    wet.push(part(G.ball(0.046, 12, 4), hex, { at: [x, 0.076 + up, z], scale: [1, 0.08, 1], vary: 0.1 }));
+    local.push(part(G.box(0.002, 0.02, 0.04), hex, { at: [x + 0.05, 0.055 + up, z], vary: 0.1 })); // a run down the side
+  }
+  const tipped = [0.42, -0.98];
+  local.push(part(G.cyl(0.05, 0.045, 0.075, 12, true), 0x8d8a82, { at: [tipped[0], 0.08, tipped[1]], rot: [Math.PI / 2 - 0.05, 0.7, 0], vary: 0.2 }));
+  for (let i = 0; i < 6; i++) { // the spill: overlapping domed pools (so the light catches them: wet), out from the pot's mouth
+    const t = i / 5; const r = 0.06 + 0.07 * t * (1 - t) * 3;
+    wet.push(part(G.ball(1, 14, 5), WET, { at: [tipped[0] - 0.04 - 0.07 * i, 0.046 + 0.0005 * i, tipped[1] - 0.06 - 0.05 * i], scale: [r * 1.3, 0.007, r * 0.9], rot: [0, rr(0, 3), 0], vary: 0.08 }));
+  }
+
+  const tris = (list) => list.reduce((n, gm) => n + (gm.index ? gm.index.count : gm.attributes.position.count) / 3, 0);
+  const merged = tris(local) + tris(ground) + tris(marks); const wetTris = tris(wet);
+  for (const gm of local) solid.push(gm.applyMatrix4(place));
+  for (const gm of ground) flat.push(gm.applyMatrix4(place));
+  for (const gm of marks) decals.push(gm.applyMatrix4(place));
+  const root = new THREE.Group();
+  root.name = 'easel';
+  root.matrixAutoUpdate = false;
+  root.matrix.copy(place);
+  group.add(root);
+  const wetMesh = new THREE.Mesh(S.merge(wet), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.06, metalness: 0.05 }));
+  for (const gm of wet) gm.dispose();
+  wetMesh.receiveShadow = true;
+  root.add(wetMesh, face);
+
+  // the canvas's face, the head that turns (the warden as this game shows him or her), the runs.
+  // Only the look the game's seed chooses is built, on the first frame that knows the seed, and
+  // built again (the old freed) if a new game chooses the other (tech critic).
+  const canvasMat = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 });
+  const front = new THREE.Mesh(new THREE.PlaneGeometry(CANVAS.w, CANVAS.h), canvasMat);
+  front.rotation.y = Math.PI; // the face looks out of the easel's front (-Z)
+  front.position.z = -0.016;
+  front.receiveShadow = true;
+  front.visible = false;
+  face.add(front);
+  const skin = { male: 0xc29c80, female: 0xcaa48a }; // the warden's own skin, as a painter in daylight lays it in
+  // pivots, in the easel's frame: the face's middle stands a little out of the paint
+  const pivot = new THREE.Vector3(0, HEAD_UP, -0.016 - 0.3 * HEAD_S).applyEuler(face.rotation).add(face.position);
+  const facePos = new THREE.Vector3().copy(pivot).applyMatrix4(place); // the face's middle in the world, for the rule
+  const atWorld = { x: facePos.x, y: facePos.y, z: facePos.z };
+  let set = null;
+  function lookAs(k) {
+    if (set && k === shown) return;
+    shown = k;
+    if (set) { root.remove(set.mesh); set.mesh.geometry.dispose(); set.mesh.material.dispose(); }
+    if (canvasMat.map) canvasMat.map.dispose();
+    canvasMat.map = easelCanvas(k); canvasMat.needsUpdate = true; front.visible = true;
+    const geo = bustGeometry({ kind: 'warden', female: k === 'female', skin: skin[k], hair: k === 'female' ? 0x7d4f2c : 0x3a2a20, lip: 0x4a3530, white: 0xc8c0b2 }, HEAD_S, { seed: k === 'female' ? 32 : 31 });
+    // in the easel's frame, where the canvas faces -Z: the head rests at heading 0 (its front, -Z, out of the canvas)
+    set = bustSet([{ geo, at: pivot.clone().setY(pivot.y - geo.userData.centre), yaw: 0 }], { name: 'easel head', fill: 0.25 });
+    root.add(set.mesh);
+    set.turn(0, turn);
+  }
+  // the wet runs: red streaks, rounded so the light runs down them (one instanced mesh), with a
+  // bead at each tip (another), on the canvas
+  const runMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.08, metalness: 0.05 });
+  const streak = new THREE.CylinderGeometry(0.5, 0.5, 1, 6, 1, true, Math.PI / 2, Math.PI).translate(0, -0.5, 0).scale(1, 1, 0.5);
+  const streaks = new THREE.InstancedMesh(streak, runMat, RUNS);
+  const beads = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 10, 8).scale(1, 1.25, 0.55), runMat, RUNS);
+  streaks.frustumCulled = false; beads.frustumCulled = false;
+  face.add(streaks, beads);
+  const runs = runSpots().map((p, i) => ({ x: p.x, y: p.y, w: 0.012 - 0.002 * (i % 2) })); // about 1.2 cm wide (art critic)
+  const live = new THREE.Color(LIVE); const dry = new THREE.Color(0x96181e); const tone = new THREE.Color(); // drying: to the dried runs' red
+  const o = new THREE.Object3D();
+  const at = { len: 0, dry: 0 };
+  let shown = 'male'; let turn = 0; let reduced = false; let seedSeen = NaN; let seen = false;
+  function runsAt(time) {
+    for (let i = 0; i < runs.length; i++) { // a plain loop: nothing made a frame
+      const r = runs[i];
+      runAt(i, RUNS, time, at);
+      tone.copy(live).lerp(dry, at.dry); // as it dries it goes to the dried red and thins into the canvas
+      const len = Math.max(1e-4, at.len); const w = Math.max(1e-4, r.w * (1 - at.dry));
+      o.position.set(r.x, r.y, -0.0172); o.rotation.set(0, 0, 0); o.scale.set(w, len, w); o.updateMatrix();
+      streaks.setMatrixAt(i, o.matrix); streaks.setColorAt(i, tone);
+      const b = at.len > 0 ? 0.01 * (1 - at.dry) : 0; // a 2 cm bead at the tip
+      o.position.set(r.x, r.y - len, -0.0175); o.scale.set(b, b, b); o.updateMatrix();
+      beads.setMatrixAt(i, o.matrix); beads.setColorAt(i, tone);
+    }
+    streaks.instanceMatrix.needsUpdate = true; beads.instanceMatrix.needsUpdate = true;
+    streaks.instanceColor.needsUpdate = true; beads.instanceColor.needsUpdate = true;
+  }
+  runsAt(0);
+  const REDUCED = Object.freeze({ reduced: true });
+  return {
+    /** Once a frame while the garden is drawn: the head toward the eye, the runs on. */
+    update(sim, dt, time, eye) {
+      if (sim && Number.isFinite(sim.seed) && sim.seed !== seedSeen) { seedSeen = sim.seed; lookAs(reflectionLook(sim.seed)); } // a new game's look, once
+      else if (!set) lookAs('male'); // no game yet (never left without a canvas)
+      const far = (eye.x - atWorld.x) ** 2 + (eye.z - atWorld.z) ** 2 > 100;
+      // still until it has first been on screen within 5 m, so the warden sees it begin to turn
+      if (!seen) seen = headSeen(false, atWorld, eye, sim && sim.player ? sim.player.yaw : NaN);
+      if (seen && (turn !== 0 || !far)) {
+        turn = headYawToward(atWorld, E.yaw, eye, turn, dt, reduced ? REDUCED : undefined);
+        set.turn(0, turn);
+      }
+      if (!far) runsAt(time);
+    },
+    /** Back to rest, and asleep until seen again (the court hidden: a room change). A restore inside the court does not call it: the head eases from where it was. */
+    rest() { turn = 0; seen = false; if (set) set.turn(0, 0); },
+    setReduced(on) { reduced = !!on; },
+    report() {
+      const one = (m) => (m.geometry.index ? m.geometry.index.count : m.geometry.attributes.position.count) / 3;
+      return { turn, look: shown, at: { ...atWorld, yaw: E.yaw }, runs: runs.length,
+        seen, triangles: { intoGardenBakes: merged, canvas: 2, head: set ? one(set.mesh) : 0, wet: wetTris, runs: RUNS * (one(streaks) + one(beads)) }, drawCalls: 5 };
+    },
+  };
+}
 
 /**
  * A six-sided coffin's outline, as [x, z] corners: narrow at the head (-z), widest at the
@@ -1074,6 +1375,8 @@ export function buildCourt(scene, cfg) {
   }
   instanced(group, S.fallenLeaf({ seed: 2 }), M.leaf, leaves, false, false);
 
+  const easel = buildEasel(group, { solid, flat, decals });
+  group.userData.easel = easel; // the smoke harness reads report(); nothing in the game does
   group.add(bake(solid, M.matte), bake(flat, M.matte, false, true), bake(metal, M.metal), bake(glow, M.glow, false, false));
   group.add(bake(gnomon, M.metal, false, false), bake(decals, M.decal, false, true));
 
@@ -1095,6 +1398,7 @@ export function buildCourt(scene, cfg) {
       smokeMesh.setMatrixAt(i, dummy.matrix);
     }
     smokeMesh.instanceMatrix.needsUpdate = true;
+    easel.update(sim, dt, time, rig.eye);
   }
 
   // The title's backdrop: a slow walk through the whole level, crater to castle approach.
@@ -1116,7 +1420,10 @@ export function buildCourt(scene, cfg) {
   }
 
   return {
-    group: rig.root, garden: group, apply: rig.apply, hide: rig.hide, update, titleCamera, titleLoop: TITLE_LOOP,
+    group: rig.root, garden: group, apply: rig.apply, update, titleCamera, titleLoop: TITLE_LOOP,
+    hide() { rig.hide(); easel.rest(); },
+    /** Reduced flash: the easel's head turns at a quarter of its rate (the game's one setting for less motion). */
+    setReducedFlash(on) { easel.setReduced(on); },
     get shadowLevel() { return rig.shadowLevel; },
     get zone() { return rig.stage; },
   };

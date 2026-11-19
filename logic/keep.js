@@ -27,7 +27,7 @@ import { restockPads } from './pickups.js';
 import { pullStake, pullable, stakesToBody, crossbowOf } from './stakes.js';
 import { talkTo, talkState, hush } from './talk.js';
 import { createClocks, clocksFor, setClock } from './clocks.js';
-import { createTiles, wholeTiles, stepOn, shootTile, nextTrue } from './gallery.js';
+import { createTiles, wholeTiles, stepAt, shootTile, nextTrue } from './gallery.js';
 import { createBoard, leap, reachable, stepOff, bestRoute, boardAfterDeath, isFarRank } from './knight.js';
 import {
   createCount, stepCount, pullCord, shotsAtCurtains, countDeath, startScene, stepScene, curtainReady, countHint, FINAL_CURTAIN,
@@ -826,7 +826,7 @@ function takeLoot(sim, i, events) {
   if (w.loot[i].taken) return;
   const at = { item: l.kind, at: l.key, x: l.x, z: l.z };
   if (l.kind === 'health') {
-    if (healPlayer(pl, cfg.drops.health, cfg) <= 0) return; // full: it stays where it is
+    if (healPlayer(pl, cfg.drops.health * (l.share ?? 1), cfg) <= 0) return; // full: it stays where it is
   } else if (l.kind === 'garlic') {
     w.items.garlic += l.gives || 1;
     syncGarlic(sim); // the braid joins the Q cycle (#9)
@@ -1009,7 +1009,7 @@ function stepClaw(sim, dt, events, zone) {
   }
 }
 
-/** The gallery's floor (R8): a false tile stepped on gives way (a quarter of full health); shots test tiles. */
+/** The gallery's floor (R8): a false tile stepped on past its footing gives way (a quarter of full health); shots test whole tiles. */
 function stepGallery(sim, events, where) {
   const { cfg, player: pl, waves: w } = sim;
   if (where.zone !== 'gallery' || where.under) return;
@@ -1029,7 +1029,7 @@ function stepGallery(sim, events, where) {
   const t = tileAt(pl.x, pl.z);
   if (t < 0 || w.tiles.gone[t]) return;
   w.hints.gallery.row = Math.max(w.hints.gallery.row, tileRect(t).row);
-  const r = stepOn(w.tiles, t, events, { fell: w.done.fell, maxHealth: cfg.player.health });
+  const r = stepAt(w.tiles, pl.x, pl.z, events, { fell: w.done.fell, maxHealth: cfg.player.health }); // the footing holds
   if (!r || !r.fell) return;
   w.done.fell = true;
   w.falling = 'crypt'; // under follows position on the next move (A3: keepGround is the one authority)

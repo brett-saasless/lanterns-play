@@ -370,6 +370,11 @@ export const TEA = f({
   ravenPerches: [{ x: 19.8, y: 2.33, z: -25.2, on: 'longcase' }, { x: 12.7, y: MANTEL_TOP + 0.55 * MANTEL_CLOCK_K, z: -32, on: 'mantel' }, { x: 21, y: 1.1, z: -29.2, on: 'carriage' },
     { x: 23.6, y: 1.0, z: -34.6, on: 'pocket' }, { x: 31.6, y: 2.14, z: -28.4, on: 'wall' }],
   drawer: { x: 13.7, z: -38.3 }, // ajar, salt in it (PADS)
+  // A dim candle on a low wall shelf just east of the exit door (teaOut), so that corner reads. The shelf hangs
+  // from the door wall (the room's minZ); x, z: the candle on it, y: the shelf top. power: its glow, below every
+  // other flame in the room (castle.js: sconce 0.45, candelabras 0.7, gouge sconce 0.9, hearth 1.3). It is a baked
+  // glow, not one of the pool's five real lights (the room already keeps five), so it costs no light.
+  exitCandle: { x: 16.85, y: 1.05, z: -40.39, power: 0.22, shelf: { w: 0.46, d: 0.22, top: 1.05 } },
 });
 
 /** The werewolf's claws: the arm (keepcast.js) and the scores it leaves in the flags (clawrake.js) both read this, so they cannot drift apart. */
@@ -389,6 +394,7 @@ export const CRYPT_PROPS = f({
   hare: { x: -3, z: -73.6 }, // chained to the coffin
   coffin: { x: -2, z: -74 },
   nun: { x: -8.4, z: -60 },
+  nunTonic: { x: -7.2, z: -60 }, // a half tonic (LOOT), on the floor before her knees
   rats: [{ x: -6, z: -62 }, { x: -4, z: -68 }, { x: -8, z: -72 }],
   underStair: { x: -0.6, z: -51.3 }, // a tonic (LOOT), at the crypt's floor
 });
@@ -521,11 +527,13 @@ export const PADS = f([
 /**
  * Things E takes (keep.js). level: the floor it lies on where two floors share the plan
  * ('crypt', or 'upper' for the gallery floor), so it cannot be taken from the other one.
- * garlic: the braid (one garlic). health: a tonic. crossbow: only for a warden without one.
+ * garlic: the braid (one garlic). health: a tonic (share: of the tonic's amount, 1 if absent).
+ * crossbow: only for a warden without one.
  */
 export const LOOT = f([
   { key: 'braid', kind: 'garlic', gives: 1, x: HALL.braid.x, z: HALL.braid.z, stage: 1 },
   { key: 'cryptTonic', kind: 'health', x: CRYPT_PROPS.underStair.x, z: CRYPT_PROPS.underStair.z, stage: 3, level: 'crypt' },
+  { key: 'nunTonic', kind: 'health', share: 0.5, x: CRYPT_PROPS.nunTonic.x, z: CRYPT_PROPS.nunTonic.z, stage: 3, level: 'crypt' },
   { key: 'pedestal', kind: 'health', x: GALLERY_PROPS.pedestal.x, z: GALLERY_PROPS.pedestal.z, stage: 3, level: 'upper' },
   { key: 'crossbow', kind: 'crossbow', x: NURSERY.bundle.x, z: NURSERY.bundle.z, stage: 5, missing: true },
 ]);

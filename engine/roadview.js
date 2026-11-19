@@ -21,7 +21,7 @@ import * as S from './sculpt.js';
 import { buildTunnel } from './tunnel.js';
 import { buildRoadSurface, buildRoadProps } from './roadsurface.js'; // the owner: variability along the whole road, a few derelicts
 import { createRoadCreature } from './roadcreature.js'; // the second boulder, the rubble, the werewolf and the cutaway's set
-import { cutawayAt } from '../logic/cutaway.js'; // the werewolf cutaway's film (its camera here)
+import { cutawayAt, beatAt } from '../logic/cutaway.js'; // the werewolf cutaway's film (its camera here)
 import { SET } from './court.js';
 import {
   LINE, RECTS, ROAD, LENGTH, stationAt, pointAt, heightAt, onRoad, boulderAt, boulderRockAt, BOULDER_ROCKS, BATS_X, BATS_DIR, BOULDER_X, BOULDER_DIR,
@@ -789,6 +789,7 @@ export function createRoadView(root, parts) {
   const EYE_UP = GIANT_PATH.eye; // the warden's eye over their feet (keepconfig player.eyeHeight)
   let trailAcc = 0; // the dust trail's part-particles carried from frame to frame
   let roadOn = 1; // the road's light holding (1) or handed to the forecourt's (0): the reveal at the gate
+  let filmShot = null; // the werewolf cutaway's beat last frame: its cuts to and from the castle's front take the light at once
   const MOON_HALO = parts.moonHalo ? parts.moonHalo.opacity : 0;
 
   /**
@@ -804,7 +805,12 @@ export function createRoadView(root, parts) {
     // `on`: how much the road's light holds, 1 on the road, 0 past the gate, where castle.js's own
     // light (which the courtyard end of the script equals) takes over unchanged.
     const want = road && outside && eye && eye.z >= GATE_Z ? 1 : 0;
-    roadOn = dt === 0 ? want : clamp(roadOn + Math.sign(want - roadOn) * dt / REVEAL);
+    // the film cuts from the bank to the castle's front and, at its end, back to the warden: a cut
+    // takes the light of where it lands at once (the gate's reveal is for walking through it)
+    const film = sim && sim.waves && sim.waves.scene && sim.waves.scene.kind === 'cutaway' ? beatAt(sim.waves.scene.t || 0) : null;
+    const cutNow = film !== filmShot && (film === 'run' || filmShot === 'run');
+    filmShot = film;
+    roadOn = dt === 0 || cutNow ? want : clamp(roadOn + Math.sign(want - roadOn) * dt / REVEAL);
     const on = outside ? smooth(roadOn) : 0;
     const L = roadLight(dark);
     const dusk = outside ? L.dusk : 0;
@@ -1033,6 +1039,7 @@ export function createRoadView(root, parts) {
    * The camera for the cutaway scene: { position, target, fov } (castle.js sceneCamera asks).
    * On the bank the creature stands on this hill, so the close-up rises with the ground under it
    * (the logic's nominal ground, corrected by camera.follow); nothing on the road goes under the hill.
+   * The run is on the castle's own level front (o.front), as the logic places it.
    */
   function sceneCamera(sim, sc) {
     if (!sc || sc.kind !== 'cutaway') return null;
@@ -1040,7 +1047,7 @@ export function createRoadView(root, parts) {
     const c = o.camera;
     camPos.set(c.px, c.py, c.pz);
     camTarget.set(c.tx, c.ty, c.tz);
-    if (!o.set) {
+    if (!o.front) {
       const lift = (hillAt(o.creature.x, o.creature.z) - o.creature.y) * c.follow;
       camPos.y += lift;
       camTarget.y += lift;

@@ -9,6 +9,7 @@ import { CAVE_CONFIG } from '../logic/caveconfig.js';
 import { COURT_CONFIG } from '../logic/courtconfig.js';
 import { buildCave } from './cave.js';
 import { buildCourt } from './court.js';
+import { warmBusts } from './busts.js';
 import { buildForest } from './forest.js';
 import { createCrater, createShaft } from './passages.js'; // issue #29: the ways on between the levels
 
@@ -412,6 +413,7 @@ export function buildWorld(canvas) {
     reducedFlash = !!on;
     crater.setReducedFlash(reducedFlash); // #29: the blast's flash and the strike's are dimmed
     shaft.setReducedFlash(reducedFlash);
+    court.setReducedFlash(reducedFlash); // the easel's head turns at a quarter rate
     if (castle && castle.setReducedFlash) castle.setReducedFlash(reducedFlash);
   }
 
@@ -457,6 +459,15 @@ export function buildWorld(canvas) {
     for (const g of extras(room)) {
       try { const p = renderer.compileAsync(g, cam, scene); if (p && p.catch) p.catch(() => {}); } catch { /* built when first drawn */ }
     }
+  }
+
+  /**
+   * The sculpted heads' one shared program, built now against the room on show (its lights, fog
+   * and shadows), so the first face that comes into view does not build it (main.js calls it when
+   * a level with heads starts: logic/headrooms.js). Resolves true once built.
+   */
+  function warmHeads(cam) {
+    return warmBusts(renderer, cam, scene).done;
   }
 
   function drawables(seen) {
@@ -505,7 +516,7 @@ export function buildWorld(canvas) {
   }
 
   return {
-    renderer, scene, camera, resize, setRoom, setReducedFlash, update, titleCamera, cave, loadCastle, prerender, sceneCamera, free, drawables, warmExtras,
+    renderer, scene, camera, resize, setRoom, setReducedFlash, update, titleCamera, cave, loadCastle, prerender, sceneCamera, free, drawables, warmExtras, warmHeads,
     get room() { return room; },
     get castleReady() { return !!castle; },
     get mirrorReady() { return !!mirror; },

@@ -74,3 +74,21 @@ export function stripMesh(left, right, y) {
   }
   return { positions, index };
 }
+
+export const GOUGE_PRINT_COUNT = 2;
+const GOUGE_PRINT_ANGLES = Object.freeze([Math.PI - 0.55, Math.PI + 0.55]);
+
+export function gougePlan(rand, gc, wf, reach, room) {
+  const plan = [];
+  for (let i = 0; i < GOUGE_PRINT_COUNT; i++) {
+    const a = GOUGE_PRINT_ANGLES[i] + (rand() - 0.5) * 0.2;
+    const r = reach * (0.9 + rand() * 0.1);
+    const gx = gc.x + Math.cos(a) * r;
+    const gz = gc.z + Math.sin(a) * r;
+    const dir = Math.atan2(wf.z - gz, wf.x - gx) + (rand() - 0.5) * 0.5;
+    const rake = rakeScores(rand, gx, gz, dir, [0, 1, 2, 3], 0.95 + rand() * 0.1);
+    const inside = rake.reach.every(([x, z]) => x > room.minX + 0.05 && x < room.maxX - 0.05 && z > room.minZ + 0.05 && z < room.maxZ - 0.05);
+    if (inside) plan.push({ ...rake, at: [gx, gz] });
+  }
+  return plan;
+}

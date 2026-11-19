@@ -21,6 +21,7 @@ import * as ST from './stone.js';
 import * as KM from '../logic/keepmap.js';
 import * as KEEP from '../logic/keep.js';
 import { createRoadView } from './roadview.js'; // issue #29: the road up from the wood, and its evening
+import { cutawayAt } from '../logic/cutaway.js'; // the werewolf cutaway: its run beat plays on the real front
 import { buildDawnView, DAWN_SUN } from './dawnview.js'; // art pass K1: the sunrise out of the Count's windows
 
 const HUE = ST.STONE;
@@ -429,10 +430,17 @@ export function buildCastle(scene, cfg) {
     blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true, fog: false,
   });
 
+  // A baked pool of candlelight (the tea room's exit candle): additive, vertex-coloured fans on the floor and the
+  // wall, no texture and no real light. Its opacity is the flame's flicker (update), so the pool breathes with it.
+  const glowMat = new THREE.MeshBasicMaterial({
+    vertexColors: true, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide,
+  });
+  const GLOW_WARM = [1.0, 0.56, 0.22];
+
   // ---- zones ----
   const zones = PLAN.zones.map((z, i) => ({
     ...z, index: i, group: new THREE.Group(), neighbours: new Set(),
-    stone: [], worn: [], floorParts: {}, fit: [], cloth: [], rug: [], glass: [], lit: [], dark: [], ridge: [],
+    stone: [], worn: [], floorParts: {}, fit: [], cloth: [], rug: [], glass: [], lit: [], dark: [], ridge: [], glow: [],
     flames: flameBuilder(), halos: [], fires: [], leaves: [],
   }));
   const byId = Object.fromEntries(zones.map((z) => [z.id, z]));
@@ -783,11 +791,15 @@ export function buildCastle(scene, cfg) {
     const parts = [];
     const n = Math.round(lw / 0.22);
     for (let i = 0; i < n; i++) parts.push(box((i + 0.5) * (lw / n), h / 2, 0, lw / n - 0.006, h, 0.07, 0x2d1f15, 0, 0.3));
-    for (const yy of [0.35, h * 0.5, h - 0.35]) parts.push(box(lw / 2, yy, 0, lw, 0.09, 0.1, 0x121010, 0, 0.1));
+    // the iron straps stop 3 mm short of the meeting edge, as the boards do: the shut pair meet on a
+    // 6 mm seam, with no strap ends lying face to face (shimmer), and a leaf swinging to clears the
+    // other's corner (logic/cutaway.js LEAF)
+    for (const yy of [0.35, h * 0.5, h - 0.35]) parts.push(box((lw - 0.003) / 2, yy, 0, lw - 0.003, 0.09, 0.1, 0x121010, 0, 0.1));
     parts.push(box(lw - 0.14, h * 0.46, 0, 0.06, 0.2, 0.16, 0x8a6d36, 0, 0.1));
     const geo = S.merge(parts);
     const made = [0, 1].map((i) => {
       const hinge = new THREE.Group();
+      hinge.name = `castle:door-${d.id}-${i === 0 ? 'west' : 'east'}`;
       let g = geo;
       if (i === 1) {
         g = geo.clone().scale(-1, 1, 1);
@@ -943,7 +955,45 @@ export function buildCastle(scene, cfg) {
     for (const c of KM.TEA.candelabras) z.fires.push({ x: c.x, y: z.y + 1.7, z: c.z, power: 0.7, seed: c.x });
     { const p = onFace(r, 's', r.x0 + 3.6); sconce(z, p.x, p.z, p.n, 2.3); }
     teaGougeLight(z, r);
+    exitCandle(z, r);
     z.ambient = 3.2;
+  }
+
+  // The owner: a dim candle near the tea room's exit door, so that corner is a bit more visible. A short candle in a
+  // brass saucer on a low shelf on the door wall (keepmap TEA.exitCandle). The room's five flames already fill the
+  // light pool, so this one gets no real light: its flame and halo ride the shared flame and halo draws, and its
+  // light is one small additive glow (a half-disc on the floor before the shelf, an ellipse up the wall), 1 draw call.
+  function exitCandle(z, r) {
+    const c = KM.TEA.exitCandle; const sh = c.shelf;
+    z.fit.push(box(c.x, sh.top - 0.02, r.z0 + sh.d / 2, sh.w, 0.04, sh.d, 0x5a4026, 0, 0.15));
+    for (const dx of [-1, 1]) z.fit.push(box(c.x + dx * (sh.w / 2 - 0.05), sh.top - 0.1, r.z0 + sh.d / 2 - 0.02, 0.03, 0.12, sh.d - 0.04, 0x3a2a1a, 0, 0.1));
+    z.fit.push(cyl(c.x, c.y, c.z, 0.075, 0.05, 0.015, 0x8a6d36, 10)); // the saucer
+    z.fit.push(cyl(c.x, c.y + 0.015, c.z, 0.02, 0.021, 0.1, 0xd8d0b8, 7, 0.03)); // the candle, a stub
+    z.flames.add(c.x, c.y + 0.115, c.z, 0.07, c.x * 1.7); // a small flame
+    z.halos.push(c.x, c.y + 0.16, c.z);
+    // the glow: bright at the flame, nothing at the rim. Floor: a half-disc (the wall cuts it), at the flag's height.
+    const SEG = 14; const pos = []; const col = []; const idx = [];
+    const k = c.power; // strength of the pool, the same number the test holds below every other flame
+    // two rings (a soft shoulder, then nothing) so the pool has no hard-looking edge
+    const RINGS = [[0.45, 0.3], [1, 0]]; // [radius fraction, share of the centre's strength]
+    const fan = (cx, cy, cz, point, strength) => { // point(a, f) -> [x, y, z]: the rim at fraction f of the full radius, a in 0..1
+      const base = pos.length / 3;
+      pos.push(cx, cy, cz); col.push(GLOW_WARM[0] * strength, GLOW_WARM[1] * strength, GLOW_WARM[2] * strength);
+      for (const [f, share] of RINGS) {
+        for (let i = 0; i <= SEG; i++) { pos.push(...point(i / SEG, f)); col.push(GLOW_WARM[0] * strength * share, GLOW_WARM[1] * strength * share, GLOW_WARM[2] * strength * share); }
+      }
+      const ring = SEG + 1;
+      for (let i = 0; i < SEG; i++) idx.push(base, base + 1 + i, base + 2 + i);
+      for (let i = 0; i < SEG; i++) idx.push(base + 1 + i, base + 1 + ring + i, base + 2 + i, base + 2 + i, base + 1 + ring + i, base + 2 + ring + i);
+    };
+    const wallZ = r.z0 + 0.012; const RF = 2.3;
+    fan(c.x, z.y + 0.03, wallZ + 0.2, (a, f) => [c.x + Math.cos(Math.PI * a) * RF * f, z.y + 0.03, wallZ + Math.sin(Math.PI * a) * RF * f], 0.36 * k);
+    fan(c.x + 0.2, c.y + 0.1, wallZ, (a, f) => [c.x + 0.2 + Math.cos(Math.PI * 2 * a) * 0.75 * f, c.y + 0.1 + Math.sin(Math.PI * 2 * a) * 1.2 * f, wallZ], 0.5 * k);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(idx);
+    z.glow.push(g);
   }
 
   // Issue #16: the werewolf's side of the tea room. The door wall's east sconce moves to the east
@@ -1335,6 +1385,10 @@ export function buildCastle(scene, cfg) {
       const m = add(new THREE.Mesh(mergeMapped(z.glass), z.id === 'count' ? dawnGlass : glassMat), false, false);
       m.renderOrder = 2;
     }
+    if (z.glow.length) {
+      const m = add(new THREE.Mesh(z.glow.length === 1 ? z.glow[0] : S.merge(z.glow), glowMat), false, false);
+      m.renderOrder = 3;
+    }
     if (!z.flames.empty) {
       const m = add(new THREE.Mesh(z.flames.build(), flameMat), false, false);
       m.renderOrder = 3;
@@ -1345,7 +1399,7 @@ export function buildCastle(scene, cfg) {
       halo.renderOrder = 4;
       z.group.add(halo);
     }
-    z.stone = z.worn = z.fit = z.cloth = z.rug = z.glass = z.lit = z.dark = z.ridge = null;
+    z.stone = z.worn = z.fit = z.cloth = z.rug = z.glass = z.lit = z.dark = z.ridge = z.glow = null;
     z.floorParts = null;
     z.group.visible = false;
   }
@@ -1613,7 +1667,9 @@ export function buildCastle(scene, cfg) {
     return reduced ? flicker(time, seed) : 1 + LIGHT_SWING * (flicker(time, seed) - 1);
   }
 
-  let hiddenForCut = false; // the shell hidden under the werewolf cutaway
+  let hiddenForCut = false; // the shell hidden under the werewolf cutaway's climb
+  const filmOut = {}; // cutawayAt's answer, reused every frame
+  const frontDoor = doors.find((dr) => dr.d.id === 'front');
   const _cand = [];
   const byDistance = (a, b) => a.d - b.d;
   let stamp = 0;
@@ -1632,9 +1688,12 @@ export function buildCastle(scene, cfg) {
     const cur = zones[zoneNow];
     const under = inRun && sim.waves ? sim.waves.under : null;
     lowerNow = under === 'crypt' || under === 'pit' || (cur.id === 'gallery' && eye.y < cur.y - 0.4);
-    // the werewolf cutaway: the castle itself is never in its shots (the owner: "most of the castle
-    // remains unseen"; its set stands in for the gate), so its shell is not drawn while it plays
-    const cutting = !!(inRun && sim.waves && sim.waves.scene && sim.waves.scene.kind === 'cutaway');
+    // the werewolf cutaway: over the climb to the face the castle is not drawn (its towers never on
+    // the skyline); its run beat is played on the castle's real front (the owner, 2026-11-18), the
+    // shell drawn as the warden would see it there, the camera kept tight (logic/cutaway.js)
+    const sc = inRun && sim.waves && sim.waves.scene && sim.waves.scene.kind === 'cutaway' ? sim.waves.scene : null;
+    const film = sc ? cutawayAt(sc.t || 0, sc, filmOut) : null;
+    const cutting = !!film && !film.front;
     if (was !== zoneNow || dt === 0 || cutting !== hiddenForCut) show();
     if (cutting) for (const z of zones) z.group.visible = false;
     hiddenForCut = cutting;
@@ -1651,6 +1710,12 @@ export function buildCastle(scene, cfg) {
       const a = smooth(dr.open) * 1.75;
       dr.made[0].hinge.rotation.y = dr.made[0].sign * a;
       dr.made[1].hinge.rotation.y = dr.made[1].sign * a;
+    }
+    // the film's front door: its two leaves where the film has them (west, east), the door's own
+    // state (dr.open, the rules' answer) untouched, so after the film it stands exactly as it did
+    if (film && film.front && frontDoor) {
+      frontDoor.made[0].hinge.rotation.y = frontDoor.made[0].sign * film.door[0];
+      frontDoor.made[1].hinge.rotation.y = frontDoor.made[1].sign * film.door[1];
     }
 
     // dawn in the Count's room: one part for each open curtain, all of it once he is ash
@@ -1746,6 +1811,7 @@ export function buildCastle(scene, cfg) {
       // K4: the flames' share; a passage's torches keep more of it, the pools that make a passage readable (K2)
       s.l.intensity = s.at ? 12 * (s.at.passage ? PASSAGE_FIRE : FIRE_SHARE) * (s.at.cold ? COLD.fire : 1) * s.at.power * clamp(s.level) * lightFlicker(time, s.at.seed) : 0;
     }
+    glowMat.opacity = lightFlicker(time, 4.7); // the exit candle's pool breathes with its flame (slow drift under reduced flash)
     haloMat.opacity = 0.26 * (reduced ? 1 : 0.9 + 0.1 * Math.sin(time * 9.1) + 0.06 * Math.sin(time * 23.3));
 
     // the air of the zone: how much the night itself lights, how thick the dark is
@@ -1830,7 +1896,7 @@ export function buildCastle(scene, cfg) {
       return { position: scenePos, target: sceneTarget, fov: lerp(48, 62, crane) };
     }
     if (kind === 'triumph') return triumphCamera(sim, sc);
-    if (kind === 'cutaway') return roadView.sceneCamera(sim, sc); // the werewolf cutaway, on the road and its set
+    if (kind === 'cutaway') return roadView.sceneCamera(sim, sc); // the werewolf cutaway, on the road and the castle's front
     return null;
   }
 

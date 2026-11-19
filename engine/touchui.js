@@ -9,7 +9,7 @@ const PARTS = [
   ['stick', ''],
   ['fire', ''],
   ['jump', ''],
-  ['e', 'E'],
+  ['e', ''],
   ['swap', ''],
   ['pause', 'II'],
   ['log', ''],

@@ -7,8 +7,12 @@
 // salt round is spent by the shipped salt gun). nextTrue names the tile the grin hangs over.
 // A death anywhere makes every tile whole again (G6). State lives in sim.waves.tiles
 // ({ gone[60] }); the true path is data in keepmap.js and is read here alone.
+// The footing (owner): a whole false tile holds the warden's weight within FOOTING_SHARE of a
+// tile's width of any true tile (along a shared edge, or in the corner square a diagonal true
+// tile meets), so the walkable path is 1.5 tiles wide between false tiles. It is never drawn:
+// the view's layers are unchanged, and a shot still tests the whole tile.
 
-import { TRUE_PATH_SOURCE } from './keepmap.js';
+import { TRUE_PATH_SOURCE, GALLERY, tileAt, tileRect } from './keepmap.js';
 
 export const COLS = 5;
 export const ROWS = 12;
@@ -96,6 +100,45 @@ export function stepOn(tiles, tile, events = [], opts = {}) {
   const first = !opts.fell;
   events.push({ type: 'cryptFall', tile: i, damage, first });
   return { tile: i, fell: true, damage, first };
+}
+
+/** The footing's width, as a share of a tile's: a quarter on each side makes a one-tile path 1.5 wide. */
+export const FOOTING_SHARE = 0.25;
+
+/**
+ * Whether (x, z) lies in a false tile's footing: within FOOTING_SHARE of a tile's width of a
+ * neighbouring true tile (its edge band, or the corner square at a diagonal one). Never on a
+ * true tile, off the field, or against a wall, an apron or another false tile.
+ */
+export function inFooting(x, z) {
+  const i = tileAt(x, z);
+  if (i < 0 || isTrue(i)) return false;
+  const reach = FOOTING_SHARE * GALLERY.tile;
+  const { col, row } = tileCell(i);
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      const c = col + dc; const r = row + dr;
+      if ((!dc && !dr) || c < 0 || c >= COLS || r < 1 || r > ROWS) continue;
+      const n = (r - 1) * COLS + c;
+      if (!isTrue(n)) continue;
+      const t = tileRect(n);
+      const gap = Math.max(t.minX - x, x - t.maxX, t.minZ - z, z - t.maxZ, 0);
+      if (gap <= reach) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * The warden's weight comes down at (x, z): inside a whole false tile's footing it holds
+ * ({ tile, fell: false, footing: true }, no events); anywhere else on the field it is stepOn
+ * for the tile underfoot. Null off the field.
+ */
+export function stepAt(tiles, x, z, events = [], opts = {}) {
+  const i = tileAt(x, z);
+  if (i < 0) return null;
+  if (!tiles.gone[i] && inFooting(x, z)) return { tile: i, fell: false, footing: true };
+  return stepOn(tiles, i, events, opts);
 }
 
 /**

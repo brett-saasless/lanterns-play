@@ -15,6 +15,7 @@ import { NEXT, PASSAGE, carryOf, seatCarry, passageOf, poseOf } from './logic/jo
 import { needsAutoReload, isGhostClick } from './logic/touchmap.js';
 import { carried } from './logic/weapon.js';
 import { CUTAWAY, cutawayBlack } from './logic/cutaway.js'; // the werewolf cutaway's dip to black
+import { shouldWarmHeads, HEAD_ROOMS } from './logic/headrooms.js';
 
 const ENGINE_FAIL = 'Could not load the 3D engine. Check your connection and reload.';
 const NO_WEBGL = 'This browser could not start WebGL, which LANTERN YARD needs. Try current Chrome or Safari with hardware acceleration on.';
@@ -205,6 +206,7 @@ async function boot() {
     } catch { /* no fullscreen here */ }
   }
 
+  const headsWarmed = new Set(); // the head rooms whose lights the heads' program has been built for, this session
   /** Switches the sim, the scene and the weapon to a room (Engine API, "Choosing a room"). */
   function enterRoom(name) {
     const cfg = ROOMS[name];
@@ -220,6 +222,9 @@ async function boot() {
     // #29: the crater, the shaft, the road's scares: built before they first show. After the weapon is
     // set: the salt gun's pilot lamp is one of the cave's lights, and a program is built for the lights there are.
     world.warmExtras(camera);
+    // The sculpted heads' shader, built as a level with heads starts (any start: a title button, the
+    // journey's hand-over, a checkpoint), before its first frame (the owner; logic/headrooms.js).
+    if (shouldWarmHeads({ room: cfg.room, warmed: headsWarmed, headRooms: HEAD_ROOMS })) { headsWarmed.add(cfg.room); world.warmHeads(camera); }
     audio.setRoom(cfg.room, cfg);
     vm.cancel();
     hud.setRoom(cfg);
@@ -449,6 +454,8 @@ async function boot() {
     if (state !== 'TITLE' || titleRoom === name) return;
     titleRoom = name;
     world.setRoom(name);
+    // the title's backdrop of a level with heads shows them too: build their program before it is drawn
+    if (shouldWarmHeads({ room: name, warmed: headsWarmed, headRooms: HEAD_ROOMS })) { headsWarmed.add(name); world.warmHeads(camera); }
     document.getElementById('titlesub').textContent = SUBLINES[name];
   }
 
@@ -945,7 +952,7 @@ async function boot() {
       const sceneNow = sim.waves && sim.waves.scene ? sim.waves.scene.kind : null;
       if (sceneBefore && !sceneNow && sceneLast) {
         if (sceneBefore === 'triumph' && runRoom === 'castle') endHold = { pos: sceneLast.pos, quat: sceneLast.quat, fov: sceneLast.fov || FOV };
-        else if (sceneBefore === 'cutaway') sceneEase = null; // the film ends on a cut back to the warden's own eye (its set is far off)
+        else if (sceneBefore === 'cutaway') sceneEase = null; // the film ends on a cut back to the warden's own eye (the castle's front is far off)
         else sceneEase = { pos: sceneLast.pos, quat: sceneLast.quat, fov: sceneLast.fov, t: 0 };
         sceneLast = null;
       }

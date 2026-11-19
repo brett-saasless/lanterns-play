@@ -367,6 +367,14 @@ const run = (fx, fz, tx, tz) => {
   const length = Math.hypot(tx - fx, tz - fz);
   return { from: { x: fx, z: fz }, to: { x: tx, z: tz }, dir: { x: (tx - fx) / length, z: (tz - fz) / length }, length };
 };
+// The easel (owner, 2026-11-18): where it stands and the one small box its legs fill (the
+// controller's call after the tech critic: the easel is solid; the stool, cloth and pots are not).
+const EASEL = { x: -9.3, z: -18.3, yaw: Math.atan2(-9.3, -3.8) };
+const EASEL_FOOT = (() => { // the legs' middle, a third of a metre behind the canvas
+  const cx = EASEL.x + Math.sin(EASEL.yaw) * 0.33; const cz = EASEL.z + Math.cos(EASEL.yaw) * 0.33;
+  return aabb(cx - 0.4, cx + 0.4, cz - 0.4, cz + 0.4, 1.95, 'easel');
+})();
+
 const FLOWS = [
   run(-7.2, -10, 7.2, -10), // 0 north: Clubs to Hearts, east
   run(10, -7.2, 10, 7.2), // 1 east: Hearts to Diamonds, south
@@ -409,6 +417,7 @@ export const COURT = f({
     aabb(-15.6, -14.4, -16, -14, 0.9, 'earthbox'),
     aabb(-13.1, -11.9, -17, -15, 0.9, 'earthbox'),
     aabb(3.5, 6.5, 16, 19, 0.6, 'crater'),
+    EASEL_FOOT,
   ],
   renfield: { x: 17.7, z: 3, table: { x: 16, z: 3 } },
   throne: { x: -16.6, z: 0 },
@@ -423,6 +432,11 @@ export const COURT = f({
     },
   },
   guards: [{ x: -6, z: -18 }, { x: 6, z: -18 }],
+  // The easel (owner, 2026-11-18): a half-finished portrait of the warden, its head sculpted and
+  // following him, its paint still wet, the painter's things scattered about it. Deep in the court
+  // by the north hedge, west of the arch, off the walk and clear of the boxes, facing the walk.
+  // Solid where its legs stand (one small box in boxes); the painter's things about it are walk-over.
+  easel: EASEL,
   gardeners: [{ x: 14.5, z: -8 }, { x: 12, z: -14.5 }, { x: 15, z: -13 }],
   // Things worth a note: E adds the entry of the same key, once. `from` limits the side.
   notes: [

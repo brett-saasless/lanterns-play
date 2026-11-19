@@ -3,7 +3,8 @@
 // the Beefeater skeleton, the raven, the werewolf painting's arm, the March Hare and the dead nun
 // chained in the crypt, the rats, the snakes in the pit, the Count rising from his box of earth,
 // the bats, the warden's reflection and the tall figure (both on the glass-only layer), and the
-// portraits whose eyes follow. All built in code with the sculpting kit, as the cave's creatures.
+// portraits whose sculpted heads turn to follow the warden (busts.js, logic/headturn.js; the
+// werewolf's painted eyes follow as before). All built in code with the sculpting kit, as the cave's creatures.
 //
 // The views read sim state and events only. The armour and the wife are creatures in sim.enemies
 // (factories registered with actors.js); everything else is a set per castle zone, built the first
@@ -23,6 +24,10 @@ import { poseOf, nextCurtain } from '../logic/count.js';
 import * as MAP from '../logic/keepmap.js';
 import { reflectionOf } from '../logic/reflection.js';
 import { batGeometry, batFlap } from './roadview.js'; // K7: the road's bat, at the swarm's scale
+import { bustGeometry, bustSet, BUST } from './busts.js';
+import { headYawToward, headSeen, HEAD_TURN } from '../logic/headturn.js';
+import { cutawayAt, CUTAWAY } from '../logic/cutaway.js'; // the werewolf cutaway: it poses the fighting suit at the real door
+const CUT_SUIT = CUTAWAY.guard.suit;
 
 const TAU = Math.PI * 2;
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
@@ -160,7 +165,9 @@ function facingIn(zoneId, x, z) {
 // ---- paint: the sitters, the wives and the werewolf, drawn on canvas ----------------------------
 // Each painter draws into a cell w by h and returns its eyes: [{ x, y, r, hex? }] in the cell's
 // pixels (the middle of the white and its half width). The irises are not painted: they are small
-// discs laid on the canvas, moved a little late toward wherever the warden stands.
+// discs laid on the canvas, moved a little late toward wherever the warden stands (the werewolf's).
+// A sitter painted with relief: true (every sitter and wife, the owner's 2026-11-18 ask: "the eyes
+// turning is not visible") gets no painted face: paintRelief returns the head to stand there instead.
 
 function varnish(g, w, h, seed) {
   // craquelure and a dark edge: old paint under old varnish
@@ -196,6 +203,7 @@ function paintSitter(g, cx, cy, s, o) {
     g.fillStyle = css(skin, 0.9);
     g.beginPath(); g.moveTo(cx - s * 0.5, cy + s * 1.6); g.lineTo(cx + s * 0.5, cy + s * 1.6); g.lineTo(cx + s * 0.9, cy + s * 2.9); g.lineTo(cx - s * 0.9, cy + s * 2.9); g.closePath(); g.fill();
   }
+  if (o.relief) return paintRelief(g, cx, cy, s, o);
   // hair behind the face
   g.fillStyle = css(o.hair || 0x0d0b0c);
   g.beginPath();
@@ -256,8 +264,36 @@ function paintSitter(g, cx, cy, s, o) {
   return [{ x: cx - ex, y: ey, r: er, white }, { x: cx + ex, y: ey, r: er, white }];
 }
 
+/**
+ * The canvas under a sculpted head (busts.js, the owner's 2026-11-18 ask): the shoulders and the
+ * dress are painted as before, the head is not (no double head). Under where the head stands: the
+ * canvas's dark ground, the shadow the head casts on it (down and to the right, away from the
+ * painting's light), and for a lady the ends of her hair on her shoulders. Returns no eyes and
+ * the head to stand there: { eyes: [], heads: [{ x, y, s, look }] } in the cell's pixels (x, y the
+ * face's middle, s its half width).
+ */
+function paintRelief(g, cx, cy, s, o) {
+  const fy = cy - s * 0.32 + s * BUST.eyes; // the face's middle: the head's eyes where the painted ones were
+  const sh = g.createRadialGradient(cx + s * 0.35, fy + s * 0.5, s * 0.3, cx + s * 0.35, fy + s * 0.5, s * 2.6);
+  sh.addColorStop(0, 'rgba(6,4,5,0.75)'); sh.addColorStop(0.6, 'rgba(6,4,5,0.35)'); sh.addColorStop(1, 'rgba(6,4,5,0)');
+  g.fillStyle = sh;
+  g.beginPath(); g.ellipse(cx + s * 0.35, fy + s * 0.5, s * 1.9, s * 2.8, 0, 0, TAU); g.fill();
+  if (o.kind !== 'lord') { // the ends of long hair, lying on the shoulders either side of the throat
+    g.fillStyle = css(o.hair || 0x0d0b0c);
+    for (const sx of [-1, 1]) {
+      g.beginPath();
+      g.moveTo(cx + sx * s * 0.75, cy + s * 2.6);
+      g.quadraticCurveTo(cx + sx * s * 1.55, cy + s * 2.9, cx + sx * s * 1.75, cy + s * 4.9);
+      for (let k = 0; k <= 4; k++) g.lineTo(cx + sx * s * (1.75 - k * 0.22), cy + s * (4.9 - (k % 2) * 0.45));
+      g.quadraticCurveTo(cx + sx * s * 1.0, cy + s * 3.4, cx + sx * s * 0.55, cy + s * 2.7);
+      g.closePath(); g.fill();
+    }
+  }
+  return { eyes: [], heads: [{ x: cx, y: fy, s, look: o }] };
+}
+
 const SITTERS = [
-  { kind: 'lord', hair: 0x9a968c, brow: 0xb8b4aa, dress: 0x101014, skin: 0xcdc5b2 },
+  { kind: 'lord', hair: 0x9a968c, brow: 0x6e6a62, dress: 0x101014, skin: 0x8f8372 }, // grey-ivory, a third darker (art critic: he read as a white mask)
   { kind: 'lady', hair: 0x1a1210, dress: 0x3a0d12, skin: 0xd6cfbf },
   { kind: 'lord', hair: 0x1c1a1c, dress: 0x16181d, skin: 0xbfb9a8, fangs: true },
   { kind: 'lady', hair: 0x8a7a52, dress: 0x1b1d22, skin: 0xd8d2c4 },
@@ -267,9 +303,9 @@ const SITTERS = [
 
 /** A portrait's sitter: one of six, by index. */
 const sitter = (n) => (g, w, h) => {
-  const eyes = paintSitter(g, w / 2, h * 0.36, w * 0.13, SITTERS[n % SITTERS.length]);
+  const out = paintSitter(g, w / 2, h * 0.36, w * 0.13, { ...SITTERS[n % SITTERS.length], relief: true });
   varnish(g, w, h, n + 3);
-  return eyes;
+  return out;
 };
 
 /** The two wives who stay (the cell is the whole canvas), or the one who leaves (alone, on clear). */
@@ -279,12 +315,12 @@ const WIFE_LOOKS = [
   { kind: 'wife', hair: 0x17110f, dress: 0xaeaaa0, skin: 0xd2ccbe },
 ];
 const wivesWhoStay = (g, w, h) => {
-  const a = paintSitter(g, w * 0.52, h * 0.3, w * 0.062, WIFE_LOOKS[1]);
-  const b = paintSitter(g, w * 0.82, h * 0.36, w * 0.06, WIFE_LOOKS[2]);
+  const a = paintSitter(g, w * 0.52, h * 0.3, w * 0.062, { ...WIFE_LOOKS[1], relief: true });
+  const b = paintSitter(g, w * 0.82, h * 0.36, w * 0.06, { ...WIFE_LOOKS[2], relief: true });
   varnish(g, w, h, 21);
-  return [...a, ...b];
+  return { eyes: [], heads: [...a.heads, ...b.heads] };
 };
-const wifeWhoLeaves = (g, w, h) => paintSitter(g, w * 0.2, h * 0.38, w * 0.064, WIFE_LOOKS[0]);
+const wifeWhoLeaves = (g, w, h) => paintSitter(g, w * 0.2, h * 0.38, w * 0.064, { ...WIFE_LOOKS[0], relief: true });
 
 /** The werewolf: hunched in a dark wood, its near arm at the canvas's edge. Yellow eyes. */
 function paintWerewolf(g, w, h) {
@@ -328,13 +364,23 @@ function paintWerewolf(g, w, h) {
 }
 
 /**
- * A wall of paintings as three draw calls: the frames and dark canvases (vertex colour), the
- * sitters (one atlas, cut out), and every iris (one instanced mesh).
- *   list: [{ x, y, z, yaw, w, h, paint(g, cw, ch) -> eyes, cell?: [w, h] px, extra?: BufferGeometry[] }]
- *   o: sitterLayer (0): the layer of the sitters and their eyes.
- * Returns { group, watch(eye, dt), hide(i, off), dispose-free through freeTree }.
+ * A wall of paintings as at most four draw calls: the frames and dark canvases (vertex colour),
+ * the sitters (one atlas, cut out), every iris (one instanced mesh; only a painting with painted
+ * eyes has any: the werewolf's), and every sculpted head (busts.js, one draw call).
+ *   list: [{ x, y, z, yaw, w, h, paint(g, cw, ch) -> eyes | { eyes, heads }, cell?: [w, h] px, extra?: BufferGeometry[],
+ *           canvas?: a key shared by entries painted on one canvas (its heads wake together) }]
+ *         heads: [{ x, y, s, look }] in the cell's pixels (paintRelief): a head stands out of the
+ *         canvas there and turns toward the warden by logic/headturn.js.
+ *   o: name (the group's, for the smoke harness); sitterLayer (0): the layer of the sitters, their eyes and their heads (A5: the gallery's
+ *      sitters are the eye's alone, and so are their heads).
+ * Returns { group, watch(eye, dt, still, reduced), hide(i, off), rest(), turns(), dispose-free through freeTree }.
  */
 const EYE_DISCS = 3; // white, iris, catch-light (#13)
+// headYawToward's options, made once (no allocation a frame): reduced flash, and half pace (the
+// two wives who stay, while the third is out of the canvas and the fight is on)
+const REDUCED = Object.freeze({ reduced: true });
+const HALF = Object.freeze({ rate: HEAD_TURN.rate / 2 });
+const HALF_REDUCED = Object.freeze({ rate: HEAD_TURN.rate / 2, reduced: true });
 // The eyes' look (#13): the white's glow (a share of the painted white), the iris's radius and how
 // far it travels (shares of the white's half width, so it reaches the corner), the catch-light.
 // The white is the painted white's own ellipse a little wider (1.1 x 0.62), inside the painted lid's ends;
@@ -342,10 +388,13 @@ const EYE_DISCS = 3; // white, iris, catch-light (#13)
 const EYE_LOOK = Object.freeze({ wide: 1.1, high: 0.62, white: 0.45, iris: 0.45, turn: 0.5, lift: 0.05, glint: 0xd8d2c4 });
 function paintings(list, M, o = {}) {
   const group = new THREE.Group();
+  if (o.name) group.name = o.name;
   const frames = []; const quads = [];
   const cellH = 352;
   const n = list.length;
   const eyes = []; // { at: Vector3 (plane space), r, mat: Matrix4, inv: Matrix4, of, sx, sy }
+  const heads = []; // { of, pos: { x, y, z } (the face's middle), yaw (its rest heading), turn, off }
+  const busts = []; // bustSet's items
   // each cell is as wide as its painting is, so nothing is drawn stretched
   let total = 0;
   for (const p of list) { p.cw = Math.round((cellH * p.w) / p.h); p.u0 = total; total += p.cw; }
@@ -354,7 +403,9 @@ function paintings(list, M, o = {}) {
       g.save();
       g.translate(p.u0, 0);
       g.beginPath(); g.rect(0, 0, p.cw, cellH); g.clip();
-      p.eyes = p.paint(g, p.cw, cellH) || [];
+      const got = p.paint(g, p.cw, cellH);
+      p.eyes = Array.isArray(got) ? got : (got && got.eyes) || [];
+      p.heads = (got && !Array.isArray(got) && got.heads) || [];
       g.restore();
     }
   });
@@ -375,6 +426,14 @@ function paintings(list, M, o = {}) {
     for (let k = 0; k < uv.count; k++) uv.setX(k, (p.u0 + uv.getX(k) * p.cw) / total);
     q.applyMatrix4(mat);
     quads.push({ geo: q, i });
+    p.heads.forEach((hd, k) => {
+      const sm = (hd.s / p.cw) * p.w; // the face's half width, metres
+      const at = V((hd.x / p.cw - 0.5) * p.w, (0.5 - hd.y / cellH) * p.h, 0.02 + 0.3 * sm).applyMatrix4(mat); // the face's middle, its back on the paint
+      const geo = bustGeometry(hd.look, sm, { seed: i * 7 + k + 1 });
+      const lift = geo.userData.centre;
+      heads.push({ of: i, wake: p.canvas ?? i, pos: { x: at.x, y: at.y, z: at.z }, yaw: p.yaw, turn: 0, off: false, seen: false });
+      busts.push({ geo, at: at.setY(at.y - lift), yaw: p.yaw });
+    });
     for (const e of p.eyes) {
       eyes.push({
         at: V((e.x / p.cw - 0.5) * p.w, (0.5 - e.y / cellH) * p.h, 0.026), r: (e.r / p.cw) * p.w, mat, inv, of: i,
@@ -387,6 +446,7 @@ function paintings(list, M, o = {}) {
   group.add(frameMesh);
   // sitters: one mesh per painting that may be hidden alone, else all in one
   const sitMat = new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.35, roughness: 0.82, metalness: 0 });
+  if (o.lift) { sitMat.emissive.set(0xffffff); sitMat.emissiveMap = tex; sitMat.emissiveIntensity = o.lift; } // this painting lit a little, not the room
   sitMat.userData.ownMap = true;
   const alone = list.map((p) => !!p.alone);
   const together = quads.filter((q) => !alone[q.i]).map((q) => q.geo);
@@ -398,17 +458,24 @@ function paintings(list, M, o = {}) {
   }
   for (const q of quads) if (alone[q.i]) { const m = mesh(q.geo, sitMat); group.add(m); sitMeshes.push({ m, of: q.i }); }
   // Issue #13: each eye is three discs in the one instanced mesh, unlit so they read in a dark room:
-  // the white (a dim glow of the painted white), the iris, and a catch-light on the iris.
+  // the white (a dim glow of the painted white), the iris, and a catch-light on the iris. Only
+  // painted eyes have discs (the werewolf's); a sitter with a sculpted head looks with the head.
   const irisMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-  const iris = new THREE.InstancedMesh(new THREE.CircleGeometry(1, 12), irisMat, Math.max(1, eyes.length * EYE_DISCS));
-  iris.frustumCulled = false;
-  eyes.forEach((e, k) => {
-    iris.setColorAt(k * EYE_DISCS, _col.set(e.white).multiplyScalar(EYE_LOOK.white));
-    iris.setColorAt(k * EYE_DISCS + 1, _col.set(e.hex));
-    iris.setColorAt(k * EYE_DISCS + 2, _col.set(EYE_LOOK.glint));
-  });
-  group.add(iris);
-  if (o.sitterLayer) { for (const s of sitMeshes) s.m.layers.set(o.sitterLayer); iris.layers.set(o.sitterLayer); }
+  const iris = eyes.length ? new THREE.InstancedMesh(new THREE.CircleGeometry(1, 12), irisMat, eyes.length * EYE_DISCS) : null;
+  if (iris) {
+    iris.frustumCulled = false;
+    eyes.forEach((e, k) => {
+      iris.setColorAt(k * EYE_DISCS, _col.set(e.white).multiplyScalar(EYE_LOOK.white));
+      iris.setColorAt(k * EYE_DISCS + 1, _col.set(e.hex));
+      iris.setColorAt(k * EYE_DISCS + 2, _col.set(EYE_LOOK.glint));
+    });
+    group.add(iris);
+  } else irisMat.dispose();
+  // the sculpted heads (the owner, 2026-11-18): one draw call for the wall, on the sitters' layer
+  const set = heads.length ? bustSet(busts, { name: 'painted heads', fill: o.fill ?? 0.08 }) : null;
+  if (set) group.add(set.mesh);
+  if (o.sitterLayer) { for (const s of sitMeshes) s.m.layers.set(o.sitterLayer); if (iris) iris.layers.set(o.sitterLayer); if (set) set.mesh.layers.set(o.sitterLayer); }
+  group.userData.paintedHeads = set ? { turns: () => set.turns(), at: () => heads.map((h) => ({ ...h.pos, yaw: h.yaw, off: h.off })) } : null;
 
   const disc = (k, x, y, z, rx, ry, mat) => {
     _o.position.set(x, y, z).applyMatrix4(mat);
@@ -418,6 +485,7 @@ function paintings(list, M, o = {}) {
     iris.setMatrixAt(k, _o.matrix);
   };
   function put() {
+    if (!iris) return;
     eyes.forEach((e, k) => {
       const r = e.off ? 0 : e.r;
       const i = k * EYE_DISCS;
@@ -431,8 +499,30 @@ function paintings(list, M, o = {}) {
   put();
   return {
     group, count: n,
-    /** The eyes turn with the warden, slowly and a little late. */
-    watch(eye, dt, still = false) {
+    /**
+     * The heads turn toward the warden by logic/headturn.js (40 degrees a second at most, 40 either
+     * way, within 8 m and in front; a quarter of the rate under reduced flash; half with `half`);
+     * `still` sends them home. A head stays at rest until it has first been on screen within 5 m
+     * (headSeen, with lookYaw the warden's heading; NaN on the title wakes it), so its first turn
+     * is seen. The painted eyes (the werewolf's) turn with the warden, slowly and a little late.
+     */
+    watch(eye, dt, still = false, reduced = false, lookYaw = NaN, half = false) {
+      if (set) {
+        const far = (HEAD_TURN.range + 1) ** 2;
+        const opts = half ? (reduced ? HALF_REDUCED : HALF) : reduced ? REDUCED : undefined;
+        for (let k = 0; k < heads.length; k++) { // a plain loop: nothing made a frame
+          const h = heads[k];
+          if (h.off) continue;
+          if (!h.seen) { // not yet seen: at rest. One head of a painting seen wakes the painting's others with it.
+            if (!headSeen(false, h.pos, eye, lookYaw)) continue;
+            for (let q = 0; q < heads.length; q++) if (heads[q].wake === h.wake) heads[q].seen = true;
+          }
+          if (h.turn === 0 && (still || (eye.x - h.pos.x) ** 2 + (eye.z - h.pos.z) ** 2 > far)) continue; // at rest and nothing to see
+          h.turn = headYawToward(h.pos, h.yaw, still ? null : eye, h.turn, dt, opts);
+          set.turn(k, h.turn);
+        }
+      }
+      if (!iris) return;
       for (const e of eyes) {
         _a.copy(eye).applyMatrix4(e.inv);
         const zf = Math.max(0.6, _a.z);
@@ -447,7 +537,10 @@ function paintings(list, M, o = {}) {
     hide(i, off) {
       for (const s of sitMeshes) if (s.of === i) s.m.visible = !off;
       for (const e of eyes) if (e.of === i) e.off = !!off;
+      heads.forEach((h, k) => { if (h.of === i && h.off !== !!off) { h.off = !!off; h.turn = 0; set.turn(k, 0); set.show(k, !off); } });
     },
+    /** Every head back at rest (a restored checkpoint: the view starts from what the rules say). */
+    rest() { heads.forEach((h, k) => { h.turn = 0; h.seen = false; set.turn(k, 0); }); },
   };
 }
 
@@ -621,59 +714,13 @@ function tagTexture() {
   });
 }
 
-/**
- * The fighting suit (the second, e.suit 2) as one still figure, for the road's werewolf cutaway
- * (roadcreature.js): the same cuirass, helm, pike and clawed gauntlet as buildArmour's, posed
- * standing, the pike upright in its right hand and the clawed left reaching forward (to pull a
- * door leaf shut). Front -Z, feet at y 0. Returns { body, glints, legs } (geometries: the body vertex
- * coloured, in one draw call; the two red eye glints for an unlit material; legs: [{ geo, hip }],
- * each leg about its hip at `hip`, to swing as it steps).
- */
-export function armourStill() {
-  const seed = 44;
-  const parts = [armourTorso(seed, false), armourHelm(seed, false).translate(0, 2.22, 0)];
-  const seg = (a, b, r, hex) => S.skin([{ at: [a.x, a.y, a.z], r }, { at: [b.x, b.y, b.z], r: r * 0.8 }],
-    { seed: seed + r * 100, sides: 7, detail: 1, noise: 0.18, grain: 2.2, mottle: 0.35, color: hex, color2: 0x24272c, caps: ['round', 'round'] });
-  const cop = (at, dir, k) => { _q.setFromUnitVectors(_y.set(0, 1, 0), _t.copy(dir).normalize()); return S.tint(armourCop(seed).scale(k, k, k).applyQuaternion(_q).translate(at.x, at.y, at.z), IRON, 0.2, seed); };
-  const elbow = V(); const bend = V();
-  // the right hand on the pike's rest grip; the left reaching forward and a little across
-  const hands = [V(0.66, 1.4, -0.08), V(-0.18, 1.42, -0.72)];
-  for (let i = 0; i < 2; i++) {
-    const sh = A_SH[i];
-    bend.set(i ? -0.3 : 0.3, -0.3, 1);
-    _t.subVectors(hands[i], sh);
-    const max = (A_ARM[0] + A_ARM[1]) * 0.985;
-    if (_t.length() > max) hands[i].copy(sh).addScaledVector(_t.normalize(), max);
-    S.ik2(sh, hands[i], A_ARM[0], A_ARM[1], bend, elbow);
-    parts.push(seg(sh, elbow, 0.115, IRON), seg(elbow, hands[i], 0.095, 0x30343a));
-    parts.push(cop(elbow, _d.subVectors(elbow, sh), 1), cop(hands[i], _e.subVectors(hands[i], elbow), 0.72));
-    if (i === 1) {
-      _d.subVectors(hands[1], elbow).normalize();
-      _q.setFromUnitVectors(_z.set(0, 0, -1), _d);
-      const at = _a.copy(hands[1]).addScaledVector(_d, 0.14);
-      parts.push(S.claw({ fingers: 4, length: 0.36, spread: 0.55, curl: 0.9, r: 0.042, color: 0x3c4046, tip: 0xb0b4ba, seed }).applyQuaternion(_q).translate(at.x, at.y, at.z));
-    }
-  }
-  // the legs: each its own geometry about its hip (so the view can swing it as the suit steps)
-  const legs = [];
-  for (let i = 0; i < 2; i++) {
-    const hip = A_HIP[i]; const ankle = V(hip.x * 1.15, 0.08, 0);
-    S.ik2(hip, ankle, A_LEG[0], A_LEG[1], bend.set(0, 0.1, -1), elbow);
-    const leg = S.merge([seg(hip, elbow, 0.13, IRON), seg(elbow, ankle, 0.1, 0x3a3d42), cop(elbow, _d.subVectors(elbow, hip), 1.1),
-      slab(0.16, 0.08, 0.3, ankle.x, 0.04, ankle.z - 0.08, 0x30343a, 0.2)]); // and the sabaton
-    legs.push({ geo: leg.translate(-hip.x, -hip.y, -hip.z), hip: [hip.x, hip.y, hip.z] });
-  }
-  parts.push(pikeGeometry(seed).translate(0.66, 1.4 - PIKE_R, -0.08));
-  const glints = S.merge([new THREE.SphereGeometry(0.022, 8, 6).scale(1.5, 0.7, 1).translate(0.085, 0, 0), new THREE.SphereGeometry(0.018, 8, 6).scale(1.5, 0.7, 1).translate(-0.09, 0.012, 0)]).translate(0, 2.22 + 0.37, -0.285);
-  return { body: S.merge(parts), glints, legs };
-}
-
 function buildArmour(e, cfg, ctx) {
   const M = ctx.M;
   const first = e.suit === 1;
   const seed = first ? 31 : 44;
   const rand = S.rng(seed);
   const g = new THREE.Group();
+  g.name = `armour:${e.suit}`;
   const torso = mesh(armourTorso(seed, first), ctx.plate, true);
   const helm = mesh(armourHelm(seed, first), ctx.plate, true);
   const glintMat = new THREE.MeshBasicMaterial({ color: EMBER, toneMapped: false, fog: false });
@@ -693,6 +740,7 @@ function buildArmour(e, cfg, ctx) {
   const tag = mesh(new THREE.PlaneGeometry(0.2, 0.125), ctx.tagMat);
   tag.position.set(0.02, 2.5, -0.045); tag.rotation.set(0.12, Math.PI, first ? 0.2 : -0.14);
   pike.add(tag);
+  torso.name = 'armour-torso'; helm.name = 'armour-helm'; claw.name = 'armour-claw'; pike.name = 'armour-pike';
   g.add(torso, helm, L.mesh, J, claw, pike);
 
   // where each piece lies once the suit has come apart
@@ -757,7 +805,7 @@ function buildArmour(e, cfg, ctx) {
     torso.position.setFromMatrixPosition(mat); torso.quaternion.copy(pq);
     helm.position.set(0, 2.22, 0).applyMatrix4(mat);
     // the helm: cocked to speak, thrown back for the blow, rattling when stopped
-    eul.set(0.1 * Math.sin(o.time * 9) * o.talk - 0.25 * o.tell * (1 - o.chop) + 0.2 * lunge, v.yaw || 0, 0.14 * o.talk * Math.sin(o.time * 2.3) + 0.2 * o.stun * Math.sin(o.time * 19));
+    eul.set(0.1 * Math.sin(o.time * 9) * o.talk - 0.25 * o.tell * (1 - o.chop) + 0.2 * lunge, o.yaw != null ? o.yaw : v.yaw || 0, 0.14 * o.talk * Math.sin(o.time * 2.3) + 0.2 * o.stun * Math.sin(o.time * 19));
     helm.quaternion.copy(pq).multiply(_q.setFromEuler(eul));
 
     mixHold(base, PIKE.rest, PIKE.carry, o.awake);
@@ -775,12 +823,18 @@ function buildArmour(e, cfg, ctx) {
     _a.set(-0.62, 1.02 + 0.03 * o.mv * Math.sin(step), 0.03 + 0.24 * o.mv * Math.sin(step)).applyMatrix4(mat);
     _a.y += 0.5 * o.talk * (0.6 + 0.4 * Math.sin(o.time * 3.1)); _a.z -= 0.35 * o.talk; // the claw comes up when it speaks
     hand[1].copy(butt).addScaledVector(cur.dir, PIKE_L).lerp(_a, 1 - two);
+    if (o.hand) hand[1].lerp(o.hand, o.reach); // the werewolf cutaway: the claw out to a door leaf
     for (let i = 0; i < 2; i++) {
       bendA.set(i ? -0.3 : 0.3, -0.3, 1).transformDirection(mat);
       placeArm(rec, i * 3, sh[i], hand[i], A_ARM[0], A_ARM[1], bendA, 0.115, elbow, 1.2);
       jointAt[i].copy(elbow); jointDir[i].subVectors(elbow, sh[i]);
       jointAt[4 + i].copy(hand[i]); jointDir[4 + i].subVectors(hand[i], elbow);
-      if (i === 1) { _d.subVectors(hand[1], elbow).normalize(); claw.position.copy(hand[1]).addScaledVector(_d, 0.14); claw.quaternion.setFromUnitVectors(_z.set(0, 0, -1), _d); }
+      if (i === 1) {
+        _d.subVectors(hand[1], elbow).normalize();
+        if (o.clawDir && o.reach > 0) _d.lerp(o.clawDir, o.reach).normalize(); // square onto the leaf's face, fingers on it
+        claw.position.copy(hand[1]).addScaledVector(_d, 0.14); claw.quaternion.setFromUnitVectors(_z.set(0, 0, -1), _d);
+        if (o.clawDir && o.reach > 0) claw.quaternion.multiply(_q.setFromAxisAngle(_x.set(1, 0, 0), -0.26 * o.reach)); // curled in on the boards: a grip, not a hover (the critic)
+      }
     }
     toe.set(0, -0.1, -1).normalize().transformDirection(mat);
     bendL.set(0, 0.1, -1).transformDirection(mat);
@@ -825,7 +879,10 @@ function buildArmour(e, cfg, ctx) {
     glints.visible = level > 0.02;
   }
 
-  v.sync = (en, dt, time, eye, cfg2, reduced) => {
+  v.sync = (en, dt, time, eye, cfg2, reduced, force = false) => {
+    // the werewolf cutaway holds the suits (the layer below): no sync from the rules while it plays,
+    // so nothing of them tracks the film's camera; `force` poses it once, from the rules, for the film
+    if (ctx.filmHold && !force) return;
     v.eye.copy(eye);
     v.tellDur = (cfg2 && cfg2.armour && cfg2.armour.tell) || 0.8;
     g.position.set(en.x, num(en.y), en.z);
@@ -839,7 +896,7 @@ function buildArmour(e, cfg, ctx) {
     v.seen = true;
     if (!v.heap) v.face += wrap(num(en.heading) - v.face) * Math.min(1, dt * 7);
     g.rotation.y = v.face;
-    g.visible = Math.hypot(eye.x - en.x, eye.z - en.z) < FAR;
+    g.visible = force || Math.hypot(eye.x - en.x, eye.z - en.z) < FAR;
     if (!g.visible) return;
     if (v.fallT >= 0) v.fallT += dt * v.fallRate;
     const asleep = st === 'stand' && !en.called;
@@ -872,6 +929,53 @@ function buildArmour(e, cfg, ctx) {
     const flare = reduced ? 0.6 * v.tellAmt : 1.5 * v.tellAmt * (0.8 + 0.2 * Math.sin(time * 40));
     lightEyes((0.18 + 0.75 * v.awake + flare + 0.25 * v.talk * Math.sin(time * 11)) * out, v.tellAmt);
     setFlash(v.flash > 0 && !reduced);
+  };
+  /**
+   * The werewolf cutaway (logic/cutaway.js guard): the fighting suit posed by the film, over the
+   * frozen sim, its own state (face, phase, wakefulness) untouched, so the next sync puts it back
+   * exactly where the rules have it. G: { x, z, heading, move, walked, reach, hand, contact }.
+   */
+  const filmHand = V(); const filmClaw = V();
+  let held = null; // its pose as the film found it, put back when the film ends
+  const keepPose = () => {
+    // its parts' pose (where the suit stands and faces, g, is the rules' to set: every sync does)
+    const parts = [torso, helm, glints, claw, pike, L.mesh, J];
+    held = {
+      parts: parts.map((o) => ({ o, p: o.position.clone(), q: o.quaternion.clone(), s: o.scale.clone(), vis: o.visible, inst: o.isInstancedMesh ? o.instanceMatrix.array.slice() : null })),
+      glint: glintMat.color.clone(),
+      at: g.position.clone(), face: g.rotation.y, shown: g.visible,
+    };
+  };
+  /** The film is over: the suit exactly as the film found it (the next sync poses it from the rules as ever). */
+  v.unfilm = () => {
+    if (!held) return;
+    for (const r of held.parts) {
+      r.o.position.copy(r.p); r.o.quaternion.copy(r.q); r.o.scale.copy(r.s); r.o.visible = r.vis;
+      r.o.updateMatrix();
+      if (r.inst) { r.o.instanceMatrix.array.set(r.inst); r.o.instanceMatrix.needsUpdate = true; }
+    }
+    glintMat.color.copy(held.glint);
+    g.position.set(held.at.x, held.at.y, held.at.z); g.rotation.set(0, held.face, 0); g.visible = held.shown;
+    held = null;
+  };
+  /** The film begins: its pose as the film found it, to put back at the end. */
+  v.filmStart = () => { if (!held) keepPose(); };
+  v.film = (G, time) => {
+    if (!held) keepPose();
+    g.position.set(G.x, 0, G.z);
+    g.rotation.y = G.heading;
+    g.visible = true;
+    // the world's wrist and the leaf's face, into the suit's own frame
+    const c = Math.cos(G.heading); const s2 = Math.sin(G.heading);
+    const wx = G.hand.x - G.x; const wz = G.hand.z - G.z;
+    filmHand.set(wx * c - wz * s2, G.hand.y, wx * s2 + wz * c);
+    const touching = G.contact && G.contact.leaf >= 0;
+    if (touching) filmClaw.set(-G.contact.nx * c + G.contact.nz * s2, 0, -G.contact.nx * s2 - G.contact.nz * c).normalize();
+    pose({
+      mv: G.move, ph: G.walked / A_STRIDE, awake: 0, tell: 0, chop: 0, recover: 0, jolt: 0, stun: 0, talk: 0, wobble: 0, fall: -1, time,
+      yaw: 0, hand: filmHand, reach: G.reach, clawDir: touching ? filmClaw : null,
+    });
+    lightEyes(0.93, 0);
   };
   v.onEvent = (ev) => {
     if (ev.type === 'hit') { v.flash = 0.08; v.jolt = 1; }
@@ -1304,7 +1408,7 @@ function buildTeaSet(ctx) {
   const G = T.werewolf.gouge; // the middle of the gouge ring keepprops.js draws: the arm comes as far as its rim
   const art = paintings([{
     x: wall.x - Math.sin(wyaw) * 0.04, y: 1.95, z: wall.z - Math.cos(wyaw) * 0.04, yaw: wyaw, w: MAP.WALL_ART.werewolf.w, h: MAP.WALL_ART.werewolf.h, paint: paintWerewolf, ground: 0x0b0f0c,
-  }], M);
+  }], M, { name: 'painted:werewolf' });
   // the arm: fur and four claws, pushed out through the canvas
   const arm = new THREE.Group();
   const armGeo = S.merge([
@@ -1351,25 +1455,24 @@ function buildCorridorSet(ctx) {
   const P = MAP.CORRIDOR.painting;
   const yaw = facingIn('cor1', P.x, P.z);
   const at = { x: P.x, y: 1.8, z: P.z, yaw, w: MAP.WALL_ART.wives.w, h: MAP.WALL_ART.wives.h };
-  const art = paintings([{ ...at, paint: wivesWhoStay, ground: 0x12100f }, { ...at, paint: wifeWhoLeaves, bare: true, alone: true }], ctx.M);
-  let stirred = false;
+  const art = paintings([{ ...at, paint: wivesWhoStay, ground: 0x12100f, canvas: 'wives' }, { ...at, paint: wifeWhoLeaves, bare: true, alone: true, canvas: 'wives' }], ctx.M, { name: 'painted:wives', lift: 0.3, fill: 0.2 });
   return {
     g: art.group, figures: { 'painting of the three wives': art.group },
-    reset() { stirred = false; },
-    onEvent(ev) { if (ev.type === 'wifeStir') stirred = true; },
+    reset() { art.rest(); },
     update(c) {
-      // paint, until she whispers (wifeStir): then the eyes turn, and go on turning. Her place is
-      // empty once she is out of the canvas, and stays empty when she is driven off.
+      // The three heads turn toward the warden while the dark wife is still in the canvas (at
+      // rest in it, and while she whispers: wifeStir). Once she is out of it her place is empty,
+      // and stays empty when she is driven off; her head goes with her, and the two who stay go
+      // on following at half pace through the fight (the owner, 2026-11-18; the art critic).
       const w = c.w;
       let away = false;
       if (w) {
         const e = c.sim.enemies.find(isWife);
         const st = e ? String(e.state) : '';
-        if ((w.done && w.done.wife) || (e && st !== 'painting')) stirred = true;
         away = !!(w.done && w.done.wife) || !!(e && st !== 'painting' && st !== 'stir');
       }
       art.hide(1, away);
-      art.watch(c.eye, c.dt, !stirred);
+      art.watch(c.eye, c.dt, false, c.reduced, c.pl ? c.pl.yaw : NaN, away);
     },
   };
 }
@@ -1843,7 +1946,7 @@ function buildGallerySet(ctx) {
   const art = paintings(G.portraits.map((p, i) => {
     const yaw = p.wall === 's' ? 0 : p.wall === 'n' ? Math.PI : facingIn('gallery', p.x, p.z);
     return { x: p.x, y: 2.35, z: p.z, yaw, w: MAP.WALL_ART.portrait.w, h: MAP.WALL_ART.portrait.h, paint: sitter(i), ground: 0x14110f };
-  }), M, { sitterLayer: LAYER_EYE });
+  }), M, { sitterLayer: LAYER_EYE, name: 'painted:gallery' });
   const self = buildReflection(ctx);
   const tall = buildTall();
   tall.g.position.set(G.tall.x, 0, G.tall.z);
@@ -1867,14 +1970,14 @@ function buildGallerySet(ctx) {
   let showTall = false;
   return {
     g, figures: { 'gallery portraits': art.group, "warden's reflection": self.g, 'tall figure': tall.g, 'March Hare': hare.g, nun, chains: chain.mesh, rats },
-    reset() { self.reset(); tall.reset(); hare.reset(); showTall = false; },
+    reset() { self.reset(); tall.reset(); hare.reset(); showTall = false; art.rest(); },
     onEvent(ev) {
       if (ev.type === 'haunt' && ev.kind === 'tall') showTall = ev.id === 'show';
       else if (ev.type === 'speak' && ev.who === 'hare') hare.say(4);
     },
     update(c) {
       const { w, pl, time, eye } = c;
-      art.watch(eye, c.dt);
+      art.watch(eye, c.dt, false, c.reduced, pl ? pl.yaw : NaN);
       const up = !!(w && pl && !pl.dead && c.zone === 'gallery' && w.under !== 'crypt');
       self.update(c, up);
       const h = w && w.haunts;
@@ -1908,8 +2011,8 @@ function buildGallerySet(ctx) {
 function buildMirrorSet(ctx) {
   const art = paintings(MAP.MIRROR_ROOM.portraits.map((p, i) => ({
     x: p.x, y: UPPER + 2.1, z: p.z, yaw: facingIn('mirror', p.x, p.z), w: MAP.WALL_ART.mirrorPortrait.w, h: MAP.WALL_ART.mirrorPortrait.h, paint: sitter(i + 3), ground: 0x14110f,
-  })), ctx.M);
-  return { g: art.group, figures: { 'mirror room portraits': art.group }, update(c) { art.watch(c.eye, c.dt); } };
+  })), ctx.M, { name: 'painted:mirror' });
+  return { g: art.group, figures: { 'mirror room portraits': art.group }, reset() { art.rest(); }, update(c) { art.watch(c.eye, c.dt, false, c.reduced, c.pl ? c.pl.yaw : NaN); } };
 }
 
 // ---- the Count (R14, R15) and the bats ------------------------------------------------------------
@@ -2255,6 +2358,10 @@ export function registerKeepcast(actors, scene, castle = null) {
   let passers = null; // the figures past the windows
   const laid = []; // heaps laid again from the run's record: { v, suit }
   const c = { sim: null, w: null, pl: null, dt: 0, time: 0, eye: V(), reduced: false, zone: null };
+  let frozenAt = null; // the clock the castle's figures hold at under the werewolf cutaway
+  const filmed = new Set(); // the suits the film holds, to put back as it ends
+  const wardenEye = V();
+  const filmOut = {}; // cutawayAt's answer, reused
 
   function shell(id) {
     let s = shells.get(id);
@@ -2383,7 +2490,35 @@ export function registerKeepcast(actors, scene, castle = null) {
       if (!root || !root.visible) { if (sets.size || raven || laid.length) freeAll(); return; }
       const inRun = !!(sim && sim.cfg && sim.cfg.room === 'castle' && sim.waves);
       c.sim = inRun ? sim : null; c.w = inRun ? sim.waves : null; c.pl = inRun ? sim.player : null;
-      c.dt = dt; c.time = time; c.eye.copy(eye); c.reduced = ctx.reduced;
+      // the werewolf cutaway: the castle stands still under the film but for its fires (castle.js)
+      // and the fighting suit, which the film poses: the sets, the raven and the window figures
+      // hold where they were as it began
+      const film = inRun && sim.waves.scene && sim.waves.scene.kind === 'cutaway' ? sim.waves.scene : null;
+      if (film) { if (frozenAt === null) frozenAt = time; } else frozenAt = null;
+      c.dt = film ? 0 : dt; c.time = film ? frozenAt : time; c.eye.copy(eye); c.reduced = ctx.reduced;
+      if (film) {
+        // as the film begins, the suits are held: each one's pose kept to put back at the end, and no
+        // sync from the rules while it plays (so nothing tracks the film's camera)
+        if (!ctx.filmHold) {
+          ctx.filmHold = true;
+          for (const v of ctx.suits) if (!v.heap && v.filmStart) { v.filmStart(); filmed.add(v); }
+        }
+        cutawayAt(film.t || 0, film, filmOut);
+        for (const v of filmed) {
+          if (!filmOut.front) { v.g.visible = false; continue; } // over the climb the castle is not drawn, nor its figures
+          if (v.suit === CUT_SUIT && filmOut.guard.active) { v.film(filmOut.guard, time); continue; } // the fighting suit: the film's
+          if (!v.filmShown) { // the other: posed once from the rules, as the warden would find it, and left so
+            const en = sim.enemies.find((e) => e.type === 'armour' && e.suit === v.suit);
+            if (en) { wardenEye.set(sim.player.x, num(sim.player.y) + 1.65, sim.player.z); v.sync(en, 0, frozenAt, wardenEye, sim.cfg, ctx.reduced, true); }
+            v.g.visible = !!en;
+            v.filmShown = true;
+          }
+        }
+      } else if (ctx.filmHold) {
+        for (const v of filmed) { v.unfilm(); v.filmShown = false; }
+        filmed.clear();
+        ctx.filmHold = false;
+      }
       if (inRun) ctx.cfg = sim.cfg;
       const at = inRun ? MAP.floorZoneAt(sim.player.x, sim.player.z, num(sim.player.y), sim.waves) : null;
       c.zone = at ? (at.zone === 'crypt' ? 'gallery' : at.zone === 'pit' ? 'bridge' : at.zone) : MAP.zoneAt(eye.x, eye.z);

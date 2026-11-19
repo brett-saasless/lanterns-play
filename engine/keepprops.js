@@ -33,7 +33,7 @@ import { isTrue, TILE_COUNT } from '../logic/gallery.js';
 import { CLOCK_RULES, CLOCK_NAMES, faceOf, createClocks } from '../logic/clocks.js';
 import { createCount, poseOf, triumphStage } from '../logic/count.js';
 import { READS, ENTRIES } from '../logic/script.js';
-import { rakeScores, stripMesh, RAKE_Y } from '../logic/clawrake.js';
+import { gougePlan, stripMesh, RAKE_Y } from '../logic/clawrake.js';
 
 /** The three layers (design, Decisions): seen by both cameras, by the eye only, by the glass only. */
 export const LAYER_BOTH = 0;
@@ -562,6 +562,8 @@ function sheeted(w, h, d, seed) {
 }
 
 // A tonic: a small green bottle, corked, with a paper label.
+/** The half tonic (LOOT nunTonic) is the same bottle drawn at this size, so it reads as the smaller kind. */
+const HALF_TONIC_SCALE = 0.8;
 function tonic() {
   return [
     lathe('polish', [[0.0, 0], [0.045, 0.004], [0.048, 0.1], [0.04, 0.125], [0.016, 0.15], [0.015, 0.19], [0.02, 0.195]], 0, 0, 0, 0x2f6b4a, 10, 0.1),
@@ -968,20 +970,7 @@ export function createKeepprops(scene, cfg, opts = {}) {
     // Each lands where the claws came down and is dragged back toward the painting; the talons are the arm's own (#16).
     {
       const gc = TEA.werewolf.gouge; const wf = TEA.werewolf; const reach = (cfg.werewolf && cfg.werewolf.reach) || 1.8;
-      const rand = S.rng(41); const placed = [];
-      const PRINTS = 11;
-      for (let i = 0; i < PRINTS; i++) {
-        const a = (i / PRINTS) * TAU + (rand() - 0.5) * 0.35;
-        const r = reach * (0.9 + rand() * 0.1);
-        const gx = gc.x + Math.cos(a) * r; const gz = gc.z + Math.sin(a) * r;
-        const dir = Math.atan2(wf.z - gz, wf.x - gx) + (rand() - 0.5) * 0.7; // toward the painting, never quite the same way twice
-        const fingers = i % 4 === 3 ? [[0, 1, 2], [1, 2, 3], [1, 2]][i % 3] : [0, 1, 2, 3]; // some prints are only two or three claws
-        const rake = rakeScores(rand, gx, gz, dir, fingers, 0.9 + rand() * 0.2);
-        if (rake.reach.some(([x, z]) => x > room.maxX - 0.05 || x < room.minX + 0.05 || z > room.maxZ - 0.05 || z < room.minZ + 0.05)) continue; // the wall stands there
-        if (placed.some(([x, z]) => Math.hypot(x - gx, z - gz) < 0.5)) continue; // prints that overlap would blend
-        placed.push([gx, gz]);
-        parts.push(...clawRakeParts(rake));
-      }
+      for (const rake of gougePlan(S.rng(41), gc, wf, reach, room)) parts.push(...clawRakeParts(rake));
     }
     bake(group, parts);
     const fliesP = points(group, flies, flyMat);
@@ -1144,7 +1133,7 @@ export function createKeepprops(scene, cfg, opts = {}) {
     const ped = GALLERY_PROPS.pedestal;
     parts.push(lathe('wax', [[0.24, 0], [0.25, 0.06], [0.16, 0.1], [0.13, 0.16], [0.12, 0.84], [0.15, 0.9], [0.2, 0.94], [0.2, 1.0]], ped.x, 0, ped.z, HUE.marbleLight, 14, 0.06));
     const pedTonic = mover(group, tonic(), ped.x, 1.0, ped.z);
-    // ---- the crypt: three boxes of earth, one closed coffin, a tonic under the stair
+    // ---- the crypt: three boxes of earth, one closed coffin, a tonic under the stair, a half tonic before the nun
     const cy = CRYPT.floor;
     CRYPT.props.forEach((b, i) => {
       const len = b.maxZ - b.minZ; const wid = b.maxX - b.minX; const x = (b.minX + b.maxX) / 2; const z = (b.minZ + b.maxZ) / 2;
@@ -1163,6 +1152,10 @@ export function createKeepprops(scene, cfg, opts = {}) {
     const us = CRYPT_PROPS.underStair;
     parts.push(box('wood', 0.4, 0.3, 0.4, us.x, cy + 0.15, us.z, 0x4a3a2a, 0.2, 0.25));
     const cryptTonic = mover(group, tonic(), us.x, cy + 0.3, us.z);
+    // the half tonic on the floor before the nun: the same bottle, the smaller kind
+    const nt = CRYPT_PROPS.nunTonic;
+    const nunTonic = mover(group, tonic(), nt.x, cy, nt.z);
+    nunTonic.scale.setScalar(HALF_TONIC_SCALE);
     bake(group, parts);
 
     function tick(sim, w, dt, time) {
@@ -1171,6 +1164,7 @@ export function createKeepprops(scene, cfg, opts = {}) {
       stepShards(dt);
       pedTonic.visible = !lootTaken(w, 'pedestal');
       cryptTonic.visible = !lootTaken(w, 'cryptTonic');
+      nunTonic.visible = !lootTaken(w, 'nunTonic');
       const t = grinTile(w);
       grin.visible = t != null && !w.under;
       grin.userData.tile = grin.visible ? t : null;
@@ -1198,6 +1192,7 @@ export function createKeepprops(scene, cfg, opts = {}) {
         glass: f.glass, eyeOnly: f.eyeOnly, eye: f.eye, masked,
         runner: { mask: runner.layers.mask, spans: f.runnerSpans, tiles: f.runnerTiles, own: runner.visible },
         grin: { mask: grin.layers.mask, visible: grin.visible, tile: grin.userData.tile },
+        tonics: { stair: cryptTonic.visible, half: nunTonic.visible, halfScale: nunTonic.scale.x },
       };
     }
     return {
