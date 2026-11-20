@@ -30,7 +30,7 @@
 //   kit.bottle({ w, h, gilt, label })               -> { stone | fit (gilt), quad (label: DRINK ME lettered, kit.materials.crest) }
 //   group 3: gargoyle variant 'hatter' (the Hatter's hat and its 10/6 card, in fit), o.cupFit (a teacup's china in fit, a third larger),
 //            chandelier o.rod (a plain iron rod for a long drop in place of the chain)
-//   kit.wreck(W, y0, seed)                          -> one geometry: the broken White Knight on the floor (logic/vamp.js WRECK), for the fittings
+//   kit.wreck(W, y0, seed)                          -> one geometry: the broken White Knight (the Gryphon) on the floor (logic/vamp.js WRECK), for the fittings
 //   kit.webs(tris)                                  -> uv'd geometry for kit.materials.web
 //   kit.glowDisc(c, a, b, rgb, strength)            -> glow geometry (castle's flickering glowMat, or kit.materials.still)
 //   kit.motes(vols, seed)                           -> Points geometry for kit.materials.motes
@@ -42,6 +42,7 @@ import * as THREE from 'three';
 import * as S from './sculpt.js';
 import * as ST from './stone.js';
 import { PALETTE, MOTES, motePoints, GRADE } from '../logic/vamp.js';
+import { carveGryphon } from './chessmen.js'; // the broken white knight: the Gryphon, carved in the white set's ivory
 
 const MOON_RGB = GRADE.moon; // group 3: the moon's colour for a baked cold edge (moonRim)
 
@@ -892,22 +893,24 @@ export function createVampKit(opts = {}) {
     return S.merge(out);
   }
 
-  /** Lays a part built along +y (len long, profile pts) on its side: its axis along +x through the middle, rolled, and tipped onto its lower hull, so it rests on the floor where it would. */
-  function layDown(g, pts, len, squash, roll) {
-    g.rotateY(roll).translate(0, -len / 2, 0).rotateZ(-Math.PI / 2); // axis along +x, middle at 0
-    // the lower hull of the profile (axial u, -radius), and the edge under the middle of its mass: tip it level
-    const P = pts.map(([r, y]) => [y - len / 2, -r * squash]);
-    let wsum = 0; let uc = 0; for (const [u, v] of P) { wsum += v * v; uc += u * v * v; } uc /= wsum || 1;
-    const hull = [];
-    for (const p of [...P].sort((a, b) => a[0] - b[0])) {
-      while (hull.length >= 2) { const [a, b] = hull.slice(-2); if ((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) <= 0) hull.pop(); else break; }
-      hull.push(p);
-    }
-    let tip = 0;
-    for (let i = 0; i + 1 < hull.length; i++) if (hull[i][0] <= uc && hull[i + 1][0] >= uc) tip = Math.atan2(hull[i + 1][1] - hull[i][1], hull[i + 1][0] - hull[i][0]);
-    g.rotateZ(-tip);
-    return g;
+  /**
+   * Lies one of the Gryphon's carved pieces (chessmen.js carveGryphon, in its own frame) down as it fell:
+   * scaled by s, turned by rot ([x, y, z] radians, applied x, then y, then z, about the world axes), its
+   * long axis then along +x, and its footprint's middle moved to the origin, so W.parts' oriented len by
+   * 2r rectangle is its footprint exactly (setDown sets it on the floor).
+   */
+  function lie(g, [rot, s]) {
+    g.scale(s, s, s).rotateX(rot[0]).rotateY(rot[1]).rotateZ(rot[2]);
+    g.computeBoundingBox(); const b = g.boundingBox;
+    return g.translate(-(b.min.x + b.max.x) / 2, 0, -(b.min.z + b.max.z) / 2);
   }
+  // how each piece lies, and its scale (the white pieces' figures stand 2 m and more over their bases; the head is
+  // carved largest, so it reads from the way in): the body sat where it fell off the base, tipped onto his right side
+  // on the broken platform's rim, so his profile (rump, thighs, breast, forelegs, raised tail and wing) shows from the
+  // side (the fix round: on his side he read as a toppled carving), facing +z; the head upright on its neck's break and the hook of its beak, the beak toward +x, its profile
+  // to the side; the wing open and flat, its feathers toward +z
+  const LIE = { body: [[0, 0, 0.35], 1.15], head: [[0.22, Math.PI / 2, 0], 1.3], wing: [[0, 0, 0], 1.2],
+    beak: [[0, 0, 0.3], 1.3], claw: [[0, 0, 0.2], 1.15], plume: [[0, 0, 0], 1.3] };
 
   /** Sets a geometry down on the floor at y0 (its lowest point a hair above it), then turns it yaw about y and moves it to (x, z). */
   function setDown(g, y0, yaw, x, z) {
@@ -935,45 +938,41 @@ export function createVampKit(opts = {}) {
 
   /**
    * wreck(W, y0, seed) -> one vertex-coloured geometry in world space, for the fittings (castle.js tints it
-   * with vamp.js wreckTint): the set's white knight (chessmen.js's ivory and its turned base) in three big
-   * pieces where W.parts has them lying, its chips and a faint scatter of ivory dust on the flags.
+   * with vamp.js wreckTint): the set's white knight, the Gryphon (chessmen.js carveGryphon, carved as the
+   * other white pieces are, on the set's turned base), in his pieces where W.parts has them lying (the base's
+   * stub upright, the body on its side, the head on its neck's break, the snapped wing open), his chips and
+   * a faint scatter of ivory dust on the flags.
    */
   function wreck(W, y0, seed = 7) {
-    const rand = S.rng(seed); const I = W.ivory; const parts = []; const by = (id) => W.parts.find((p) => p.id === id);
-    // the foot of the turned base (plinth, torus, ogee and the bulb), broken across above the bulb, standing
-    const R = by('foot').r; const H = 0.95; // PIECE_FOOT.knight
-    // (round 2: up through the gadrooned bulb into the waisted neck, so the stub shows the set's turned profile)
-    const footPts = [[0, 0], [1, 0], [1, 0.05], [0.98, 0.075], [0.95, 0.1], [0.98, 0.125], [0.9, 0.146], [0.9, 0.178], [0.75, 0.25], [0.6, 0.33], [0.61, 0.384],
-      [0.66, 0.43], [0.67, 0.47], [0.62, 0.53], [0.5, 0.57], [0.44, 0.61], [0.42, 0.65]].map(([r, y]) => [r * R, y * H]);
-    const f = by('foot');
-    parts.push(setDown(broken(footPts, 12, [0, 0.04], rand, I), y0, f.yaw, f.x, f.z));
-    // the rest of the base (its neck, collars and platform) and the breast of the horse, broken at both ends, on its side
-    const b = by('body');
-    const bodyPts = [[0.36, 0], [0.35, 0.06], [0.3, 0.16], [0.38, 0.2], [0.39, 0.235], [0.3, 0.26], [0.29, 0.31], [0.34, 0.35], [0.35, 0.42], [0.42, 0.47], [0.42, 0.62], [0.38, 0.9], [0.31, 1.2], [0.25, 1.45], [0.24, b.len]];
-    parts.push(setDown(layDown(broken(bodyPts, 10, [0.06, 0.07], rand, I), bodyPts, b.len, 1, 0.6), y0, b.yaw, b.x, b.z));
-    // the long head, snapped at the throat, lying on its jaw with its ears and mane up, so its profile reads as a
-    // horse's from the side (round 2, the art critic: on its cheek it read as a fish). Built along +y from the throat
-    // (u 0) to the muzzle; the head's up is -x, its jaw +x, its narrow sides +-z (eyes there); dark is chessmen.js's ivory dark
-    const h = by('head'); const DK = 0x3a3128; const L = h.len;
-    const headPts = [[0.21, 0], [0.25, 0.1], [0.255, 0.28], [0.22, 0.48], [0.17, 0.7], [0.135, 0.88], [0.125, 0.98], [0.11, 1.05], [0.001, L]];
-    const hp = [broken(headPts, 12, [0.05, 0], rand, I).scale(1, 1, 0.72)];
-    hp.push(ell(0.16, 0.22, 0.15, 0.1, 0.27, 0, I, 0.06)); // the round of the jaw, under the cheek
-    for (const u of [0.0, 0.06, 0.12]) hp.push(cone(0.05, 0.15, -0.25, u + 0.02, 0, I, 4, 0, Math.PI / 2)); // the mane's crest, snapped with the neck
-    for (const sd of [-1, 1]) {
-      hp.push(cone(0.055, 0.2, -0.3, 0.17, sd * 0.07, I, 5, 0, Math.PI / 2 + 0.35)); // the ears, pricked up off the poll and swept back
-      hp.push(ell(0.035, 0.04, 0.02, -0.06, 0.32, sd * 0.18, DK, 0.05)); // the eyes, cut in the sides
-      hp.push(ell(0.03, 0.035, 0.025, 0.02, 1.05, sd * 0.05, DK, 0.05)); // the nostrils, cut deep
+    const rand = S.rng(seed); const I = W.ivory; const parts = [];
+    const G = carveGryphon(seed).parts; // the Gryphon himself, carved as the white pieces are (chessmen.js)
+    for (const p of W.parts) {
+      if (p.id === 'foot') {
+        // the foot of the turned base (plinth, torus, ogee and the bulb), broken across above the bulb, standing
+        // (round 2: up through the gadrooned bulb into the waisted neck, so the stub shows the set's turned profile)
+        const R = p.r; const H = 0.95; // PIECE_FOOT.knight
+        const footPts = [[0, 0], [1, 0], [1, 0.05], [0.98, 0.075], [0.95, 0.1], [0.98, 0.125], [0.9, 0.146], [0.9, 0.178], [0.75, 0.25], [0.6, 0.33], [0.61, 0.384],
+          [0.66, 0.43], [0.67, 0.47], [0.62, 0.53], [0.5, 0.57], [0.44, 0.61], [0.42, 0.65]].map(([r, y]) => [r * R, y * H]);
+        parts.push(setDown(broken(footPts, 10, [0, 0.04], rand, I), y0, p.yaw, p.x, p.z));
+      } else if (G[p.id]) parts.push(setDown(lie(G[p.id], LIE[p.id]), y0, p.yaw, p.x, p.z)); // his pieces, where they lie
     }
-    hp.push(boxG(0.012, 0.24, 0.13, 0.1, 0.96, 0, DK, 0.05)); // the line of the mouth
-    const head = S.merge(hp).translate(0, -L / 2, 0).rotateZ(-Math.PI / 2).rotateZ(-0.1); // muzzle along +x, a little nose-down onto the flags
-    parts.push(setDown(head, y0, h.yaw, h.x, h.z));
-    // the chips: small flakes of ivory, each resting on the flags at its own angle
-    for (const [x, z, s, yaw] of W.chips) {
+    // the chips: his own (the gilt tip of the beak, a talon, a crest feather) and flakes of ivory, each resting on the flags at its own angle
+    for (const [x, z, s, yaw, kind] of W.chips) {
+      if (kind) { parts.push(setDown(lie(G[kind], LIE[kind]), y0, yaw, x, z)); continue; }
       const c = new THREE.OctahedronGeometry(s, 0); c.deleteAttribute('uv'); c.scale(1, 0.5, 0.8).rotateX(0.3 + rand() * 0.4);
       parts.push(setDown(S.tint(c, rand() < 0.5 ? I : 0xcdc2a6, 0.12, x * 3), y0, yaw, x, z));
     }
+    for (const g of Object.values(G)) if (!parts.includes(g)) g.dispose();
     // a faint cold moon rim on every face turned up, so the pieces sit in the room's light (round 2: no light added, colour only)
-    const lit = S.merge(parts); parts.length = 0; parts.push(moonRim(lit, 0.35));
+    // (the fix round: only as far as the carving is pale, so the dark cuts, the gape and the eye, keep their warm dark and take no blue)
+    const lit = S.merge(parts); parts.length = 0;
+    const was = Float32Array.from(lit.attributes.color.array); moonRim(lit, 0.35);
+    const cc = lit.attributes.color.array; const pale = 0.6; // the ivory's darker shading (linear) and above take the whole rim
+    for (let i = 0; i < cc.length; i += 3) {
+      const w = Math.min(1, Math.max(0, (was[i] + was[i + 1] + was[i + 2]) / 3 / pale)) ** 2;
+      for (let j = 0; j < 3; j++) cc[i + j] = was[i + j] + (cc[i + j] - was[i + j]) * w;
+    }
+    parts.push(lit);
     // a faint scatter: flecks of ivory dust lying flat round it, thinning out
     const sc = W.scatter; const fl = [];
     for (let i = 0; i < sc.n; i++) {

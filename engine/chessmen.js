@@ -13,6 +13,7 @@
 //   white   turtle  the Mock Turtle     a turtle with a calf's head, weeping
 //           dormouse                    slumped as if dead, a bloody bite on its neck
 //           duchess                     headless; she carries her head under her arm
+//   (off the board, broken: the white knight, the Gryphon, carveGryphon; a prop for vampkit.js's wreck, never on the board)
 //
 // The pieces are statues. Only a striking piece moves (it slides to the warden's square, tips,
 // and goes back) and only a taken piece dies:
@@ -699,6 +700,128 @@ function carveDuchess(seed) {
     k.ell([0, -0.36, 0], [0.13, 0.03, 0.13], RED, { ws: 10, hs: 4, rough: 0.14 }); // where it came off
   });
   return { k, R, H, top: H + 2.12 };
+}
+
+// ---- the Gryphon: the white knight, fallen off the board and broken (a prop, never a chessman) ----
+
+/**
+ * One eagle's wing carved flat in ivory: its root at the origin, its leading edge along +x, its
+ * feathers trailing toward +z, its top face +y. n primaries fanned from the wrist (long, each with
+ * its quill cut down it unless folded), the secondaries along the arm and the coverts over them.
+ */
+function wingInto(k, n, span = 1, folded = false) {
+  const D = 0xd8cfb6; const DK = 0x3a3128;
+  k.tube([[0, 0, 0], [0.3 * span, 0.01, -0.03], [0.55 * span, 0, 0.0]], [0.06, 0.045, 0.032], IVORY, { sides: 6, budget: 40 }); // the arm
+  k.ell([0.28 * span, 0.012, 0.11], [0.3 * span, 0.03, 0.13], D, { ws: 7, hs: 4 }); // the coverts
+  for (let i = 0; i < n; i++) { // the primaries, longest at the leading edge
+    const a = (folded ? 0.05 : 0.12) + (i / Math.max(1, n - 1)) * (folded ? 0.3 : 0.75); const L = (0.62 - i * 0.05) * span;
+    const c = [0.55 * span + Math.cos(a) * L * 0.5, -0.004 * i, Math.sin(a) * L * 0.5];
+    k.ell(c, [L * 0.5, 0.016, 0.05], i % 2 ? D : IVORY, { ws: 5, hs: 3, rot: [0, -a, 0] });
+    if (!folded) k.box([c[0], c[1] + 0.016, c[2]], [L * 0.8, 0.008, 0.008], DK, { rot: [0, -a, 0], rough: 0.9 }); // the quill
+  }
+  for (let i = 0; i < (folded ? 1 : 3); i++) k.ell([(0.12 + i * 0.16) * span, -0.01, 0.2], [0.075, 0.014, 0.18], i % 2 ? IVORY : D, { ws: 5, hs: 3, rot: [0, 0.15 - i * 0.1, 0] }); // the secondaries
+}
+
+/**
+ * carveGryphon(seed) -> { parts: { body, head, wing, beak, claw, plume } }: the white set's
+ * knight, the Gryphon (Alice's Adventures in Wonderland, ch. 9 and 10, as Tenniel drew him), carved
+ * in the white pieces' ivory and found broken, each piece one fused geometry (position, normal,
+ * colour, fin) in its own frame, for the wreck on the Knight's Walk's floor (vampkit.js wreck). He
+ * is a prop: never stood on the board, never one of the game's chessmen.
+ *   body   sejant on what is left of the base's platform: the lion's haunches and great thighs, the
+ *          hind paws, the breast thrust out, the tail raised in a curve with its tuft at the top, the
+ *          eagle's forelegs with gilt talons, the shaggy ruff, the left wing half raised up and back;
+ *          the neck and the right wing snapped off in rough breaks. y 0 is the platform's top,
+ *          the front +z, his left +x.
+ *   head   the eagle's head: the hooked beak a little agape (gilt at the hook), the bristling crest
+ *          and ear tufts, a sleepy eye under a heavy lid, one pearl tear; snapped at the neck.
+ *          Centred on the skull, the beak toward +z, up +y.
+ *   wing   the right wing, snapped at the shoulder and lying open (wingInto's frame).
+ *   beak, claw, plume  chips: the gilt tip of the beak, a talon, a crest feather.
+ */
+export function carveGryphon(seed = 7) {
+  const k = carver(seed, IVORY); // (no base of his own: the wreck turns the stub of the knight's, vampkit.js)
+  const D = 0xd8cfb6; const DK = 0x3a3128; const BRK = 0xcdc2a6; // the carving's shades; a fresh break, duller
+  const up = (e) => e - Math.PI / 2; // rotX that turns +y to (0, sin e, -cos e)
+  k.to('body');
+  // the base's platform, snapped off its neck under him
+  k.lathe([[0, -0.08], [0.3, -0.08], [0.336, -0.045], [0.336, 0], [0, 0]], IVORY, { seg: 10, color: (y, a, c) => c.setHex(y < -0.07 ? BRK : IVORY) });
+  // the lion's haunches, sat down: a broad rump, each thigh a great bulge forward along his flank, the hind paws out in front
+  k.ell([0, 0.25, -0.14], [0.3, 0.26, 0.34], IVORY, { ws: 8, hs: 6 });
+  for (const sd of [-1, 1]) {
+    k.ell([sd * 0.25, 0.24, -0.02], [0.11, 0.22, 0.3], IVORY, { ws: 7, hs: 5, rot: [0.6, 0, 0] }); // the thigh
+    k.ell([sd * 0.25, 0.05, 0.2], [0.08, 0.05, 0.13], D, { ws: 5, hs: 3 });
+  }
+  // the breast, rising to the neck, thrust out proud in front of the forelegs
+  k.tube([[0, 0.2, -0.05], [0, 0.55, 0.1], [0, 0.85, 0.16]], [[0.25, 0.27], [0.23, 0.28], [0.17, 0.2]], IVORY, { sides: 10, budget: 100, caps: ['flat', 'flat'] });
+  k.ell([0, 0.6, 0.22], [0.2, 0.24, 0.17], IVORY, { ws: 7, hs: 5 });
+  // the ruff: a shaggy collar of locks round the neck, and the neck snapped off above it
+  k.lathe([[0.15, -0.07], [0.27, -0.01], [0.25, 0.06], [0.15, 0.11]], IVORY, { seg: 14, at: [0, 0.78, 0.1], rot: [0.3, 0, 0], carve: (a) => 1 + 0.14 * Math.abs(Math.sin(4 * a)) });
+  k.cyl([0, 0.94, 0.15], 0.14, 0.12, 0.16, D, { seg: 10, rot: [0.3, 0, 0] });
+  k.ell([0, 1.02, 0.18], [0.12, 0.035, 0.12], BRK, { ws: 6, hs: 3, rot: [0.3, 0, 0], vary: 0.3, rough: 0.9 });
+  for (let i = 0; i < 3; i++) { const a = i * 2.1; k.cyl([Math.sin(a) * 0.08, 1.04, 0.18 + Math.cos(a) * 0.08], 0.035, 0.0, 0.07, BRK, { seg: 3, rot: [0.3 + Math.cos(a) * 0.3, 0, -Math.sin(a) * 0.3], rough: 0.9 }); } // its jags
+  // the eagle's forelegs, straight down to the platform clear of the breast, scaled at the shin; three talons forward, gilt at the points
+  for (const sd of [-1, 1]) {
+    k.tube([[sd * 0.14, 0.66, 0.18], [sd * 0.15, 0.36, 0.3], [sd * 0.14, 0.06, 0.32]], [0.09, 0.065, 0.055], IVORY, { sides: 6, budget: 50 });
+    k.ell([sd * 0.14, 0.03, 0.36], [0.065, 0.032, 0.065], D, { ws: 5, hs: 3 });
+    for (let t = -1; t <= 1; t++) {
+      k.cyl([sd * 0.14 + t * 0.04, 0.025, 0.44], 0.024, 0.013, 0.12, D, { seg: 3, rot: [Math.PI / 2, 0, -t * 0.35] });
+      k.cyl([sd * 0.14 + t * 0.06, 0.02, 0.52], 0.014, 0.0, 0.06, GILT, { seg: 3, rot: [Math.PI / 2 + 0.6, 0, -t * 0.35], rough: 0.3 });
+    }
+  }
+  // the lion's tail, raised from the rump in a curve up behind him, its great tuft at the top
+  k.tube([[0, 0.16, -0.42], [0.04, 0.3, -0.62], [0.06, 0.6, -0.68], [0.06, 0.84, -0.56]], 0.05, IVORY, { sides: 5, budget: 60 });
+  k.ell([0.06, 0.93, -0.5], [0.08, 0.12, 0.08], D, { ws: 5, hs: 4, rot: [-0.5, 0, 0] });
+  // the left wing, half raised up and back off the shoulder; where the right one was, a rough stump
+  k.group([0.24, 0.8, -0.1], [-1.2, Math.PI, Math.PI / 2], () => wingInto(k, 3, 0.85, true));
+  k.cyl([-0.19, 0.72, -0.12], 0.08, 0.06, 0.1, IVORY, { seg: 6, rot: [0, 0, Math.PI / 2] });
+  k.ell([-0.24, 0.72, -0.12], [0.02, 0.07, 0.065], BRK, { ws: 5, hs: 3, vary: 0.3, rough: 0.9 });
+
+  k.to('head');
+  k.ell([0, 0, 0], [0.19, 0.2, 0.23], IVORY, { ws: 10, hs: 7 }); // the skull
+  for (const sd of [-1, 1]) {
+    k.ell([sd * 0.16, 0.025, 0.09], [0.045, 0.05, 0.045], DK, { ws: 5, hs: 4, rough: 0.1 }); // the eye, set in the side
+    k.ell([sd * 0.165, 0.07, 0.095], [0.05, 0.026, 0.055], IVORY, { ws: 5, hs: 3, rot: [0.25, 0, -sd * 0.2] }); // its heavy lid, half down: sleepy, and sardonic
+    k.ell([sd * 0.12, 0.11, 0.1], [0.07, 0.035, 0.13], IVORY, { ws: 5, hs: 3, rot: [0, sd * 0.25, -sd * 0.35] }); // the brow
+    // the ear tufts, laid back
+    k.cyl([sd * 0.11, 0.17, -0.1], 0.04, 0.0, 0.2, D, { seg: 5, rot: [up(0.7), 0, -sd * 0.35] });
+  }
+  // one pearl tear on his cheek, run from under the lid (he sobs, the book says, though he has no sorrow)
+  // (a warm pearl, the ivory's own white: under the walk's moon grade the set's blue PEARL read as a blue streak)
+  k.ell([-0.172, -0.06, 0.1], [0.016, 0.028, 0.014], 0xfbf3df, { ws: 5, hs: 4, rough: 0.05, vary: 0 });
+  // the hooked beak, agape: the upper bill horn-pale, gilt at the hook; the cere where it meets the face
+  k.tor([0, 0.02, 0.17], 0.09, 0.022, D, { rs: 8, ts: 3 });
+  k.tube([[0, 0.03, 0.17], [0, 0.03, 0.32], [0, -0.01, 0.44], [0, -0.08, 0.5]], [[0.085, 0.09], [0.065, 0.065], [0.045, 0.04], [0.03, 0.03]], D, { sides: 7, budget: 90, caps: ['flat', 'round'] });
+  k.tube([[0, -0.06, 0.49], [0, -0.13, 0.5], [0, -0.18, 0.46]], [0.03, 0.022, 0.006], GILT, { sides: 5, budget: 40, rough: 0.3 });
+  k.tube([[0, -0.09, 0.14], [0, -0.13, 0.28], [0, -0.15, 0.38]], [0.065, 0.04, 0.014], D, { sides: 6, budget: 50 }); // the lower bill, dropped
+  k.ell([0, -0.085, 0.3], [0.03, 0.016, 0.11], 0x5a3e2a, { ws: 5, hs: 3, rough: 0.9 }); // the gape, a warm umber shadow in the ivory
+  // the crest: five feathers bristling back off the crown, gilt at the points
+  for (let i = 0; i < 5; i++) {
+    const e = 0.35 + i * 0.17; const L = 0.3 - Math.abs(i - 2) * 0.03; const sx = (i - 2) * 0.03;
+    const b = [sx, 0.13 + Math.sin(e) * 0.04, -0.1 - i * 0.015]; const d = [0, Math.sin(e), -Math.cos(e)];
+    k.cyl([b[0], b[1] + d[1] * L / 2, b[2] + d[2] * L / 2], 0.045, 0.004, L, i % 2 ? D : IVORY, { seg: 4, rot: [up(e), 0, -sx * 2] });
+    k.cyl([b[0], b[1] + d[1] * (L + 0.02), b[2] + d[2] * (L + 0.02)], 0.01, 0.0, 0.05, GILT, { seg: 3, rot: [up(e), 0, -sx * 2], rough: 0.3 });
+  }
+  // the nape's feathers, and the neck snapped short under them
+  for (const sd of [-1, 1]) k.ell([sd * 0.09, -0.08, -0.17], [0.07, 0.12, 0.05], D, { ws: 5, hs: 3, rot: [0.5, 0, sd * 0.3] });
+  k.cyl([0, -0.19, -0.06], 0.12, 0.14, 0.18, IVORY, { seg: 10, rot: [-0.35, 0, 0] });
+  k.ell([0, -0.28, -0.09], [0.12, 0.03, 0.12], BRK, { ws: 6, hs: 3, rot: [-0.35, 0, 0], vary: 0.3, rough: 0.9 });
+
+  k.to('wing'); wingInto(k, 6, 1);
+  k.ell([0, 0, 0], [0.03, 0.06, 0.06], BRK, { ws: 6, hs: 4, vary: 0.3, rough: 0.9 }); // the break at the shoulder
+  k.to('beak');
+  k.tube([[0, 0, 0], [0.05, 0.0, 0.0], [0.09, -0.01, -0.03]], [0.025, 0.018, 0.005], GILT, { sides: 5, budget: 24, rough: 0.3 });
+  k.ell([0, 0, 0], [0.008, 0.024, 0.024], BRK, { ws: 5, hs: 3 });
+  k.to('claw');
+  k.cyl([0, 0, 0], 0.02, 0.012, 0.1, D, { seg: 4, rot: [0, 0, Math.PI / 2] });
+  k.cyl([0.07, 0.0, 0], 0.012, 0.0, 0.05, GILT, { seg: 4, rot: [0, 0, -Math.PI / 2 - 0.5], rough: 0.3 });
+  k.to('plume');
+  k.cyl([0, 0, 0], 0.04, 0.004, 0.24, D, { seg: 5, rot: [0, 0, -Math.PI / 2] });
+  k.cyl([0.13, 0, 0], 0.01, 0.0, 0.05, GILT, { seg: 4, rot: [0, 0, -Math.PI / 2], rough: 0.3 });
+
+  const parts = {};
+  for (const [name, list] of Object.entries(k.parts)) { parts[name] = fuse(list); for (const g of list) g.dispose(); }
+  return { parts };
 }
 
 /**

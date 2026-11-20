@@ -601,26 +601,31 @@ export function squareAt(x, z) {
 
 /**
  * The White Knight, fallen off the board and broken (the owner, 2026-11-19; the Dracula pass, group 3):
- * the set's knight (PIECE_FOOT.knight, carved in chessmen.js's ivory) in three big pieces and a scatter
- * of chips in the walk's south-west corner between the door and the Mock Turtle, off the board and its
- * frame. A prop, not a chessman: no rule reads it but the collision (solids.js boxes its three big
- * pieces). Each part: { id, x, z (the middle of its footprint), yaw (its long axis, radians from +x
- * toward +z), len, r (its widest radius across), h (how tall it lies) }. The foot (the turned base's
- * stub) stands upright where it broke; the breast lies right beside it; the head lies a step away on its
- * jaw, ears and mane up, its long axis across the eye's way in so it shows its profile.
+ * the set's knight is the Gryphon (the owner, 2026-11-19: "add flair like the other white pieces"; the
+ * Mock Turtle's companion, carved in chessmen.js's ivory by carveGryphon on PIECE_FOOT.knight's turned
+ * base), in four pieces and a scatter of chips in the walk's south-west corner between the door and the
+ * Mock Turtle, off the board and its frame. A prop, not a chessman: no rule reads it but the collision
+ * (solids.js boxes its three big pieces; the wing lies flat, 15 cm high, and is walked over like the
+ * chips). Each part: { id, x, z (the middle of its footprint), yaw (its long axis, radians from +x
+ * toward +z), len, r (half its width across), h (how tall it lies) }, len and r the exact extent of the
+ * carved piece as vampkit.js lays it (the smoke measures them). The foot (the turned base's stub) stands
+ * upright where it snapped above its bulb; the body sits where it fell just south of it, off its base and
+ * tipped onto his right side, his profile (haunches, breast, forelegs, raised tail and half-raised wing)
+ * to the room; the head stands on its neck's break and its beak's hook a step on, the beak toward the
+ * Turtle, its profile (and its one pearl tear) to the way in; the snapped wing lies open beside the stub.
  */
 export const WRECK = f({
   ivory: 0xe9e2cf, // chessmen.js IVORY
   share: 0.65, // drawn in the fittings at this share of the ivory, under the room's grade (round 2, the art critic: 0.82 read pasted in)
   parts: [
-    // (a lying part's long axis runs from its break nearer the foot, u = 0, to its far end, u = len)
-    { id: 'foot', x: 3.85, z: -94.7, yaw: 0.5, len: 0, r: 0.6, h: 0.62, solid: true }, // the base's stub, still upright, broken across its neck
-    { id: 'body', x: 2.39, z: -95.64, yaw: -2.377, len: 1.55, r: 0.45, h: 0.92, solid: true }, // the base's top and the breast, on its side against the stub
-    { id: 'head', x: 2.6, z: -96.95, yaw: -Math.PI / 2, len: 1.1, r: 0.2, h: 0.62, solid: true }, // the long head, snapped at the throat, on its jaw a step away
+    { id: 'foot', x: 2.4, z: -95.6, yaw: 0.5, len: 0, r: 0.6, h: 0.65, solid: true }, // the base's stub, still upright, snapped above its bulb
+    { id: 'body', x: 2.45, z: -94.08, yaw: 0, len: 0.992, r: 0.87, h: 1.53, solid: true }, // sat where he fell, tipped onto his right side, facing the south wall: his profile to the room
+    { id: 'head', x: 4.9, z: -94.3, yaw: -Math.PI / 2, len: 1.055, r: 0.268, h: 0.98, solid: true }, // on its neck's break and its beak, the beak to the north, the tear to the way in
+    { id: 'wing', x: 3.9, z: -95.9, yaw: -0.2, len: 1.383, r: 0.255, h: 0.15, solid: false }, // the right wing, open on the flags beside the stub, its feathers toward the body
   ],
-  // chips: [x, z, size, yaw]
-  chips: [[3.35, -95.35, 0.08, 0.3], [3.0, -94.3, 0.06, 1.1], [2.05, -96.6, 0.07, 2.0], [2.95, -96.35, 0.05, 0.7], [4.3, -95.45, 0.05, 1.6], [3.4, -93.8, 0.04, 2.6]],
-  scatter: { x: 2.9, z: -95.4, r: 1.1, n: 14 }, // a faint scatter of ivory dust and flecks on the flags round it
+  // chips: [x, z, size (half its extent), yaw, kind] (kind: one of his own carved pieces; none, a flake of ivory)
+  chips: [[3.45, -96.3, 0.08, 0.3], [1.5, -96.0, 0.06, 1.1], [4.7, -95.0, 0.08, 2.0, 'beak'], [1.55, -95.0, 0.08, 0.7, 'claw'], [4.4, -96.3, 0.05, 1.6], [4.25, -94.95, 0.18, 2.6, 'plume']],
+  scatter: { x: 3.2, z: -94.8, r: 1.1, n: 14 }, // a faint scatter of ivory dust and flecks on the flags round it
 });
 
 /** One wreck part's footprint: { minX, maxX, minZ, maxZ }, the exact bounds of its oriented len by 2r rectangle. */
