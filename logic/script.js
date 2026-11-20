@@ -268,7 +268,7 @@ export const CASTLE_PLACES = f([
   'Tea for the Dead',
   'The Looking-Glass Gallery',
   'The Knight\'s Walk',
-  'The top of the stairs',
+  'Here lies the master',
   'The Count\'s door',
 ]);
 
