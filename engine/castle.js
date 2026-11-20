@@ -2208,6 +2208,7 @@ export function buildCastle(scene, cfg) {
    */
   function dispose() {
     hide();
+    roadView.dispose(); // the walk from the gate's instance buffers (InstancedMesh.dispose: a geometry's dispose leaves them)
     scene.remove(root);
     root.traverse((o) => {
       if (o.geometry) o.geometry.dispose();

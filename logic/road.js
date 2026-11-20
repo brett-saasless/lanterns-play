@@ -72,13 +72,12 @@ export const LENGTH = SEGS[SEGS.length - 1].s0 + SEGS[SEGS.length - 1].len;
 export const ROAD = f({
   rise: 30, // metres from the foot up to the approach (the castle's ground, y 0)
   footY: -30,
-  // Where a journey from the wood arrives: at the east end of leg 1, where it leaves the wood,
-  // facing west along it. The wood's end faced north; `turn` is the quarter turn from the wood's
-  // frame to the road's (the warden's facing, the sun and the side offset all turn with it, so
-  // what was ahead is still ahead). halfWidth: how far to either side the arrival may be seated.
-  // The foot is in the tunnel the wood's end runs into (#29 G29a, engine/tunnel.js): its mouth at
-  // tunnel.mouthX, shut behind at backX, so the warden walks out of it onto the road.
-  foot: { x: 48.5, z: 104, yaw: Math.PI / 2, turn: Math.PI / 2, halfWidth: 1.4, tunnel: { mouthX: 42.5, backX: 51.6 } },
+  // The foot: the east end of leg 1, where the walk from the Caterpillar's gate (logic/tunnelwalk.js)
+  // comes out onto the road, facing west along it. `turn` is the quarter turn from the wood's frame
+  // to the road's (the warden's facing, the sun and the side offset all turn with it, so what was
+  // ahead is still ahead: the wood's north is the road's west). out: where the title's Road start
+  // stands (outSeat), a few steps out onto the road.
+  foot: { x: 48.5, z: 104, yaw: Math.PI / 2, turn: Math.PI / 2, out: 41.5 },
   // The boulder (a startle, then unease): it lets go from the bank above leg 2 as the warden
   // crosses `at` (metres up the road), falls `fall` seconds down the bank, then crosses the road
   // `ahead` metres or more ahead of the warden in `cross` seconds, lands once on it (the thud and
@@ -689,31 +688,11 @@ export function stepRoad(road, pl, dt, events, rng = () => 0.5) {
 }
 
 /**
- * Seats a journey from the wood at the road's foot: the warden where leg 1 leaves the wood,
- * `offset` metres to their right (clamped inside the road), facing as they were in the wood's
- * frame turned by ROAD.foot.turn (so ahead stays ahead: the wood's north is the road's west).
- * pose: { offset, yaw, pitch } (any may be missing). Returns the place: { x, z, y, yaw, pitch }.
- */
-export function footSeat(pose = {}) {
-  if (pose && pose.out) return outSeat();
-  const F = ROAD.foot;
-  const off = Number.isFinite(pose.offset) ? clamp(pose.offset, -F.halfWidth, F.halfWidth) : 0;
-  // the warden's right, facing along the road at the foot (sim.js: right = (cos yaw, -sin yaw))
-  const x = F.x + Math.cos(F.yaw) * off;
-  const z = F.z - Math.sin(F.yaw) * off;
-  return {
-    x, z, y: heightAt(stationAt(x, z)),
-    yaw: Number.isFinite(pose.yaw) ? pose.yaw + F.turn : F.yaw,
-    pitch: Number.isFinite(pose.pitch) ? clamp(pose.pitch, -1.4, 1.4) : 0,
-  };
-}
-
-/**
- * The title's Road start (the owner, 2026-11-17): the foot of the road just out of the tunnel's
- * mouth, on the centreline, facing west up leg 1. Returns the place: { x, z, y, yaw, pitch }.
+ * The title's Road start (the owner, 2026-11-17): the foot of the road a few steps on from where the
+ * walk from the wood comes out onto it (logic/tunnelwalk.js), on the centreline, facing west up leg 1.
+ * Returns the place: { x, z, y, yaw, pitch }.
  */
 export function outSeat() {
   const F = ROAD.foot;
-  const x = F.tunnel.mouthX - 1;
-  return { x, z: F.z, y: heightAt(stationAt(x, F.z)), yaw: F.yaw, pitch: 0 };
+  return { x: F.out, z: F.z, y: heightAt(stationAt(F.out, F.z)), yaw: F.yaw, pitch: 0 };
 }

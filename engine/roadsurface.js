@@ -15,7 +15,7 @@
 // a broken milestone at the foot, old barrels on leg 2, a cart tipped over on the verge below leg 3
 // with its wheel off beside it, and a broken wheel left against a snapped dead tree at the last hairpin.
 // Props only: nothing here collides or hurts, all of it off the road's walk path, clear of the cave's
-// mouth, the boulder's fall and the tunnel at the foot. One geometry, one draw call.
+// mouth, the boulder's fall and the foot, where the walk from the wood comes out. One geometry, one draw call.
 
 import * as THREE from 'three';
 import * as S from './sculpt.js';
@@ -85,7 +85,7 @@ function halfAt(s) {
 /**
  * A few shallow potholes the length of the road (fixed: the same every run): 0.6 to 1.2 m long, a
  * little longer along the road than across it, at most 6 cm deep, half of them in a rut where the
- * wheels have worn them. None in a bend (the corner squares), in the tunnel, or in the last 4 m.
+ * wheels have worn them. None in a bend (the corner squares), at the foot, or in the last 4 m.
  */
 const HOLES = (() => {
   const rnd = S.rng(5303);
@@ -300,14 +300,14 @@ function stone(x, y, z, r, hex, seed, big) {
 
 // What the props keep clear of. The cave's mouth (5 m round it), the boulder's fall across leg 2
 // (from 6 m behind its trigger point to 16 m on, from the outcrop on the bank to below the road),
-// the tunnel at the road's foot, and the approach.
+// the road's foot (where the walk from the wood comes out), and the approach.
 const MOUTH = { x: ROAD.bats.cave.x, z: ROAD.bats.cave.z + 1 };
 const BOULDER_LO = Math.min(BOULDER_X - 6 * BOULDER_DIR, BOULDER_X + 16 * BOULDER_DIR);
 const BOULDER_HI = Math.max(BOULDER_X - 6 * BOULDER_DIR, BOULDER_X + 16 * BOULDER_DIR);
 function keptClear(x, z, r = 0) {
   if (Math.hypot(x - MOUTH.x, z - MOUTH.z) < 5 + r) return true;
   if (x > BOULDER_LO - r && x < BOULDER_HI + r && z > 82 - r && z < 106 + r) return true;
-  if (x > 41 - r && z > 96 && z < 112) return true; // the tunnel at the foot
+  if (x > 41 - r && z > 96 && z < 112) return true; // the foot, where the walk from the wood comes out (tunnelwood.js dresses its own way)
   return z < 46 + r;
 }
 
@@ -499,7 +499,7 @@ function wheelAgainstSnag() {
  * lie: how far it lies with the ground's fall (1, a wreck on its side) or stands upright (0).
  */
 const DERELICTS = [
-  // at the foot, a few steps out of the tunnel: the road's last milestone, broken, on the level
+  // at the foot, a few steps out of the walk from the wood: the road's last milestone, broken, on the level
   // verge below the road (the bank above is too steep for a stone to stand)
   { name: 'broken milestone', s: 13, side: -1, gap: 0.45, lie: 0, build: brokenMilestone },
   // leg 2, before the boulder's stretch: old barrels on the downhill verge, one staved in

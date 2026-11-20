@@ -3,7 +3,8 @@
 import { CONFIG } from '../logic/config.js';
 import { hostilesLeft } from '../logic/sim.js';
 import { specOf } from '../logic/weapon.js';
-import { PLACES, CASTLE_PLACES, NOTICES, LABELS } from '../logic/script.js';
+import { PLACES, CASTLE_PLACES, WALK_PLACE, NOTICES, LABELS } from '../logic/script.js';
+import { inTunnel } from '../logic/tunnelwalk.js';
 import { COURT_CONFIG } from '../logic/courtconfig.js';
 import { STAGES } from '../logic/keep.js';
 
@@ -174,7 +175,8 @@ export function createHud(settings, onSettingsChange, lookKey = () => 'sensitivi
     const spec = specOf(sim.cfg, w);
     if (court) {
       const names = PLACE_NAMES[room];
-      set('place', el.wavelab, names[Math.min(sim.waves.index, names.length - 1)]);
+      const onWalk = room === 'castle' && inTunnel(pl.x, pl.z); // the walk from the Caterpillar's gate has its own name
+      set('place', el.wavelab, onWalk ? WALK_PLACE : names[Math.min(sim.waves.index, names.length - 1)]);
       set('ammolab', el.ammolab, copy.ammoBy[w.name] || copy.ammo);
     } else {
       set('wave', el.wavenum, `${sim.waves.index + 1}/${sim.waves.count}`);

@@ -27,6 +27,7 @@ const SUBLINES = {
   cave: 'Sea cave under the breakwater. Three chambers. Bring salt.',
   court: COPY.subline,
   castle: CASTLE_COPY.subline,
+  tunnel: CASTLE_COPY.tunnelSub, // the Tunnel start's own: the walk from the Caterpillar's gate
 };
 const SETTINGS_KEY = 'lanternyard.settings';
 const GHOST_MS = 350; // touch: a click this soon after a card, the log or the pause card opens is the lifted finger's, not a tap
@@ -244,9 +245,9 @@ async function boot() {
     arriveDue = null;
   }
 
-  // #29 (G29a, the owner): the wood's end is a short tunnel of trees and brambles, and the road's
-  // foot opens out of its match (tunnel.js). The castle's card is read inside it: under the card the
-  // cover is the tunnel's own dark, and it clears into the road's tunnel as the warden walks on.
+  // The owner (2026-11-19): the wood's level ends just through the Caterpillar's gate and the castle's
+  // card is read there; under the card the cover is this dark, and it clears onto the walk to the
+  // road (tunnelwalk.js) at the same place, the castle level's copy of it, as the warden walks on.
   const TUNNEL_DARK = 0x0a0907;
   // The story card each hand-over stops on (owner, after G29a): the next chapter's card, the same
   // one its title start shows. The cave's title start shows none, so the yard's crater has none.
@@ -449,14 +450,16 @@ async function boot() {
     resumePlay();
   }
 
-  /** Title hover or focus: show a room's backdrop and subline, nothing else. */
-  function previewRoom(name) {
-    if (state !== 'TITLE' || titleRoom === name) return;
-    titleRoom = name;
-    world.setRoom(name);
-    // the title's backdrop of a level with heads shows them too: build their program before it is drawn
-    if (shouldWarmHeads({ room: name, warmed: headsWarmed, headRooms: HEAD_ROOMS })) { headsWarmed.add(name); world.warmHeads(camera); }
-    document.getElementById('titlesub').textContent = SUBLINES[name];
+  /** Title hover or focus: show a room's backdrop and subline (sub: a start's own, the Tunnel's), nothing else. */
+  function previewRoom(name, sub = name) {
+    if (state !== 'TITLE') return;
+    if (titleRoom !== name) {
+      titleRoom = name;
+      world.setRoom(name);
+      // the title's backdrop of a level with heads shows them too: build their program before it is drawn
+      if (shouldWarmHeads({ room: name, warmed: headsWarmed, headRooms: HEAD_ROOMS })) { headsWarmed.add(name); world.warmHeads(camera); }
+    }
+    document.getElementById('titlesub').textContent = SUBLINES[sub];
   }
 
   /** Locks the pointer, then enters PLAYING. `fresh` starts a new run. Lock refused: stay put. */
@@ -473,10 +476,12 @@ async function boot() {
     }
     if (fresh) {
       runRoom = room;
-      runStart = room === 'castle' && start === 'road' ? 'road' : null;
+      runStart = room === 'castle' && (start === 'road' || start === 'tunnel') ? start : null;
       enterRoom(room);
-      // The Road start (the owner, 2026-11-17): the castle run, seated at the road's foot just out of the tunnel.
-      if (runStart === 'road' && keepRules && typeof keepRules.keep.enterRoad === 'function') keepRules.keep.enterRoad(sim, { out: true });
+      // The Road start (the owner, 2026-11-17): the castle run, seated at the road's foot. The Tunnel
+      // start (the owner, 2026-11-19): the same run, seated just through the Caterpillar's gate at the
+      // start of the walk to the road, right after his death, with the kit the wood leaves.
+      if (runStart && keepRules && typeof keepRules.keep.enterRoad === 'function') keepRules.keep.enterRoad(sim, runStart === 'road' ? { out: true } : { start: true });
     } else if (checkpoint && !restoreAtCheckpoint()) {
       enterRoom(runRoom); // no checkpoint to go back to: the level starts over
       fresh = true;
@@ -633,6 +638,15 @@ async function boot() {
       roadBtn.addEventListener('focus', () => previewRoom('castle'));
       roadBtn.disabled = false;
       roomBtns.road = roadBtn; // Enter on the focused Road button starts it (the title's Enter handler)
+    }
+    const tunnelBtn = document.getElementById('deploy-tunnel'); // the Tunnel start: the castle's run from the Caterpillar's gate
+    if (tunnelBtn && typeof keep.enterRoad === 'function') {
+      tunnelBtn.textContent = CASTLE_COPY.tunnel;
+      tunnelBtn.addEventListener('click', () => { fullscreenOnTouch(); deploy(true, 'castle', false, 'tunnel'); });
+      tunnelBtn.addEventListener('mouseenter', () => previewRoom('castle', 'tunnel'));
+      tunnelBtn.addEventListener('focus', () => previewRoom('castle', 'tunnel'));
+      tunnelBtn.disabled = false;
+      roomBtns.tunnel = tunnelBtn; // Enter on the focused Tunnel button starts it
     }
     return true;
   }

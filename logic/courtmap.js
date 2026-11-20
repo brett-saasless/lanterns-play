@@ -155,11 +155,11 @@ const CATERPILLAR = {
 // The stream crosses band 4 on the cup's row; the approach runs 16 m past row 19.
 const CUP = deadAt('cup', 4);
 const STREAM = { minX: X0, maxX: -X0, minZ: CUP.z - 1.2, maxZ: CUP.z + 1.2, flow: { x: 1, z: 0 } }; // runs east
-// tunnel (#29 G29a): the corridor's half-width, where its mouth opens past the last gate's wall,
-// and where its far end is shut (the end line is ten metres in).
+// The level ends just through the Caterpillar's gate (the owner, 2026-11-19): the end line is
+// 0.75 m past the far face of the wall the gate stands in, where the castle's card is read and the
+// walk to the road begins (logic/tunnelwalk.js; it starts at that face).
 const APPROACH = {
-  minX: X0, maxX: -X0, minZ: -200, maxZ: Z0 - CELL * 19, endZ: Z0 - CELL * 19 - 12,
-  tunnel: f({ half: 2.0, mouthZ: Z0 - CELL * 19 - 2.6, shutZ: Z0 - CELL * 19 - 19.6 }),
+  minX: X0, maxX: -X0, minZ: -200, maxZ: Z0 - CELL * 19, endZ: Z0 - CELL * 19 - (CELL - corridor(ROWS - 1)) / 2 - 0.75,
 };
 const PIT_DE = deadAt('pit', 2);
 const PIT = { x: PIT_DE.x, z: PIT_DE.z, r: 2.4, depth: 1.8, trigger: 1.4 };
@@ -276,13 +276,6 @@ export function mazeBoxes() {
   out.push(aabb(X0 - t / 2, X0 + t / 2, APPROACH.minZ, APPROACH.maxZ - CELL, H, 'trees'));
   out.push(aabb(-X0 - t / 2, -X0 + t / 2, APPROACH.minZ, APPROACH.maxZ - CELL, H, 'trees'));
   out.push(aabb(X0 - t / 2, -X0 + t / 2, APPROACH.minZ - 2, APPROACH.minZ, H, 'trees'));
-  // #29 (G29a): the wood's end is a short tunnel of trees and brambles (engine/tunnel.js), from
-  // the last gate on past the end line: thicket either side of it, and its far end shut.
-  const T = APPROACH.tunnel;
-  // (thicket: forest.js dresses these itself, apart from the wood's walls)
-  out.push({ ...aabb(X0 + CELL * 0.4, -T.half, APPROACH.minZ, T.mouthZ, H, 'trees'), thicket: true });
-  out.push({ ...aabb(T.half, -X0 - CELL * 0.4, APPROACH.minZ, T.mouthZ, H, 'trees'), thicket: true });
-  out.push({ ...aabb(-T.half, T.half, T.shutZ - 1.5, T.shutZ, H, 'trees'), thicket: true });
   BOXES = f(out);
   return BOXES;
 }

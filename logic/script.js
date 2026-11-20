@@ -270,10 +270,15 @@ export const CASTLE_PLACES = f([
   'The Count\'s door',
 ]);
 
+/** The place plate on the walk from the Caterpillar's gate to the road (the owner's review, 2026-11-19). */
+export const WALK_PLACE = 'The Wood Path';
+
 /** The title's Castle button and subline (the two sentences of the forest-to-castle entry), and the controls notes. */
 export const CASTLE_COPY = f({
   button: 'Castle',
-  road: 'Road', // the title's Road start (the owner, 2026-11-17): the road's foot, just out of the tunnel
+  road: 'Road', // the title's Road start (the owner, 2026-11-17): the road's foot, a few steps out of the wood
+  tunnel: 'Tunnel', // the title's Tunnel start (the owner, 2026-11-19): just through the Caterpillar's gate, on the walk to the road
+  tunnelSub: 'The Caterpillar is dead and his gate stands open. The way on winds out of the wood.', // DRAFT, for the owner's approval
   subline: 'The house has its bridge down. It is expecting someone.',
   controls: '(Rose Court, Castle)',
   // Issue #20 (DRAFT, for the owner's approval): the banner after the triumph, before the closing card.

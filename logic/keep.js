@@ -15,7 +15,7 @@
 import {
   SPAWNS, OPENING, SENTRIES, chessColliders, CLOCKS, PIT, CRYPT, GALLERY, BOARD, CRYPT_PROPS, HALL, COUNT_ROOM, END, COUNTWAY,
   STOCK, WINDOWS, HAUNT_PLACES, CURTAIN_TARGETS, TEA, DOORS, PIKES,
-  floorZoneAt, zoneAt, stageOf, tileAt, tileRect, squareRect, squareCell, squareAt,
+  floorZoneAt, zoneAt, stageOf, tileAt, tileRect, squareRect, squareCell, squareAt, walkWallsNear,
 } from './keepmap.js';
 import { CASTLE_PLACES, ENTRIES } from './script.js';
 import { cryptSolids, pitPiers, furnitureBoxes } from './solids.js';
@@ -37,7 +37,8 @@ import { seatSentries, sentryKilled, innerDoorOpen, lowerGarlic } from './sentri
 import { LEAF_DOORS, doorLeafBoxes, swingToward } from './doorleaves.js'; // the door leaves, solid in every state
 import { createHaunts, stepHaunts, ghostScream, landRaven } from './haunts.js';
 import { reflectionLook } from './reflection.js';
-import { createRoad, settledRoad, stepRoad, roadBlock, footSeat } from './road.js'; // issue #29: the road up from the wood
+import { createRoad, settledRoad, stepRoad, roadBlock, outSeat } from './road.js'; // issue #29: the road up from the wood
+import { tunnelSeat, startSeat, TUNNEL } from './tunnelwalk.js'; // the walk from the Caterpillar's gate to the road
 import { cutawayDue, startCutaway, stepCutaway } from './cutaway.js'; // the werewolf cutaway, right after the boulder
 import { lidBox } from './countlid.js'; // the Count's thrown-back lid, solid once it lies there
 
@@ -59,7 +60,7 @@ export const KEEP_RESTORE_FIELDS = Object.freeze({
     keeps: Object.freeze(['cfg', 'seed', 'rng', 'time', 'nextId', 'stats']),
   }),
   waves: Object.freeze({
-    writes: Object.freeze(['index', 'queue', 'phase', 'under', 'clocks', 'tiles', 'board', 'count', 'haunts', 'raised',
+    writes: Object.freeze(['index', 'queue', 'phase', 'under', 'walk', 'clocks', 'tiles', 'board', 'count', 'haunts', 'raised',
       'items', 'loot', 'stakes', 'bodies', 'pins', 'dropped', 'stock', 'hints', 'focus', 'line', 'notice', 'scene',
       'checkpoint', 'pressed', 'leap', 'struck', 'falling', 'snake', 'claw']),
     keeps: Object.freeze(['done', 'game', 'log', 'talk', 'road', 'leaves']), // road (#29): the dark and both scares' latches, settled; leaves: each door's swing, as it stood
@@ -110,6 +111,7 @@ export function createKeep(cfg, rng = () => 0.5) {
     phase: 'still', // still | open | done
     queue: [], // stays empty: nothing is queued in this room
     under: null, // null | 'pit' | 'crypt' (A3: from position, keepGround)
+    walk: null, // the band of x on the walk from the gate whose walls are in sim.boxes, or null (from position, keepGround)
     done: freshDone(),
     game: { chessDeaths: 0, countDeaths: 0, removed: [] }, // this game's deaths (A8) and the pieces they took (G7)
     clocks: createClocks(cfg.clocks.stopped),
@@ -155,11 +157,23 @@ export function keepGround(sim) {
   const w = sim.waves;
   const pl = sim.player;
   const under = floorZoneAt(pl.x, pl.z, pl.y, w).under;
-  if (under !== w.under) {
+  const walk = walkBandOf(pl.x);
+  if (under !== w.under || walk !== w.walk) {
     w.under = under;
+    w.walk = walk;
     sim.boxes = keepBoxes(sim.cfg, w);
   }
 }
+
+// The walk's walls go into the collision list by WALK_BAND-metre bands of x round the warden, WALK_REACH
+// metres either side (a frame's step is under half a metre; the band is re-read after every move).
+const WALK_BAND = 4;
+const WALK_REACH = 12;
+/** The band of x the warden stands in, east of the road's middle (the walk and leg 1's east end), or null. */
+export function walkBandOf(x) {
+  return Number.isFinite(x) && x > WALK_FROM ? Math.floor(x / WALK_BAND) : null;
+}
+const WALK_FROM = TUNNEL.mouth.x - WALK_REACH;
 
 /**
  * What is underfoot (sim.js asks for the warden's feet): on the pit's floor and stair, earth;
@@ -218,6 +232,8 @@ export function stepLeaves(w, dt) {
 
 export function keepBoxes(cfg, w) {
   const out = w.under === 'crypt' ? cfg.boxes.filter((b) => !onGalleryFloor(b)) : [...cfg.boxes];
+  // on the walk from the gate (or about to step onto it): its walls round the warden only (keepmap.js walkWalls)
+  if (w.walk != null) walkWallsNear(w.walk * WALK_BAND - WALK_REACH, (w.walk + 1) * WALK_BAND + WALK_REACH, out);
   for (const d of DOORS) {
     // the leaves are solid wherever they stand: swinging, open, or swinging to (doorleaves.js)
     const swing = d.key ? leafSwing(w, d) : 0;
@@ -498,16 +514,19 @@ export function arrive(sim, carry) {
 }
 
 /**
- * Issue #29: a journey from the wood arrives at the road's foot (main.js calls it after arrive(),
- * which has already seated the carry and written the stage-0 checkpoint at the approach, A2): a
- * fresh road (the sun still up, both scares to come) and the warden where the road leaves the
- * wood, as far to the side as they walked out of it (pose.offset, clamped) and facing as they
- * were (pose.yaw, pose.pitch). Nothing of the kit or the checkpoint changes. Returns the seat.
+ * Issue #29: a journey from the wood arrives on the walk to the road (main.js calls it after
+ * arrive(), which has already seated the carry and written the stage-0 checkpoint at the approach,
+ * A2): a fresh road (the sun still up, both scares to come) and the warden just through the
+ * Caterpillar's gate at the walk's start (logic/tunnelwalk.js tunnelSeat), as far past it and to the
+ * side as they were when the wood's level ended (pose.z, pose.offset, clamped) and facing as they
+ * were (pose.yaw, pose.pitch). pose.start: the title's Tunnel start (on the walk's centreline);
+ * pose.out: the title's Road start (on the road, road.js outSeat). Nothing of the kit or the
+ * checkpoint changes. Returns the seat.
  */
 export function enterRoad(sim, pose = {}) {
   if (!sim || !sim.cfg || sim.cfg.encounter !== 'keep') return null;
   const w = sim.waves;
-  const at = footSeat(pose);
+  const at = pose && pose.out ? outSeat() : pose && pose.start ? startSeat() : tunnelSeat(pose || {});
   w.road = createRoad(false);
   const pl = sim.player;
   pl.x = at.x;
@@ -519,6 +538,7 @@ export function enterRoad(sim, pose = {}) {
   pl.yaw = at.yaw;
   pl.pitch = at.pitch;
   w.under = null;
+  w.walk = walkBandOf(pl.x);
   sim.boxes = keepBoxes(sim.cfg, w);
   return at;
 }
@@ -677,6 +697,7 @@ export function restoreCheckpoint(sim, ...given) {
   w.queue = [];
   w.phase = phaseFor(w, s.index);
   w.under = null;
+  w.walk = walkBandOf(s.spawn ? s.spawn.x : NaN); // (every checkpoint is in the castle: none)
   w.clocks = clocksFor(w.done, clockRules(cfg));
   w.tiles = wholeTiles(w.tiles || createTiles());
   if (w.done.knight) w.board = w.board || createBoard(OPENING);

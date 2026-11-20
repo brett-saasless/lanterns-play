@@ -15,8 +15,8 @@ import { makeRng } from '../logic/rng.js';
 import { weatherNow } from '../logic/weather.js';
 import { MAZE, mazeBoxes, deadEnds, stageAt, corridor, routeOf, trailMarks } from '../logic/courtmap.js';
 import * as S from './sculpt.js';
-import { buildTunnel } from './tunnel.js'; // #29 (G29a): the wood's end, a short tunnel of trees and brambles
-import { daylight, mats, G, part, limb, bake, instanced, matrixOf, greyAt, PAL, TITLE_LOOP } from './court.js';
+import { createTunnelWood, deviceTier } from './tunnelwood.js'; // the walk to the road: its first stretch, seen through the last gate
+import { daylight, mats, G, part, limb, bake, instanced, matrixOf, greyAt, PAL, TITLE_LOOP, gateKit } from './court.js';
 import { woodGreen, pathTone, floorTone, leafTone, LEAF_TONES } from '../logic/courtlook.js';
 
 const _sky = { rain: 1, cloud: 1, sun: 0 }; // #28: scratch, so the frame allocates nothing
@@ -143,7 +143,7 @@ export function buildForest(scene, cfg) {
   group.name = 'wood';
   rig.root.add(group);
 
-  const boxes = mazeBoxes().filter((b) => !b.thicket); // the tunnel's thicket is dressed on its own, below
+  const boxes = mazeBoxes();
   // The strip of wall behind the Hatter's stand, rail and card: kept clear of loose bushes and
   // boulders (they would bury the hats) and faced with one clipped hedge instead.
   const HT = MAZE.hatter;
@@ -427,25 +427,13 @@ export function buildForest(scene, cfg) {
   MAZE.glades.forEach((gl, b) => {
     const zn = zones[b + 1];
     const { x, z } = gl.gate;
-    const d = greyAt(z);
-    const w = corridor(MAZE.bands[b].rows[1]) / 2 + 0.35;
-    const stone = _c.setHex(0xd8d0bd).lerp(_c2.setHex(0x9a958b), d).getHex();
-    for (const s of [-1, 1]) {
-      zn.solid.push(part(G.cyl(0.28, 0.36, 4.3, 8), stone, { at: [x + s * w, 2.15, z], vary: 0.25, seed: b }));
-      zn.solid.push(part(G.box(0.8, 0.22, 0.8), stone, { at: [x + s * w, 0.11, z], vary: 0.2 }));
-    }
-    zn.solid.push(part(G.box(w * 2 + 1.1, 0.45, 0.65, 4, 1, 1), stone, { at: [x, 4.45, z], rot: [0, 0, (b - 1.5) * 0.02], vary: 0.25, lump: 0.04 }));
-    // A crest that grows more of a bat the deeper the gate.
-    for (const s of [-1, 1]) zn.solid.push(part(G.cone(0.3 + 0.08 * b, 0.9 + 0.2 * b, 3).scale(1, 1, 0.25), PAL.stoneDark, { at: [x + s * (0.35 + 0.1 * b), 4.95 + 0.08 * b, z], rot: [0, 0, -s * (0.5 + 0.12 * b)], vary: 0.2 }));
-    zn.solid.push(part(G.ball(0.2, 8, 6), PAL.stoneDark, { at: [x, 4.8, z], vary: 0.2 }));
-    // The lantern, on a bracket inside the left post.
-    const lx = x - w + 0.6;
-    zn.metal.push(part(limb([x - w, 3.75, z + 0.1], [lx, 3.75, z + 0.3], 0.03, 0.02, 4), 0x2b2326, { vary: 0 }));
-    zn.metal.push(part(limb([lx, 3.75, z + 0.3], [lx, 3.42, z + 0.3], 0.008, 0.008, 3), 0x2b2326, { vary: 0 }));
-    zn.metal.push(part(G.cone(0.16, 0.14, 4), 0x2b2326, { at: [lx, 3.42, z + 0.3], vary: 0 }));
-    zn.glow.push(part(G.box(0.17, 0.26, 0.17), PAL.lantern, { at: [lx, 3.22, z + 0.3], vary: 0 }));
-    zn.metal.push(part(G.box(0.2, 0.03, 0.2), 0x2b2326, { at: [lx, 3.08, z + 0.3], vary: 0 }));
-    zn.lanterns.push({ x: lx, y: 3.22, z: z + 0.3 });
+    // Stone posts and a lintel, a crest that grows more of a bat the deeper the gate, the lantern
+    // on a bracket inside the left post (court.js gateKit: the walk to the road stands a copy too).
+    const kit = gateKit(b, x, z, corridor(MAZE.bands[b].rows[1]) / 2 + 0.35);
+    zn.solid.push(...kit.solid);
+    zn.metal.push(...kit.metal);
+    zn.glow.push(...kit.glow);
+    zn.lanterns.push(kit.lantern);
   });
 
   // ---- glades and dead ends --------------------------------------------------------------------
@@ -539,31 +527,13 @@ export function buildForest(scene, cfg) {
     }
   }
   // C4: no rings round the pads; the pickups are things lying in the wood (actors.js draws them).
-  // #29 (G29a, the owner): past the last gate the trees do not stop. The way goes into a short
-  // tunnel of trees and brambles, shut at its far end: the end line is ten metres in, where the
-  // castle's card is read and the level changes. The thicket either side of it is dead trees close
-  // together, drawn from their own generator so the wood's own scatter is as it was.
-  {
-    const T = MAZE.approach.tunnel;
-    const tr = makeRng(2929);
-    const zn = zones[5];
-    for (const b of mazeBoxes().filter((q) => q.thicket)) {
-      for (let x = b.minX + 0.6; x < b.maxX - 0.3; x += 1.5 + tr() * 0.9) {
-        for (let z = b.minZ + 0.6; z < b.maxZ - 0.3; z += 1.5 + tr() * 0.9) {
-          const near = Math.abs(x) < T.half + 3; // crowding the tunnel: taller, closer
-          if (!near && tr() < 0.35) continue;
-          const h = (near ? 5 : 4) + tr() * 5;
-          const k = Math.floor(tr() * 3);
-          const px = x + (tr() - 0.5) * 0.8; const pz = z + (tr() - 0.5) * 0.8;
-          if (Math.abs(px) < T.half + 0.5) continue; // the tunnel's own trunks stand there
-          zn.haunt[k].push({ m: matrixOf([px, -0.05, pz], [(tr() - 0.5) * 0.2, tr() * 6.283, (tr() - 0.5) * 0.2], [h * (0.9 + tr() * 0.3), h, h * (0.9 + tr() * 0.3)]), c: new THREE.Color(0.5, 0.47, 0.42).multiplyScalar(0.7 + tr() * 0.4) });
-        }
-      }
-    }
-    const tunnel = buildTunnel({ length: T.mouthZ - T.shutZ + 0.4, seed: 29, openNear: true, openFar: false, mouthHex: groundTone(0, T.mouthZ + 1.5, false).getHex() }); // the approach's earth into the litter
-    tunnel.position.set(0, 0, T.mouthZ);
-    zn.group.add(tunnel);
-  }
+  // The owner (2026-11-19): past the last gate the way is the long winding walk to the road
+  // (logic/tunnelwalk.js). The level ends just through the gate, where the castle's card is read and
+  // the level changes under it; what is seen through the gate before then is the walk's own first
+  // stretch, drawn by the walk's code (tunnelwood.js) in the wood's frame, so the castle level's walk
+  // takes up exactly where it left off.
+  let walkView = null;
+  try { walkView = createTunnelWood(zones[5].group, { tier: deviceTier(), frame: 'court', until: 26 }); } catch (err) { console.warn('the walk\'s first stretch not drawn:', err && err.message); }
 
   // ---- zone meshes -----------------------------------------------------------------------------
   const wetMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.06, metalness: 0.5, transparent: true, opacity: 0.86 });
@@ -646,6 +616,7 @@ export function buildForest(scene, cfg) {
     if (!rig.root.visible || !group.visible) return;
     const eye = rig.eye;
     if (rig.stage !== zoneNow) setZone(rig.stage);
+    if (walkView && zones[5].group.visible) walkView.update(null, time, dt); // the walk's trees through the gate: their wind
 
     // The gate lantern nearest the eye carries the light; all of them flicker together.
     let best = null;

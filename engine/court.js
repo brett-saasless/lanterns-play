@@ -52,6 +52,10 @@ export const SET_SUN = new THREE.Vector3(-0.4, 0.19, -0.9).normalize();
 export const SET_LIGHT = new THREE.Vector3(-0.55, 0.42, -0.72).normalize();
 export const SET = { sun: 2.1, sky: 1.2, exposure: 0.98, fog: 0.009, sunHex: 0xffa860, hemiHex: 0xffd2a8, fogHex: 0xd8a27c, discHex: 0xffc27a };
 export const TITLE_LOOP = 120; // seconds for the title fly-through of the whole level
+// #28: the evening sky behind the parted cloud (linear rgb, as the dome's shader takes them): low by
+// the sun, the middle, the top. The dome draws these; the walk to the road starts from them (woodGateLight).
+export const CLEAR_SKY = Object.freeze({ low: [0.98, 0.64, 0.36], mid: [0.62, 0.56, 0.66], top: [0.25, 0.38, 0.64] });
+const glsl3 = (v) => `vec3( ${v.map((k) => k.toFixed(2)).join(', ')} )`;
 
 const clamp = (k, a = 0, b = 1) => Math.max(a, Math.min(b, k));
 const lerp = (a, b, k) => a + (b - a) * k;
@@ -203,6 +207,55 @@ export function gargoyle(seed = 1) {
 const RIGS = new WeakMap();
 
 /** The level's root group, lights, sky, fog and shadow map. Built on first call for a scene. */
+/**
+ * The wood's light at the Caterpillar's gate as the level ends there (the walk to the road starts
+ * from it, tunnelwood.js): what grade() sets at the far end (w 1, d greyAt(z)) under the sky #28 has
+ * cleared by the end line (clearing() with a cloud of 0 and the sun out), as plain colours and numbers.
+ * turn: radians the walk's frame is turned from the wood's (its vectors are given in the walk's).
+ */
+export function woodGateLight(cfg, z, turn = 0) {
+  // (cfg.light, the far end's overcast, is cleared away there: every value below is the cleared sky's)
+  void cfg;
+  const d = greyAt(z);
+  const C = (hex) => new THREE.Color(hex);
+  const mix3 = (list) => C(list[0]).lerp(C(list[1]), 1).lerp(C(list[2]), d);
+  const turnY = (v) => v.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), turn);
+  const skyC = (a) => new THREE.Color().setRGB(a[0], a[1], a[2]);
+  return {
+    sun: mix3(TONES.sun).lerp(C(SET.sunHex), 1), sunI: SET.sun, sunDir: turnY(SET_LIGHT), sunSeen: turnY(SET_SUN),
+    hemi: mix3(TONES.hemi).lerp(C(SET.hemiHex), 0.7), ground: mix3(TONES.floor), hemiI: SET.sky,
+    fog: mix3(TONES.fog).lerp(C(SET.fogHex), 1), fogD: SET.fog, exposure: SET.exposure,
+    skyLow: skyC(CLEAR_SKY.low), skyMid: skyC(CLEAR_SKY.mid), skyTop: skyC(CLEAR_SKY.top),
+  };
+}
+
+/**
+ * A gate of the wood (band b + 1, at x, z, its opening w either side of the middle): stone posts and a
+ * lintel, the crest that grows more of a bat the deeper the gate, the lantern on its bracket. Parts
+ * to merge: { solid, metal, glow }. forest.js builds every gate from it; the walk to the road
+ * (tunnelwood.js) stands a copy of the Caterpillar's behind its start.
+ */
+export function gateKit(b, x, z, w) {
+  const out = { solid: [], metal: [], glow: [], lantern: null };
+  const d = greyAt(z);
+  const stone = new THREE.Color(0xd8d0bd).lerp(new THREE.Color(0x9a958b), d).getHex();
+  for (const s of [-1, 1]) {
+    out.solid.push(part(G.cyl(0.28, 0.36, 4.3, 8), stone, { at: [x + s * w, 2.15, z], vary: 0.25, seed: b }));
+    out.solid.push(part(G.box(0.8, 0.22, 0.8), stone, { at: [x + s * w, 0.11, z], vary: 0.2 }));
+  }
+  out.solid.push(part(G.box(w * 2 + 1.1, 0.45, 0.65, 4, 1, 1), stone, { at: [x, 4.45, z], rot: [0, 0, (b - 1.5) * 0.02], vary: 0.25, lump: 0.04 }));
+  for (const s of [-1, 1]) out.solid.push(part(G.cone(0.3 + 0.08 * b, 0.9 + 0.2 * b, 3).scale(1, 1, 0.25), PAL.stoneDark, { at: [x + s * (0.35 + 0.1 * b), 4.95 + 0.08 * b, z], rot: [0, 0, -s * (0.5 + 0.12 * b)], vary: 0.2 }));
+  out.solid.push(part(G.ball(0.2, 8, 6), PAL.stoneDark, { at: [x, 4.8, z], vary: 0.2 }));
+  const lx = x - w + 0.6;
+  out.metal.push(part(limb([x - w, 3.75, z + 0.1], [lx, 3.75, z + 0.3], 0.03, 0.02, 4), 0x2b2326, { vary: 0 }));
+  out.metal.push(part(limb([lx, 3.75, z + 0.3], [lx, 3.42, z + 0.3], 0.008, 0.008, 3), 0x2b2326, { vary: 0 }));
+  out.metal.push(part(G.cone(0.16, 0.14, 4), 0x2b2326, { at: [lx, 3.42, z + 0.3], vary: 0 }));
+  out.glow.push(part(G.box(0.17, 0.26, 0.17), PAL.lantern, { at: [lx, 3.22, z + 0.3], vary: 0 }));
+  out.metal.push(part(G.box(0.2, 0.03, 0.2), 0x2b2326, { at: [lx, 3.08, z + 0.3], vary: 0 }));
+  out.lantern = { x: lx, y: 3.22, z: z + 0.3 };
+  return out;
+}
+
 export function daylight(scene, cfg) {
   if (RIGS.has(scene)) return RIGS.get(scene);
   const far = { ...EDGE_LIGHT, ...((cfg && cfg.light) || {}) };
@@ -248,8 +301,8 @@ export function daylight(scene, cfg) {
       '  if ( cloud < 0.999 ) {',
       '    // #28: the overcast breaks; behind it, an evening sky going gold to the low sun.',
       '    float s = max( dot( dir, setSun ), 0.0 );',
-      '    vec3 clear = mix( vec3( 0.98, 0.64, 0.36 ), vec3( 0.62, 0.56, 0.66 ), smoothstep( 0.0, 0.3, h ) );',
-      '    clear = mix( clear, vec3( 0.25, 0.38, 0.64 ), smoothstep( 0.25, 0.85, h ) );',
+      `    vec3 clear = mix( ${glsl3(CLEAR_SKY.low)}, ${glsl3(CLEAR_SKY.mid)}, smoothstep( 0.0, 0.3, h ) );`,
+      `    clear = mix( clear, ${glsl3(CLEAR_SKY.top)}, smoothstep( 0.25, 0.85, h ) );`,
       '    clear += vec3( 1.0, 0.5, 0.18 ) * ( 0.55 * pow( s, 6.0 ) + 0.5 * pow( s, 48.0 ) ) * sunUp;',
       '    vec2 q = dir.xz / ( max( h, 0.0 ) + 0.22 ) * 1.4 + drift;',
       '    float n = 0.5 * skyNoise( q ) + 0.25 * skyNoise( q * 2.03 + 3.1 ) + 0.125 * skyNoise( q * 4.1 + 7.7 ) + 0.0625 * skyNoise( q * 8.3 + 1.3 );',
@@ -1405,7 +1458,7 @@ export function buildCourt(scene, cfg) {
   const way = [[0, 19], [0, 11], [-6.2, 4], [-6.2, -4], [0, -11], [0, -19], [0, -25]];
   for (let band = 1; band <= 4; band++) for (const p of routeOf(band)) way.push([p.x, p.z]);
   const gate = MAZE.glades[3].gate;
-  way.push([gate.x, gate.z - 3], [0, MAZE.approach.endZ], [0, MAZE.approach.tunnel.shutZ + 2.5]); // #29: into the tunnel, short of its shut end
+  way.push([gate.x, gate.z - 3], [0, MAZE.approach.endZ], [0, MAZE.approach.endZ - 8]); // through the last gate and a little way along the walk to the road (tunnelwood.js's view of it)
   const curve = new THREE.CatmullRomCurve3(way.map(([x, z]) => new THREE.Vector3(x, 1.85, z)), false, 'catmullrom', 0.12);
   const titlePos = new THREE.Vector3();
   const titleTarget = new THREE.Vector3();

@@ -10,6 +10,7 @@
 import { aabb } from './courtmap.js';
 import { stairHeight, levelAt, STEP_UP } from './levels.js';
 import { RECTS as ROAD_RECTS, roadFloor } from './road.js'; // issue #29: the road up from the wood
+import { RECTS as WALK_RECTS, TUNNEL, tunnelFloor } from './tunnelwalk.js'; // the walk from the Caterpillar's gate to the road's foot
 
 // The stair rule and the step height are shared with the yard's crates (levels.js).
 export { stairHeight, STEP_UP };
@@ -36,7 +37,9 @@ export const UPPER = 5;
 export const ZONES = f([
   { id: 'approach', stage: 0, y: 0, rects: [R(-12, 12, 34, 44)] },
   // Issue #29: the road up from the wood's end, south of the approach (its floor climbs: road.js).
-  { id: 'road', stage: 0, y: 0, rects: ROAD_RECTS.map((r) => R(r.minX, r.maxX, r.minZ, r.maxZ)) },
+  // The walk from the wood (tunnelwalk.js) is the road's too: its metre-wide slices of clear floor
+  // come first, east of leg 1, the last abutting it, so the walls close it in and open onto the road.
+  { id: 'road', stage: 0, y: 0, rects: [...ROAD_RECTS, ...WALK_RECTS].map((r) => R(r.minX, r.maxX, r.minZ, r.maxZ)) },
   { id: 'bridge', stage: 0, y: 0, rects: [R(-12, 12, 14, 34)], lower: 'pit' },
   { id: 'forecourt', stage: 0, y: 0, rects: [R(-9, 9, 0.5, 14)] },
   { id: 'hall', stage: 1, y: 0, rects: [R(-4, 4, -8.5, -0.5)] },
@@ -194,6 +197,8 @@ function upperSolid(L, x, z, state) {
 function baseFloor(x, z) {
   const road = roadFloor(x, z); // issue #29: the road climbs from the wood to the approach
   if (road != null) return road;
+  const walk = tunnelFloor(x, z); // the walk to it, level with its foot
+  if (walk != null) return walk;
   if (inRect(STAIRS.rect, x, z)) return stairFloor(z);
   return z <= -128 ? UPPER : 0;
 }
@@ -264,13 +269,53 @@ function subtract(a, b, cuts) {
 }
 
 let WALLS = null;
+let ALL_WALLS = null;
+let WALK_WALLS = null;
+// The walk from the gate (tunnelwalk.js) is ~90 metre slices, so ~500 wall and corner boxes: they are
+// kept out of the castle's always-solid list (every mover in the castle tests every box) and
+// added by keep.js keepBoxes only round where the warden is on it (walkWallsNear).
+const WALK_X = TUNNEL.mouth.x - 0.6;
 
 /**
  * The always-solid walls: every side of every clear rectangle, less where another clear
  * rectangle abuts it (a turn of a passage, or a door), as boxes WALL.t thick just outside it.
+ * Not the walk's (walkWalls).
  */
 export function keepWalls() {
-  if (WALLS) return WALLS;
+  if (!WALLS) WALLS = f(allWalls().filter((b) => b.minX < WALK_X));
+  return WALLS;
+}
+
+/**
+ * The walk's walls and corner posts (every one east of the road's leg 1), side runs merged where
+ * they line up, sorted by their west edge.
+ */
+export function walkWalls() {
+  if (WALK_WALLS) return WALK_WALLS;
+  const raw = [...allWalls(), ...allCorners()].filter((b) => b.minX >= WALK_X).sort((a, b) => a.minZ - b.minZ || a.maxZ - b.maxZ || a.minX - b.minX);
+  const out = [];
+  for (const b of raw) {
+    const last = out[out.length - 1];
+    if (last && Math.abs(last.minZ - b.minZ) < EPS && Math.abs(last.maxZ - b.maxZ) < EPS && b.minX <= last.maxX + EPS) {
+      out[out.length - 1] = aabb(last.minX, Math.max(last.maxX, b.maxX), last.minZ, last.maxZ, WALL.h, 'wall');
+    } else out.push(b);
+  }
+  out.sort((a, b) => a.minX - b.minX);
+  WALK_WALLS = f(out);
+  return WALK_WALLS;
+}
+
+/** The walk's walls that reach into x0 to x1 (into out, which is returned). */
+export function walkWallsNear(x0, x1, out = []) {
+  for (const b of walkWalls()) {
+    if (b.minX > x1) break;
+    if (b.maxX >= x0) out.push(b);
+  }
+  return out;
+}
+
+function allWalls() {
+  if (ALL_WALLS) return ALL_WALLS;
   const all = regions();
   const T = WALL.t;
   const out = [];
@@ -287,8 +332,8 @@ export function keepWalls() {
     for (const [a, b] of subtract(r.minZ, r.maxZ, cutsZ(r.minX, -1))) out.push(aabb(r.minX - T, r.minX, a, b, WALL.h, 'wall'));
     for (const [a, b] of subtract(r.minZ, r.maxZ, cutsZ(r.maxX, 1))) out.push(aabb(r.maxX, r.maxX + T, a, b, WALL.h, 'wall'));
   }
-  WALLS = f(out);
-  return WALLS;
+  ALL_WALLS = out;
+  return ALL_WALLS;
 }
 
 let CORNERS = null;
@@ -301,7 +346,12 @@ let CORNERS = null;
  * post WALL.t square.
  */
 export function keepCorners() {
-  if (CORNERS) return CORNERS;
+  if (!CORNERS) CORNERS = f(allCorners().filter((b) => b.minX < WALK_X));
+  return CORNERS;
+}
+let ALL_CORNERS = null;
+function allCorners() {
+  if (ALL_CORNERS) return ALL_CORNERS;
   const all = regions();
   const T = WALL.t;
   const out = [];
@@ -319,8 +369,8 @@ export function keepCorners() {
       }
     }
   }
-  CORNERS = f(out);
-  return CORNERS;
+  ALL_CORNERS = out;
+  return ALL_CORNERS;
 }
 
 // ---- checkpoints --------------------------------------------------------------------------

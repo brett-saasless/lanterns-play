@@ -2,7 +2,8 @@
 // walk on: the hillside south of the castle's approach, the rutted dirt road in its five
 // switchbacks, dead trees on the banks leaning in toward it, stones, the wood's edge at the foot,
 // the rock the boulder breaks from, the cave in the bank above leg 4, the boulder and its dust, the
-// swarm and the one giant bat, and the tunnel the road's foot opens out of (tunnel.js, G29a). And
+// swarm and the one giant bat, and the walk from the Caterpillar's gate the foot opens out of
+// (tunnelwood.js: its dressing, its ground and its light from the wood's to the foot's). And
 // the light (logic/roadlight.js; the owner on art-critic pass 2): the foot's sickly low sun in a
 // thin haze, grading evenly with sim.waves.road.dark (the one-way ratchet: kept state, never from
 // where the warden stands) to the castle's own light at the courtyard entrance by the top, the sun
@@ -18,7 +19,12 @@
 
 import * as THREE from 'three';
 import * as S from './sculpt.js';
-import { buildTunnel } from './tunnel.js';
+import { createTunnelWood, deviceTier } from './tunnelwood.js'; // the walk from the Caterpillar's gate to the foot
+import { TUNNEL, nearest as walkNearest } from '../logic/tunnelwalk.js';
+import { woodGateLight, gateKit } from './court.js';
+import { COURT_CONFIG } from '../logic/courtconfig.js';
+import { MAZE, corridor } from '../logic/courtmap.js';
+import { pathTone, floorTone, greyAt } from '../logic/courtlook.js';
 import { buildRoadSurface, buildRoadProps } from './roadsurface.js'; // the owner: variability along the whole road, a few derelicts
 import { createRoadCreature } from './roadcreature.js'; // the second boulder, the rubble, the werewolf and the cutaway's set
 import { cutawayAt, filmLightAt } from '../logic/cutaway.js'; // the werewolf cutaway's film (its camera and its light here)
@@ -106,9 +112,20 @@ function hillBase(x, z) {
   return lerp(y, -33 - 2 * smooth((-x - 60) / 40), west) + 1.4 * S.noise(x * 0.05, 0, z * 0.05, 7);
 }
 
-/** The ground at (x, z): flush with the road on it, banked between the legs, the hill beyond. */
+/** The ground at (x, z): flush with the road on it, banked between the legs, the hill beyond; level under the walk from the wood. */
 export function hillAt(x, z) {
   if (z < 44.75) return 0;
+  const h = hillRaw(x, z);
+  if (x < TUNNEL.mouth.x - 2) return h;
+  walkNearest(x, z, _wn);
+  if (_wn.s < -TUNNEL.back - 6 || _wn.s > TUNNEL.length + 4) return h; // (the road's own ground past the mouth)
+  // the walk's floor and verges, then up into the hill: level within 12 m of it, the hill by 24 m,
+  // and the road's own ground again across the mouth (4 m either side of it)
+  const k = Math.max(smooth((Math.abs(_wn.u) - 12) / 12), smooth((-TUNNEL.back - _wn.s) / 6), smooth((_wn.s - (TUNNEL.length - 4)) / 8));
+  return lerp(TUNNEL.floor - 0.04, h, k);
+}
+const _wn = {};
+function hillRaw(x, z) {
   const n = nearest(x, z);
   if (onRoad(x, z) || n.d1 < 1.6) return n.h1 - 0.04;
   const base = hillBase(x, z);
@@ -132,7 +149,7 @@ function buildHill() {
   const xs = [];
   for (let x = -120; x < -45; x += 3) xs.push(x);
   for (let x = -45; x <= 45; x += 1) xs.push(x);
-  for (let x = 48; x <= 120; x += 3) xs.push(x);
+  for (let x = 48; x <= 153; x += 3) xs.push(x); // (past 120: the hill round the walk from the wood)
   const zs = [];
   for (let z = 44.75; z < 132; z += 1) zs.push(z);
   for (let z = 132; z <= 210; z += 3) zs.push(z);
@@ -343,6 +360,8 @@ function buildStones(rnd) {
  * The wood the warden has just left: thick behind the road's foot (east of it) and round the hill's
  * south-east, the way out a gap in it; the south-west left open, so the low sun is seen over it.
  */
+const WOOD_HAZE = new THREE.Color(0x8a7462); // the wood's evening haze at the gate, as these dark forms read in it
+const _hz = new THREE.Color();
 function buildWood(rnd) {
   const parts = [];
   for (let i = 0; i < 260; i++) {
@@ -352,15 +371,27 @@ function buildWood(rnd) {
     if (x < 72 && z > 99 && z < 109) continue; // the way out of the wood, onto the road
     const y = hillAt(x, z) - 0.3;
     const h = 7 + rnd() * 9;
-    if (rnd() < 0.55) {
-      const g = new THREE.ConeGeometry(1.6 + rnd() * 1.4, h, 7).translate(x, y + h / 2 + 1, z);
-      parts.push(S.tint(g.deleteAttribute('uv'), 0x1d2a20, 0.3, i));
+    const cone = rnd() < 0.55;
+    const r = cone ? 1.6 + rnd() * 1.4 : 2.2 + rnd() * 1.8; // (drawn in the same order as before, so the rest of the wood stands as it did)
+    walkNearest(x, z, _wn);
+    const along = _wn.s > -TUNNEL.back - 4 && _wn.s < TUNNEL.length + 2;
+    if (along && Math.abs(_wn.u) < 24) continue; // the walk from the gate dresses its own way (tunnelwood.js), and none stand close behind its trees to show through their gaps
+    // (only where the walk sees them: the rest of the road's wood stands as it did)
+    if (_wn.s > TUNNEL.length - 30 && _wn.s < TUNNEL.length + 24 && _wn.u < 0 && _wn.u > -45) continue; // the walk's last 30 m: none on its left, against the vista (as far as it sees past the mouth)
+    if (along && Math.abs(_wn.u) < 30 && y > TUNNEL.floor + 0.6) continue; // none standing up the bank over the walk
+    // over the walk's first half, hazed toward the wood's evening light, so they sit back behind its trees
+    if (along && _wn.s < TUNNEL.length / 2 + 8 && Math.abs(_wn.u) < 48) continue; // the first half, far from the road: none near enough to show early through the gaps
+    const haze = along && _wn.s < TUNNEL.length / 2 + 10 && Math.abs(_wn.u) < 70 ? 0.4 * (1 - smooth(_wn.s / (TUNNEL.length / 2 + 10))) + 0.35 : 0;
+    const tone = (hex) => (haze > 0 ? _hz.setHex(hex).lerp(WOOD_HAZE, haze).getHex() : hex);
+    if (cone) {
+      const g = new THREE.ConeGeometry(r, h, 7).translate(x, y + h / 2 + 1, z);
+      parts.push(S.tint(g.deleteAttribute('uv'), tone(0x1d2a20), 0.3, i));
     } else {
-      const g = new THREE.IcosahedronGeometry(2.2 + rnd() * 1.8, 0).scale(1, 1.25, 1).translate(x, y + h * 0.75, z);
-      parts.push(S.tint(g.deleteAttribute('uv'), 0x243325, 0.3, i));
+      const g = new THREE.IcosahedronGeometry(r, 0).scale(1, 1.25, 1).translate(x, y + h * 0.75, z);
+      parts.push(S.tint(g.deleteAttribute('uv'), tone(0x243325), 0.3, i));
     }
     const t = new THREE.CylinderGeometry(0.18, 0.3, h * 0.6, 5).translate(x, y + h * 0.3, z);
-    parts.push(S.tint(t.deleteAttribute('uv'), 0x241c16, 0.2, i));
+    parts.push(S.tint(t.deleteAttribute('uv'), tone(0x241c16), 0.2, i));
   }
   return S.merge(parts);
 }
@@ -637,18 +668,20 @@ export function createRoadView(root, parts) {
   add(buildStones(rnd), bark);
   add(buildRoadProps({ hillAt }).geometry, bark); // loose stones and four derelicts on the verges: props only, the road clear
   add(buildWood(rnd), bark);
-  // Where the way comes out of the wood (#29 G29a): the road's foot opens out of the tunnel of trees
-  // and brambles the wood's end ran into (tunnel.js, the same one), shut behind, its mouth to the west.
-  {
-    const T = ROAD.foot.tunnel;
-    const tunnel = buildTunnel({
-      length: T.backX - T.mouthX, seed: 31, openNear: true, openFar: false, mouthHex: 0x584c3e, // the road's dirt, out of the litter
-      ground: (lx, lz) => hillAt(T.mouthX - lz, ROAD.foot.z + lx),
-    });
-    tunnel.rotation.y = -Math.PI / 2; // its -z (in) is the road's +x (east, back into the wood)
-    tunnel.position.set(T.mouthX, 0, ROAD.foot.z);
-    group.add(tunnel);
-  }
+  // Where the way comes out of the wood (the owner, 2026-11-19): the long winding walk from the
+  // Caterpillar's gate (logic/tunnelwalk.js, tunnelwood.js) comes out onto the east end of leg 1.
+  // Its ground grades from the wood's earth (courtlook.js) to the road's dirt and dead grass here,
+  // its light from the wood's at the gate (court.js woodGateLight) to this file's at the foot.
+  const gateD = greyAt(TUNNEL.gate.z);
+  const walk = createTunnelWood(group, {
+    tier: deviceTier(), frame: 'castle', ground: hillAt, dirt: 0x625646, verge: GROUND.getHex(), // (the road's own dirt, roadsurface.js DIRT)
+    woodPath: pathTone(gateD), woodFloor: floorTone(gateD),
+    wood: woodGateLight(COURT_CONFIG, TUNNEL.gate.z, TUNNEL.turn),
+    gate: () => {
+      const k = gateKit(3, 0, 0, corridor(MAZE.bands[3].rows[1]) / 2 + 0.35);
+      return S.merge([...k.solid, ...k.metal, ...k.glow]);
+    },
+  });
   // The cave's dark: a black hollow set into the bank, swallowing light.
   {
     const cv = ROAD.bats.cave;
@@ -906,8 +939,13 @@ export function createRoadView(root, parts) {
     if (keyHeld && !(held && held.key > 0)) { parts.key.position.copy(keyPlace); parts.key.color.copy(keyColour); keyHeld = false; } // put back exactly
     // the bats' wings glow blood-orange where the low sun is behind them (the colour script)
     batMat.emissive.copy(rgb(_c, L.fillRGB)).multiplyScalar(0.35 * smooth((L.sunElevDeg + 2) / 4) * on);
+    // on the walk from the wood: the wood's light at the gate, giving way to this along it
+    const wood = outside && on > 0.001 ? walk.light(parts, eye, inRun ? parts.getRenderer() : null) : 0;
+    if (wood > 0) { groundLift.value.multiplyScalar(1 - wood); barkLift.value.multiplyScalar(1 - wood); }
+    walk.lift(groundLift.value, barkLift.value); // the walk lit as the land it turns into
+    walk.update(outside ? eye : null, time, dt);
     // what lit the road this frame, for the smoke's check that it follows the ratchet to the courtyard's light
-    group.userData.light = { on, dark, zone: want ? 'road' : 'forecourt', fill: parts.fill.intensity, hemi: parts.hemi.intensity, exposure: inRun && parts.getRenderer() ? parts.getRenderer().toneMappingExposure : null };
+    group.userData.light = { wood: Math.round(wood * 1000) / 1000, on, dark, zone: want ? 'road' : 'forecourt', fill: parts.fill.intensity, hemi: parts.hemi.intensity, exposure: inRun && parts.getRenderer() ? parts.getRenderer().toneMappingExposure : null };
 
     // ---- the boulder ----
     const b = road && road.boulder;
@@ -1080,5 +1118,7 @@ export function createRoadView(root, parts) {
     return camView;
   }
 
-  return { group, update, sceneCamera, creature: extra };
+  /** Frees the walk from the gate's instance buffers (castle.js dispose; the rest goes with its traversal). */
+  const dispose = () => walk.dispose();
+  return { group, update, sceneCamera, creature: extra, dispose };
 }

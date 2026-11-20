@@ -18,6 +18,7 @@ import { createKeepCues, KEEP_STAGES } from './keepcues.js';
 import { createRoadCues } from './roadcues.js'; // issue #29: the road up from the wood
 import { createWayoutCues } from './wayoutcues.js'; // issue #29: the crater's and the vault's cut scenes
 import { onRoad } from '../logic/road.js';
+import { inTunnel, blendAt, nearest as walkNearest } from '../logic/tunnelwalk.js';
 import { COURT } from '../logic/courtmap.js';
 import { CLOCKS as CLOCK_SPOTS, zoneAt as keepZoneAt } from '../logic/keepmap.js';
 import { tickGain } from '../logic/clocks.js';
@@ -1541,11 +1542,15 @@ export function play(name, ev, opt) {
  */
 function followRoad(sim) {
   const pl = sim && sim.player;
-  const on = !!pl && onRoad(pl.x, pl.z);
+  // the walk from the Caterpillar's gate is the road's too: still, and the hum coming in along it
+  const walk = !!pl && inTunnel(pl.x, pl.z);
+  const on = !!pl && (walk || onRoad(pl.x, pl.z));
   const dark = sim && sim.waves && sim.waves.road ? sim.waves.road.dark : 1;
+  const along = walk ? blendAt(walkNearest(pl.x, pl.z, _walkAt).s) : 1;
   keep.bed.setStill(on ? 1 : 0, ctx.currentTime);
-  road.bed.setHum(on ? 0.35 + 0.65 * dark : 0, ctx.currentTime);
+  road.bed.setHum(on ? (0.35 + 0.65 * dark) * along : 0, ctx.currentTime);
 }
+const _walkAt = {};
 
 /**
  * The snakes in the pit (owner, 2026-11-18): their level from where the warden is (hissLevel: the

@@ -255,10 +255,11 @@ export function seatCarry(sim, carry) {
 }
 
 /**
- * Where the warden walks out of the wood (the court's end): the offset across the approach from
- * its middle, and the facing, for the road's foot (road.js footSeat). x0: the approach's middle.
+ * Where the warden walks out of the wood (the court's end, just through the Caterpillar's gate): the
+ * offset across the approach from its middle, how far down it (z), and the facing, for the walk to
+ * the road (tunnelwalk.js tunnelSeat). x0: the approach's middle.
  */
 export function poseOf(sim, x0 = 0) {
   const pl = sim.player;
-  return { offset: pl.x - x0, yaw: pl.yaw, pitch: pl.pitch };
+  return { offset: pl.x - x0, z: pl.z, yaw: pl.yaw, pitch: pl.pitch };
 }
