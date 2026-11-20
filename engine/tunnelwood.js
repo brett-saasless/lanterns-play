@@ -14,11 +14,21 @@
 //
 // Cost (logic/tunnelwalk.js TIERS): every kind is ONE instanced mesh for the whole walk (trunks,
 // limbs, leaf cards from one 512 px atlas, bush stems, boulders, grass), plus one static mesh (the
-// ground, the gate behind the start and the Tweedles): 6 draw calls on the phone tier, 9 on the
-// desktop's. Nothing casts a shadow, nothing is transparent (alpha-tested cards), no light is added.
+// ground, the gate behind the start and the Tweedles), and the far trees' two (below): 8 draw calls
+// on the phone tier, 11 on the desktop's. Nothing casts a shadow, nothing is transparent (alpha-tested cards), no light is added.
 // Only the chunks near the eye are alive (windowAt): their instances are expanded a few at a time,
 // inside a few milliseconds a frame, into a fixed pool of buffers made at build, and written
 // together into the meshes when the window moves, so memory stays flat and no frame allocates.
+//
+// The trees (the owner, 2026-11-19: "the trees in the tunnel should still be drawn, even if the user
+// isn't close to them"): every tree of the walk is drawn from anywhere, at every distance. Near the
+// eye (logic/treelod.js planLod: a band round it in every direction, and always the two nearest in
+// view) it is the full sculpted tree, expanded into a pool of tree slots of its own; everywhere else
+// it is the maze's simple tree (mazetrees.js: the cone tree for a leafy one, the bare tree for a bare
+// one), standing where it stands, as tall and as wide as its crown and in its colour: two more
+// instanced meshes, every tree in one or the other. A few trees a frame are filled in, nearest first.
+// Nothing of the walk fades out with distance any more; past HIDE metres off the walk only the
+// bushes, boulders and grass are left out (a few pixels in the haze by then).
 
 import * as THREE from 'three';
 import * as S from './sculpt.js';
@@ -26,6 +36,9 @@ import {
   TUNNEL, placements, CHUNK, CHUNKS, chunkOf, windowAt, maxAlive, placeAt, pointAt, nearest, blendAt, TWEEDLES, tunnelTier,
 } from '../logic/tunnelwalk.js';
 import { buildTweedles } from './tweedles.js';
+import { mats } from './court.js';
+import { victorianTree, hauntedTree } from './mazetrees.js';
+import { TREE_LOD, lodState, planLod } from '../logic/treelod.js';
 
 let TIER = null;
 /**
@@ -52,10 +65,12 @@ const TAU = Math.PI * 2;
 const S_MIN = -TUNNEL.back;
 const PATH_HALF = TUNNEL.half + 0.15;
 // (PATH_HALF: the sample's: the open width below the canopy)
-// From FADE metres off the walk its dressing thins out (a screen-door dither, every material), and past
-// HIDE it is not drawn: up the road it is in the haze or behind the hill by then.
-const FADE = 60;
+// Past HIDE metres off the walk its bushes, boulders and grass are not drawn (up the road they are a
+// few pixels in the haze or behind the hill by then); its trees and its ground always are.
 const HIDE = 110;
+// The far trees' colour against their full trees' (the cone is solid where the crown is open cards
+// and sky): set on the stills so the swap at the band's edge is not a jump in tone.
+const FAR_TONE = 0.7;
 // The approved sample's light (hatter-wood-sample.html: FogExp2 0xc8d0d8 0.017, hemisphere 0xc8d0d8 over
 // 0x6a6860 at 1.05, sun 0xe8e6e0), which the walk's first third leans toward (SAMPLE_K at the gate) with
 // its exposure SAMPLE_EXPOSURE higher, before it turns to the road's.
@@ -432,26 +447,22 @@ function grassGeo(segments) {
 
 // ---- 3. the sample's wind (section 5): one shared clock; each instance's sway from its species ----
 
-const WIND = { uTime: { value: 0 }, uWind: { value: 0.15 }, uBase: { value: TUNNEL.floor }, uShow: { value: 1 } };
-const FADE_FRAG = `
-  if ( uShow < 0.999 ) {
-    float tunnelDither = fract( sin( dot( floor( gl_FragCoord.xy ), vec2( 12.9898, 78.233 ) ) ) * 43758.5453 );
-    if ( tunnelDither > uShow ) discard;
-  }`;
+const WIND = { uTime: { value: 0 }, uWind: { value: 0.15 }, uBase: { value: TUNNEL.floor } };
+// (the far fade, a dither on every material from 60 to 110 m off the walk, is gone: the trees are
+// always drawn, the far ones as the maze's, and only the small dressing is left out past HIDE)
 // The road's land lift (roadview.js groundLift, barkLift: an extra light on the land and the dead wood
 // alone, already scaled down by the wood's share of the light where the eye is): the walk takes the
 // same, so its last stretch is lit as the road it turns into. 'ground' on the ground and the grass,
 // 'bark' on the trees, the bushes and the boulders. Zero in the wood's level (the court's frame).
 const LIFT = { ground: { value: new THREE.Color(0, 0, 0) }, bark: { value: new THREE.Color(0, 0, 0) } };
 /**
- * The far fade (uShow) on any of the walk's materials: a dither, so nothing is transparent; and the
- * land's lift (`lift`: 'ground' | 'bark'). frag(shader): more of the fragment shader (the static mesh's).
+ * The land's lift (`lift`: 'ground' | 'bark') on any of the walk's materials. frag(shader): more of
+ * the fragment shader (the static mesh's).
  */
 function fadeOn(material, key, vertex = null, lift = null, frag = null) {
   material.onBeforeCompile = (shader) => {
-    shader.uniforms.uShow = WIND.uShow;
     if (vertex) vertex(shader);
-    let fs = `uniform float uShow;\n${shader.fragmentShader}`.replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>${FADE_FRAG}`);
+    let fs = shader.fragmentShader;
     if (lift) {
       shader.uniforms.uLift = LIFT[lift];
       fs = `uniform vec3 uLift;\n${fs}`.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance += diffuseColor.rgb * uLift;');
@@ -642,6 +653,31 @@ function thin(arr, keep, grow) {
   return out;
 }
 const packed = (list) => { const a = new Float32Array(list.length * 16); list.forEach((m, i) => a.set(m.elements, i * 16)); return a; };
+/**
+ * How big a blueprint stands, in its own frame: { h, r } its top and its crown's reach from the
+ * trunk (the leaf cards' for a leafy tree, the limbs' tips for a bare one; the 85th of each, so a
+ * stray limb does not make its far tree fat).
+ */
+function extentOf(v) {
+  const ys = []; const rs = []; const bare = [];
+  const each = (arr, fn) => { for (let i = 0; i < arr.length; i += 16) fn(arr, i); };
+  const tip = (a, i) => { const x = a[i + 12] + a[i + 4] * 0.94; const y = a[i + 13] + a[i + 5] * 0.94; const z = a[i + 14] + a[i + 6] * 0.94; ys.push(y); bare.push(Math.hypot(x, z)); };
+  if (v.trunks) each(v.trunks, tip);
+  each(v.branches, tip);
+  each(v.leaves, (a, i) => { const s = Math.hypot(a[i], a[i + 1], a[i + 2]) * 0.5; ys.push(a[i + 13] + s); rs.push(Math.hypot(a[i + 12], a[i + 14]) + s); });
+  const p85 = (l) => { if (!l.length) return 0; const s = [...l].sort((a, b) => a - b); return s[Math.floor(s.length * 0.85)]; };
+  return { h: ys.length ? Math.max(...ys) * 0.95 : 1, r: p85(rs), rBare: p85(bare) };
+}
+/** The mean colour (0..1, as the walk's textures are sampled: raw) of a square of a canvas; alpha: only its opaque texels. */
+function meanOf(canvas, x, y, size, alpha) {
+  const d = canvas.getContext('2d').getImageData(x, y, size, size).data;
+  const s = [0, 0, 0]; let n = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    if (alpha && d[i + 3] < 107) continue; // (the cards' alpha test, 0.42)
+    s[0] += d[i]; s[1] += d[i + 1]; s[2] += d[i + 2]; n += 1;
+  }
+  return s.map((v) => v / Math.max(1, n) / 255);
+}
 
 // ---- the static mesh's own shading: the floor's grit, pebbles and wheel marks, the light over the Tweedles
 // aWalk (per vertex, staticMesh): the ground's (u, s, 1); the Tweedles' (u, s, 2); anything else 0. On
@@ -735,7 +771,41 @@ function kitFor(tier) {
     shrubBp(r, i % 2, sb, sl);
     bp.shrub.push({ branches: packed(thin(sb, 0.6, 1)), leaves: packed(thin(sl, 0.4, 1.45)) });
   }
-  const kit = { tier, geo, mats: { wood, leaf, rock: rockMat, grass: grassMat, stat: statMat }, bp, textures: [bark.albedoMap, bark.bumpMap, bark.roughnessMap, atlas, rock.albedoMap, rock.bumpMap, rock.roughnessMap].filter(Boolean) };
+  // how big each blueprint stands (its far tree is made as tall and as wide)
+  for (const list of Object.values(bp)) for (const v of list) v.ext = extentOf(v);
+  // the far trees: the maze's own (mazetrees.js), in the maze's matte material with the walk's land
+  // lift; and the average colour each texture lays over its tree, so a far tree is its tree's colour
+  const far = {
+    cone: victorianTree(1, 0), bare: hauntedTree(S.rng(0x51ee), 0),
+    stemN: new THREE.CylinderGeometry(0.035, 0.05, 0.5, 6, 1, false).attributes.position.count, // (the cone tree's stem: its first vertices, mazetrees.js)
+    mat: fadeOn(mats().matte.clone(), 'tunnel-far', null, 'bark'),
+  };
+  for (const k of ['cone', 'bare']) {
+    const g = far[k]; g.computeBoundingBox();
+    const bb = g.boundingBox;
+    far[`${k}H`] = bb.max.y;
+    far[`${k}R`] = Math.max(-bb.min.x, bb.max.x, -bb.min.z, bb.max.z);
+    // the vertex colour of its crown (the cone above the stem) or its wood: what the instance colour multiplies
+    const p = g.attributes.position; const c = g.attributes.color; const sum = [0, 0, 0]; let n = 0;
+    for (let i = 0; i < p.count; i++) if (k === 'bare' || i >= far.stemN) { sum[0] += c.getX(i); sum[1] += c.getY(i); sum[2] += c.getZ(i); n += 1; }
+    far[`${k}Tint`] = sum.map((v) => v / Math.max(1, n));
+  }
+  far.atlas = Object.fromEntries(Object.entries(TILE).map(([sp, t]) => [sp, meanOf(atlas.image, t[0] * 512, (0.5 - t[1]) * 512, 256, true)]));
+  far.bark = meanOf(bark.albedoMap.image, 0, 0, 256, false);
+  // the cone tree's own colours made relative, so one instance colour (its crown's) paints it: the
+  // cone's keep the maze's variation about 1, the stem's are the walk's bark over its leaves (a
+  // typical oak's), so the stem is the bark's colour under any crown
+  {
+    const lc = grey(new THREE.Color().setHSL(0.225, 0.5, 0.52)); const bc = grey(new THREE.Color().setHSL(0.08, 0.24, 0.63));
+    const stem = [bc.r * far.bark[0] / (lc.r * far.atlas.oak[0]), bc.g * far.bark[1] / (lc.g * far.atlas.oak[1]), bc.b * far.bark[2] / (lc.b * far.atlas.oak[2])];
+    const g = far.cone; const p = g.attributes.position; const c = g.attributes.color; const t = far.coneTint;
+    for (let i = 0; i < p.count; i++) {
+      if (i >= far.stemN) c.setXYZ(i, c.getX(i) / t[0], c.getY(i) / t[1], c.getZ(i) / t[2]);
+      else c.setXYZ(i, stem[0], stem[1], stem[2]);
+    }
+    far.coneTint = [1, 1, 1];
+  }
+  const kit = { tier, geo, far, mats: { wood, leaf, rock: rockMat, grass: grassMat, stat: statMat, far: far.mat }, bp, textures: [bark.albedoMap, bark.bumpMap, bark.roughnessMap, atlas, rock.albedoMap, rock.bumpMap, rock.roughnessMap].filter(Boolean) };
   KITS.set(tier.name, kit);
   return kit;
 }
@@ -783,9 +853,18 @@ export function createTunnelWood(parent, opts = {}) {
     root.position.set(-pointAt(0, {}).x, 0, -pointAt(0, {}).z);
   }
 
-  // which placements each chunk holds
+  // which placements each chunk holds (the walk's trees are not the chunks': they have their own level
+  // of detail, below; the court's fixed view keeps them in its chunks, all full)
+  const lodOn = !court;
   const byChunk = Array.from({ length: CHUNKS }, () => ({ trees: [], shrubs: [], boulders: [], grass: [] }));
-  for (const k of ['trees', 'shrubs', 'boulders', 'grass']) for (const q of P[k]) if (q.s >= sFrom && q.s <= sTo) byChunk[q.chunk][k].push(q);
+  for (const k of ['trees', 'shrubs', 'boulders', 'grass']) {
+    if (k === 'trees' && lodOn) continue;
+    for (const q of P[k]) if (q.s >= sFrom && q.s <= sTo) byChunk[q.chunk][k].push(q);
+  }
+  const TREES = lodOn ? P.trees : [];
+  const NT = TREES.length;
+  const LOD = TREE_LOD[tier.name] || TREE_LOD.desktop;
+  const SLOTS = lodOn ? Math.min(NT, LOD.maxFull) : 0;
 
   // the kinds, each one instanced mesh: [name, geometry, material, aux floats]
   const stemsApart = tier.name !== 'phone';
@@ -824,6 +903,17 @@ export function createTunnelWood(parent, opts = {}) {
   const courtFrom = chunkOf(Math.max(0, sFrom));
   const courtTo = chunkOf(Math.min(TUNNEL.length, sTo));
   const alive = court ? courtTo - courtFrom + 1 : maxAlive(tier);
+  // the most of each kind one full tree can hold (its biggest blueprint), for the tree slots
+  const treeMax = KINDS.map(() => 0);
+  if (lodOn) {
+    for (const list of [kit.bp.oak, kit.bp.maple, kit.bp.pine]) {
+      for (const v of list) {
+        treeMax[K.trunk] = Math.max(treeMax[K.trunk], count16(v.trunks));
+        treeMax[K.branch] = Math.max(treeMax[K.branch], count16(v.branches));
+        treeMax[K.leaf] = Math.max(treeMax[K.leaf], count16(v.leaves));
+      }
+    }
+  }
   const capacity = KINDS.map((_, i) => {
     let best = 0;
     for (let c = 0; c < CHUNKS; c++) {
@@ -831,7 +921,7 @@ export function createTunnelWood(parent, opts = {}) {
       for (let k = c; k < Math.min(CHUNKS, c + alive); k++) sum += chunkCounts[k][i];
       best = Math.max(best, sum);
     }
-    return Math.max(1, best);
+    return Math.max(1, best + SLOTS * treeMax[i]);
   });
   const meshes = KINDS.map(([name, g0, m, aux], i) => {
     const g = aux ? g0.clone() : g0; // its own copy for the per-instance sway and atlas tile (a second frame has its own)
@@ -862,6 +952,14 @@ export function createTunnelWood(parent, opts = {}) {
     c: KINDS.map((_, i) => new Float32Array(Math.max(1, chunkMax[i]) * 3)),
     a: KINDS.map(([, , , aux], i) => (aux ? new Float32Array(Math.max(1, chunkMax[i]) * aux) : null)),
   }));
+  // the tree slots: one full tree each, buffers sized for the biggest (the walk's frame only)
+  const slots = Array.from({ length: SLOTS }, () => ({
+    tree: -1, n: KINDS.map(() => 0),
+    m: KINDS.map((_, i) => (treeMax[i] ? new Float32Array(treeMax[i] * 16) : null)),
+    c: KINDS.map((_, i) => (treeMax[i] ? new Float32Array(treeMax[i] * 3) : null)),
+    a: KINDS.map(([, , , aux], i) => (treeMax[i] && aux ? new Float32Array(treeMax[i] * aux) : null)),
+  }));
+  const slotOfTree = new Int32Array(NT).fill(-1);
 
   // scratch (no allocation once built)
   const _M = new THREE.Matrix4(); const _W = new THREE.Matrix4(); const _L = new THREE.Matrix4();
@@ -901,7 +999,7 @@ export function createTunnelWood(parent, opts = {}) {
   }
   function push(slot, kind, mat, col, sway, tile) {
     const i = slot.n[kind];
-    if (i >= chunkMax[kind]) return;
+    if (!slot.m[kind] || i * 16 >= slot.m[kind].length) return;
     slot.m[kind].set(mat.elements, i * 16);
     slot.c[kind][i * 3] = col.r; slot.c[kind][i * 3 + 1] = col.g; slot.c[kind][i * 3 + 2] = col.b;
     const a = slot.a[kind];
@@ -1081,7 +1179,11 @@ export function createTunnelWood(parent, opts = {}) {
     for (const s of pool) if (s.chunk < from || s.chunk > to) { if (job.slot === s) job.slot = null; s.used = false; return s; }
     return null;
   }
-  /** Copies the alive chunks' instances into the meshes (once per window change: a copy, no allocation). */
+  // where each kind's chunk instances end in its mesh: the full trees follow them
+  const chunkEnd = KINDS.map(() => 0);
+  const chunkBound = new THREE.Sphere(new THREE.Vector3(), 1);
+  const treeBound = new THREE.Sphere(new THREE.Vector3(), 1);
+  /** Copies the alive chunks' instances into the meshes (once per window change: a copy, no allocation), then the full trees after them. */
   function commit(from, to) {
     let s0 = Infinity; let s1 = -Infinity;
     for (let k = 0; k < KINDS.length; k++) {
@@ -1092,10 +1194,10 @@ export function createTunnelWood(parent, opts = {}) {
       const tile = g.attributes.aTile ? g.attributes.aTile.array : null;
       const aux = KINDS[k][3];
       let o = 0;
-      for (let c = from; c <= to; c++) {
+      for (let c = from; c <= to && from >= 0; c++) {
         const s = slotOf(c);
         if (!s || !s.ready) continue;
-        const n = Math.min(s.n[k], capacity[k] - o);
+        const n = Math.min(s.n[k], capacity[k] - SLOTS * treeMax[k] - o);
         const sm = s.m[k]; const sc = s.c[k]; const sa = s.a[k];
         for (let i = 0; i < n * 16; i++) M[o * 16 + i] = sm[i];
         for (let i = 0; i < n * 3; i++) C[o * 3 + i] = sc[i];
@@ -1107,23 +1209,77 @@ export function createTunnelWood(parent, opts = {}) {
         }
         o += n;
       }
+      chunkEnd[k] = o;
       im.count = o;
-      im.instanceMatrix.clearUpdateRanges(); im.instanceMatrix.addUpdateRange(0, Math.max(16, o * 16)); im.instanceMatrix.needsUpdate = true;
-      im.instanceColor.clearUpdateRanges(); im.instanceColor.addUpdateRange(0, Math.max(3, o * 3)); im.instanceColor.needsUpdate = true;
-      if (sway) { g.attributes.aSway.needsUpdate = true; }
-      if (tile) { g.attributes.aTile.needsUpdate = true; }
     }
     // the bound: the alive stretch's centreline, padded for the crowns
-    s0 = S_MIN + from * CHUNK; s1 = S_MIN + (to + 1) * CHUNK;
-    pointAt((s0 + s1) / 2, _p);
-    let rad = 0;
-    for (let s = s0; s <= s1; s += 2) { pointAt(s, _n); rad = Math.max(rad, Math.hypot(_n.x - _p.x, _n.z - _p.z)); }
-    for (const im of meshes) { im.boundingSphere.center.set(_p.x, FLOOR + 6, _p.z); im.boundingSphere.radius = rad + 24; }
+    if (from >= 0) {
+      s0 = S_MIN + from * CHUNK; s1 = S_MIN + (to + 1) * CHUNK;
+      pointAt((s0 + s1) / 2, _p);
+      let rad = 0;
+      for (let s = s0; s <= s1; s += 2) { pointAt(s, _n); rad = Math.max(rad, Math.hypot(_n.x - _p.x, _n.z - _p.z)); }
+      chunkBound.center.set(_p.x, FLOOR + 6, _p.z); chunkBound.radius = rad + 24;
+    } else chunkBound.makeEmpty();
     shown.from = from; shown.to = to;
+    writeTrees(true);
+  }
+  /**
+   * Writes the full trees into the meshes after the chunks' instances (all: the chunks' were just
+   * written, so the whole buffer goes up; otherwise only the trees' part of it). No allocation.
+   */
+  function writeTrees(all) {
+    let x0 = Infinity; let x1 = -Infinity; let z0 = Infinity; let z1 = -Infinity;
+    for (let t = 0; t < SLOTS; t++) {
+      const sl = slots[t];
+      if (sl.tree < 0) continue;
+      const q = TREES[sl.tree];
+      x0 = Math.min(x0, q.x); x1 = Math.max(x1, q.x); z0 = Math.min(z0, q.z); z1 = Math.max(z1, q.z);
+    }
+    if (x0 <= x1) { treeBound.center.set((x0 + x1) / 2, FLOOR + 6, (z0 + z1) / 2); treeBound.radius = Math.hypot(x1 - x0, z1 - z0) / 2 + 16; } else treeBound.makeEmpty();
+    for (let k = 0; k < KINDS.length; k++) {
+      const im = meshes[k];
+      const g = im.geometry;
+      const sway = g.attributes.aSway ? g.attributes.aSway.array : null;
+      const tile = g.attributes.aTile ? g.attributes.aTile.array : null;
+      const aux = KINDS[k][3];
+      const o0 = chunkEnd[k];
+      let o = o0;
+      if (treeMax[k]) {
+        const M = im.instanceMatrix.array; const C = im.instanceColor.array;
+        for (let t = 0; t < SLOTS; t++) {
+          const sl = slots[t];
+          if (sl.tree < 0) continue;
+          const n = Math.min(sl.n[k], capacity[k] - o);
+          const sm = sl.m[k]; const sc = sl.c[k]; const sa = sl.a[k];
+          for (let i = 0; i < n * 16; i++) M[o * 16 + i] = sm[i];
+          for (let i = 0; i < n * 3; i++) C[o * 3 + i] = sc[i];
+          if (sa && sway) {
+            for (let i = 0; i < n; i++) {
+              sway[o + i] = sa[i * aux];
+              if (tile) { tile[(o + i) * 2] = sa[i * aux + 1]; tile[(o + i) * 2 + 1] = sa[i * aux + 2]; }
+            }
+          }
+          o += n;
+        }
+      } else if (!all) continue;
+      im.count = o;
+      im.visible = o > 0;
+      const a = all ? 0 : o0;
+      const len = Math.max(1, o - a);
+      im.instanceMatrix.clearUpdateRanges(); im.instanceMatrix.addUpdateRange(a * 16, len * 16); im.instanceMatrix.needsUpdate = true;
+      im.instanceColor.clearUpdateRanges(); im.instanceColor.addUpdateRange(a * 3, len * 3); im.instanceColor.needsUpdate = true;
+      if (sway) { g.attributes.aSway.clearUpdateRanges(); g.attributes.aSway.addUpdateRange(a, len); g.attributes.aSway.needsUpdate = true; }
+      if (tile) { g.attributes.aTile.clearUpdateRanges(); g.attributes.aTile.addUpdateRange(a * 2, len * 2); g.attributes.aTile.needsUpdate = true; }
+      // the bound: the alive chunks and the full trees
+      const bs = im.boundingSphere;
+      bs.copy(chunkBound);
+      if (treeMax[k] && o > o0) { if (bs.isEmpty()) bs.copy(treeBound); else bs.union(treeBound); }
+      if (bs.isEmpty()) bs.set(_v.set(0, FLOOR, 0), 1);
+    }
   }
   /** The chunks for an eye at s, made at once (a seat, the court's view): under a card or at build. */
   function fill(from, to) {
-    for (let c = from; c <= to; c++) {
+    for (let c = from; c <= to && from >= 0; c++) {
       if (slotOf(c) && slotOf(c).ready) continue;
       const s = slotOf(c) || freeSlot(from, to);
       if (!s) continue;
@@ -1133,6 +1289,125 @@ export function createTunnelWood(parent, opts = {}) {
     commit(from, to);
   }
 
+  // ---- the trees' level of detail: full in the tree slots, far as the maze's trees -----------------
+  // Each tree's far tree, made once: on its full tree's base, turned and leaning as it is, as tall as
+  // its crown's top and as wide as its reach, in its leaves' colour (or its bark's, bare) as its
+  // textures lay them; the instance colour is that over the maze tree's own vertex colour.
+  const farMeshes = [];
+  const farM = new Float32Array(NT * 16); const farC = new Float32Array(NT * 3); const farKind = new Uint8Array(NT);
+  const lod = lodOn ? lodState(NT) : null;
+  const farN = [0, 0];
+  const eyeL = { x: 0, z: 0, fx: 0, fz: -1 };
+  const trand = { s: 1 };
+  /** A generator reseeded per tree (no closure a frame): mulberry32. */
+  const tr = () => {
+    trand.s = (trand.s + 0x6d2b79f5) | 0;
+    let t = trand.s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  if (lodOn) {
+    const F = kit.far;
+    for (let i = 0; i < NT; i++) {
+      const q = TREES[i];
+      const list = kit.bp[q.species];
+      const bp = list[Math.floor(q.tone * 997) % list.length];
+      const M = placeM(q, -0.15, true);
+      const bare = !!q.bare;
+      farKind[i] = bare ? 1 : 0;
+      const ex = bp.ext;
+      // (the cone a little narrower than the crown's reach: the crown is open cards, the cone solid;
+      // the bare tree as the maze stands it, about as wide as tall, a little slimmer than its reach)
+      const sy = ex.h / (bare ? F.bareH : F.coneH);
+      const sxz = bare ? sy * 0.75 : (ex.r / F.coneR) * 0.65;
+      _W.multiplyMatrices(M, _L.makeScale(sxz, sy, sxz));
+      farM.set(_W.elements, i * 16);
+      // its colour: the middle of its leaves' (as treeInto paints them, the middle of each spread) or its bark's
+      const b = blendAt(q.s);
+      const hh = hashOf(q.tone, 613.3); const hv = hashOf(q.tone, 3571.7);
+      let tex; let base;
+      if (bare) {
+        if (q.species === 'oak') _c.setHSL(0.08 + (hh - 0.5) * 0.04, 0.24, 0.56 + q.tone * 0.14);
+        else _c.setHSL(0.07 + (hh - 0.5) * 0.04, 0.15, 0.62 + q.tone * 0.14);
+        grey(_c).multiplyScalar(0.8 + 0.4 * hv).lerp(DEAD_BARK, 0.55 + 0.45 * b);
+        tex = F.bark; base = F.bareTint;
+      } else {
+        if (q.species === 'oak') _c.setHSL(0.225, 0.5, 0.52);
+        else if (q.species === 'maple') { if (q.tone < 0.48) _c.setHSL(0.245, 0.52, 0.56); else if (q.tone < 0.78) _c.setHSL(0.135, 0.74, 0.59); else _c.setHSL(0.06, 0.78, 0.55); }
+        else _c.setHSL(0.33, 0.44, 0.49);
+        grey(_c).lerp(DEAD_LEAF, 0.75 * smooth(b * 1.15)).multiplyScalar(0.88 + 0.24 * hh);
+        tex = F.atlas[q.species] || F.atlas.oak; base = F.coneTint;
+      }
+      farC[i * 3] = _c.r * tex[0] / Math.max(0.02, base[0]) * FAR_TONE;
+      farC[i * 3 + 1] = _c.g * tex[1] / Math.max(0.02, base[1]) * FAR_TONE;
+      farC[i * 3 + 2] = _c.b * tex[2] / Math.max(0.02, base[2]) * FAR_TONE;
+    }
+    const nOf = (k) => { let n = 0; for (let i = 0; i < NT; i++) n += farKind[i] === k ? 1 : 0; return n; };
+    [['far:cone', F.cone, 0], ['far:bare', F.bare, 1]].forEach(([name, g, k]) => {
+      const im = new THREE.InstancedMesh(g, kit.mats.far, Math.max(1, nOf(k)));
+      im.name = `tunnel:${name}`;
+      im.count = 0;
+      im.castShadow = false; im.receiveShadow = false;
+      im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      im.setColorAt(0, WOOD_GREY);
+      im.instanceColor.setUsage(THREE.DynamicDrawUsage);
+      // the bound: the whole walk (every far tree in it)
+      let x0 = Infinity; let x1 = -Infinity; let z0 = Infinity; let z1 = -Infinity;
+      for (const q of TREES) { x0 = Math.min(x0, q.x); x1 = Math.max(x1, q.x); z0 = Math.min(z0, q.z); z1 = Math.max(z1, q.z); }
+      im.boundingSphere = new THREE.Sphere(new THREE.Vector3((x0 + x1) / 2, FLOOR + 8, (z0 + z1) / 2), Math.hypot(x1 - x0, z1 - z0) / 2 + 24);
+      im.frustumCulled = true;
+      root.add(im);
+      farMeshes[k] = im;
+    });
+  }
+  /** Every tree not full into its far mesh (a few hundred floats: whenever one changes). */
+  function writeFar() {
+    const o = farN; o[0] = 0; o[1] = 0;
+    for (let i = 0; i < NT; i++) {
+      if (lod.full[i]) continue;
+      const k = farKind[i]; const im = farMeshes[k];
+      const A = im.instanceMatrix.array;
+      for (let j = 0; j < 16; j++) A[o[k] * 16 + j] = farM[i * 16 + j];
+      im.instanceColor.array[o[k] * 3] = farC[i * 3]; im.instanceColor.array[o[k] * 3 + 1] = farC[i * 3 + 1]; im.instanceColor.array[o[k] * 3 + 2] = farC[i * 3 + 2];
+      o[k] += 1;
+    }
+    for (let k = 0; k < 2; k++) {
+      const im = farMeshes[k];
+      im.count = o[k]; im.visible = o[k] > 0;
+      im.instanceMatrix.clearUpdateRanges(); im.instanceMatrix.addUpdateRange(0, Math.max(16, o[k] * 16)); im.instanceMatrix.needsUpdate = true;
+      im.instanceColor.clearUpdateRanges(); im.instanceColor.addUpdateRange(0, Math.max(3, o[k] * 3)); im.instanceColor.needsUpdate = true;
+    }
+  }
+  /** Fills tree i into a free slot (its full tree, the same every time it is made). */
+  function fillTree(i) {
+    let t = 0;
+    while (t < SLOTS && slots[t].tree >= 0) t += 1;
+    if (t >= SLOTS) return false;
+    const sl = slots[t];
+    for (let k = 0; k < KINDS.length; k++) sl.n[k] = 0;
+    trand.s = 0x7a11 + i * 7919;
+    treeInto(sl, TREES[i], tr);
+    sl.tree = i; slotOfTree[i] = t;
+    return true;
+  }
+  function freeTree(i) {
+    const t = slotOfTree[i];
+    if (t >= 0) { slots[t].tree = -1; slotOfTree[i] = -1; }
+  }
+  /** The trees' plan for an eye (x, z) looking along yaw (null: along the walk); cap Infinity: all at once. */
+  function planTrees(x, z, yaw, cap) {
+    eyeL.x = x; eyeL.z = z;
+    if (yaw != null && Number.isFinite(yaw)) { eyeL.fx = -Math.sin(yaw); eyeL.fz = -Math.cos(yaw); }
+    planLod(TREES, eyeL, LOD, lod, cap);
+    if (!lod.nPromote && !lod.nDemote) return false;
+    for (let k = 0; k < lod.nDemote; k++) freeTree(lod.demote[k]);
+    for (let k = 0; k < lod.nPromote; k++) if (!fillTree(lod.promote[k])) lod.full[lod.promote[k]] = 0;
+    swaps += lod.nPromote + lod.nDemote;
+    return true;
+  }
+  let swaps = 0;
+
   // ---- the static mesh: the ground, the gate behind the start, the Tweedles (castle frame only) ----
   if (!court) root.add(staticMesh(kit, opts));
   if (court) {
@@ -1140,31 +1415,42 @@ export function createTunnelWood(parent, opts = {}) {
     fill(courtFrom, courtTo);
   } else {
     windowAt(eyeS, tier, want);
+    pointAt(eyeS, _p);
+    planTrees(_p.x, _p.z, Math.atan2(-_p.dx, -_p.dz), Infinity);
+    writeFar();
     fill(want.from, want.to);
   }
 
   let lastNear = TUNNEL.length;
+  const lastEye = { x: NaN, z: NaN };
   /**
-   * Once a frame: the wind's clock, and the window. eye: the camera's place (castle coordinates).
-   * Expands at most `budget` ms of a chunk a frame (a seat jumps: fill() then, under the card).
+   * Once a frame: the wind's clock, the trees' level of detail and the window. eye: the camera's place
+   * (castle coordinates); yaw: where it looks (sim yaw; null: keeps the last). Expands at most `budget`
+   * ms of a chunk a frame (a seat jumps: fill() then, under the card) and LOD.cap trees.
    */
-  function update(eye, time, dt, budgetMs = 3) {
+  function update(eye, time, dt, budgetMs = 3, yaw = null) {
     WIND.uTime.value = time;
-    if (court) { WIND.uShow.value = 1; LIFT.ground.value.setRGB(0, 0, 0); LIFT.bark.value.setRGB(0, 0, 0); return; } // (the court's view: always whole, the wood's light alone)
+    if (court) { LIFT.ground.value.setRGB(0, 0, 0); LIFT.bark.value.setRGB(0, 0, 0); return; } // (the court's view: always whole, the wood's light alone)
     if (!eye) return;
-    nearest(eye.x, eye.z, _n, root.visible ? lastNear : null);
-    // far from the walk (up the road, the approach) it thins out, then is not drawn: in the haze, or behind the hill
+    nearest(eye.x, eye.z, _n, lastNear);
+    // the trees: every one drawn, full near the eye (a jump of more than 8 m is a seat: all at once)
+    const jump = !(Math.hypot(eye.x - lastEye.x, eye.z - lastEye.z) < 8);
+    lastEye.x = eye.x; lastEye.z = eye.z;
+    const changed = planTrees(eye.x, eye.z, yaw, jump ? Infinity : LOD.cap);
+    // far off the walk (up the road, the approach) its bushes, boulders and grass are left out
     const off = Math.max(Math.abs(_n.u), _n.s - TUNNEL.length, -TUNNEL.back - _n.s);
-    const show = 1 - smooth((off - FADE) / (HIDE - FADE));
-    WIND.uShow.value = show;
-    if (root.visible !== show > 0.001) root.visible = show > 0.001;
     if (Math.abs(_n.u) > 40 || _n.s > TUNNEL.length + 30) { // off the walk (the road, the castle): its mouth
       eyeS = TUNNEL.length;
     } else eyeS = clamp(_n.s, S_MIN, TUNNEL.length);
     lastNear = eyeS;
-    windowAt(eyeS, tier, want);
-    if (want.from === shown.from && want.to === shown.to) return;
-    if (want.from > shown.to || want.to < shown.from) { fill(want.from, want.to); return; } // a seat (under a card): all at once
+    if (off > HIDE) { want.from = -1; want.to = -1; } else windowAt(eyeS, tier, want);
+    if (want.from === shown.from && want.to === shown.to) {
+      if (changed) { writeFar(); writeTrees(false); }
+      return;
+    }
+    if (changed) writeFar();
+    if (want.from < 0 || want.from > shown.to || want.to < shown.from) { fill(want.from, want.to); return; } // a seat (under a card): all at once
+    if (changed) writeTrees(false);
     // what to make next: the nearest missing chunk, ahead first
     const t0 = performance.now();
     const deadline = t0 + budgetMs;
@@ -1187,12 +1473,14 @@ export function createTunnelWood(parent, opts = {}) {
     }
   }
 
-  /** Seats the eye somewhere new (a seat under a card): its window made at once. */
-  function seat(eye) {
+  /** Seats the eye somewhere new (a seat under a card): its window and its near trees made at once. */
+  function seat(eye, yaw = null) {
     if (court || !eye) return;
     nearest(eye.x, eye.z, _n);
     eyeS = clamp(_n.s, S_MIN, TUNNEL.length);
     lastNear = eyeS;
+    lastEye.x = eye.x; lastEye.z = eye.z;
+    if (planTrees(eye.x, eye.z, yaw, Infinity)) writeFar();
     windowAt(eyeS, tier, want);
     fill(want.from, want.to);
   }
@@ -1261,7 +1549,7 @@ export function createTunnelWood(parent, opts = {}) {
       if (n <= 0) return;
       calls += 1; tris += t * n; inst += o.isInstancedMesh ? n : 0;
     });
-    for (const im of meshes) {
+    for (const im of [...meshes, ...farMeshes]) {
       bytes += im.instanceMatrix.array.byteLength + im.instanceColor.array.byteLength;
       for (const k of ['aSway', 'aTile']) if (im.geometry.attributes[k]) bytes += im.geometry.attributes[k].array.byteLength;
     }
@@ -1270,10 +1558,20 @@ export function createTunnelWood(parent, opts = {}) {
     root.traverse((o) => { if (o.isMesh) gset.add(o.geometry); });
     for (const g of gset) bytes += geoBytes(g);
     const tex = kit.textures.reduce((a, t) => a + t.image.width * t.image.height * 4 * 1.33, 0);
-    const poolBytes = pool.reduce((a, s) => a + s.m.reduce((x, v) => x + v.byteLength, 0) + s.c.reduce((x, v) => x + v.byteLength, 0) + s.a.reduce((x, v) => x + (v ? v.byteLength : 0), 0), 0);
-    const kinds = meshes.map((im) => { const g = im.geometry; return [im.name.slice(7), im.count, Math.round(im.count * (g.index ? g.index.count : g.attributes.position.count) / 3)]; });
+    const poolBytes = [...pool, ...slots].reduce((a, s) => a + [...s.m, ...s.c, ...s.a].reduce((x, v) => x + (v ? v.byteLength : 0), 0), 0);
+    // the trees: every one full or far, always all of them
+    let full = 0;
+    for (const sl of slots) if (sl.tree >= 0) full += 1;
+    const far = farMeshes.reduce((a, im) => a + (im.visible ? im.count : 0), 0);
+    const trees = lodOn ? {
+      total: NT, full, far, drawn: full + far, near: LOD.near, nearBare: LOD.nearBare, swaps,
+      // the triangles: of the full trees (leafy and bare apart), and of the far ones
+      fullTris: (() => { const o = { leafy: 0, bare: 0 }; for (const sl of slots) { if (sl.tree < 0) continue; let t = 0; meshes.forEach((im, k) => { const g = im.geometry; t += sl.n[k] * (g.index ? g.index.count : g.attributes.position.count) / 3; }); o[TREES[sl.tree].bare ? 'bare' : 'leafy'] += t; } return o; })(),
+      farTris: farMeshes.reduce((a, im) => a + (im.visible ? im.count * im.geometry.index.count / 3 : 0), 0),
+    } : null;
+    const kinds = [...meshes, ...farMeshes].map((im) => { const g = im.geometry; return [im.name.slice(7), im.count, Math.round(im.count * (g.index ? g.index.count : g.attributes.position.count) / 3)]; });
     const l3 = (c) => +(0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b).toFixed(3);
-    return { tier: tier.name, lift: [l3(LIFT.ground.value), l3(LIFT.bark.value)], kinds, calls, tris: Math.round(tris), instances: inst, eyeS: +eyeS.toFixed(1), window: [shown.from, shown.to], gpuMB: +((bytes + tex) / 1048576).toFixed(1), poolMB: +(poolBytes / 1048576).toFixed(1), capacity };
+    return { tier: tier.name, lift: [l3(LIFT.ground.value), l3(LIFT.bark.value)], kinds, calls, tris: Math.round(tris), instances: inst, eyeS: +eyeS.toFixed(1), window: [shown.from, shown.to], trees, gpuMB: +((bytes + tex) / 1048576).toFixed(1), poolMB: +(poolBytes / 1048576).toFixed(1), capacity };
   }
 
   /**
@@ -1287,7 +1585,9 @@ export function createTunnelWood(parent, opts = {}) {
       if (im.geometry.attributes.aSway) im.geometry.dispose(); // (its own copy; the plain ones are the kit's)
     }
     root.traverse((o) => { if (o.isMesh && !o.isInstancedMesh) o.geometry.dispose(); });
+    for (const im of farMeshes) im.dispose(); // (their geometry and material are the kit's)
     for (const s of pool) { s.used = false; s.ready = false; }
+    for (const sl of slots) sl.tree = -1;
     outer.removeFromParent();
   }
 

@@ -943,7 +943,7 @@ export function createRoadView(root, parts) {
     const wood = outside && on > 0.001 ? walk.light(parts, eye, inRun ? parts.getRenderer() : null) : 0;
     if (wood > 0) { groundLift.value.multiplyScalar(1 - wood); barkLift.value.multiplyScalar(1 - wood); }
     walk.lift(groundLift.value, barkLift.value); // the walk lit as the land it turns into
-    walk.update(outside ? eye : null, time, dt);
+    walk.update(outside ? eye : null, time, dt, 3, sim && sim.player ? sim.player.yaw : null); // (its trees: full near the eye and the nearest two where it looks)
     // what lit the road this frame, for the smoke's check that it follows the ratchet to the courtyard's light
     group.userData.light = { wood: Math.round(wood * 1000) / 1000, on, dark, zone: want ? 'road' : 'forecourt', fill: parts.fill.intensity, hemi: parts.hemi.intensity, exposure: inRun && parts.getRenderer() ? parts.getRenderer().toneMappingExposure : null };
 
