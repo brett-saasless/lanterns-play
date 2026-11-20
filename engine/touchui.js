@@ -1,7 +1,9 @@
 // The touch overlay (layout C): builds the on-screen controls in `root` and drives controls.touch.
 // Thin DOM glue only: the stick maths and which buttons show live in logic/touchmap.js.
-import { visibleControls, stickFromPoint } from '../logic/touchmap.js';
+import { visibleControls, stickFromPoint, swipedEnough, lookHintState } from '../logic/touchmap.js';
 import { ICONS } from './touchicons.js';
+
+const HINT_FADE_MS = 400; // the hint's fade out after the first swipe (index.html .lookhint transition)
 
 // [data-touch value, label]. The look zone comes first so every button sits above it.
 const PARTS = [
@@ -16,7 +18,8 @@ const PARTS = [
   ['skip', 'SKIP'],
 ];
 
-export function createTouchUi({ root, controls, hooks }) {
+// lookSwiped: the player has swiped to look before (main.js keeps it with the settings); hooks.lookSwiped() records the first swipe.
+export function createTouchUi({ root, controls, hooks, lookSwiped = false }) {
   const touch = controls.touch;
   const html = document.documentElement;
   const els = {};
@@ -33,6 +36,29 @@ export function createTouchUi({ root, controls, hooks }) {
     root.appendChild(el);
     els[name] = el;
   }
+  // The swiping thumb over the look zone (logic/touchmap.js lookHintState): drawn, not touched (pointer-events: none).
+  let swiped = !!lookSwiped; // once swiped, never shown again (main.js remembers it across sessions)
+  let hint = null;
+  let hintSeconds = 0; // seconds of play this game with the hint able to show
+  if (!swiped) {
+    hint = document.createElement('div');
+    hint.className = 'lookhint';
+    hint.setAttribute('aria-hidden', 'true');
+    hint.innerHTML = `<i>${ICONS.swipe}</i>`;
+    hint.hidden = true;
+    els.look.after(hint); // over the look zone, under every button
+  }
+  let lookTravel = 0; // path length of the look-zone drag under way, px
+  function markSwiped() {
+    swiped = true;
+    if (hooks.lookSwiped) hooks.lookSwiped();
+    if (!hint) return;
+    const h = hint;
+    hint = null;
+    h.classList.add('gone');
+    setTimeout(() => h.remove(), HINT_FADE_MS + 50);
+  }
+
   const knob = els.stick.firstChild;
   let eIcon = 'hand'; // the picture E carries now (ICONS.e, the hand, as built)
   els.e.dataset.icon = eIcon;
@@ -96,7 +122,15 @@ export function createTouchUi({ root, controls, hooks }) {
     down: (id) => touch.fireStart(id),
     move: (id, dx, dy) => touch.fireMove(id, dx, dy),
   });
-  bind(els.look, { move: (id, dx, dy) => touch.lookMove(id, dx, dy) });
+  bind(els.look, {
+    down: () => { lookTravel = 0; },
+    move: (id, dx, dy) => {
+      touch.lookMove(id, dx, dy);
+      if (swiped) return;
+      lookTravel += Math.hypot(dx, dy);
+      if (swipedEnough(lookTravel)) markSwiped();
+    },
+  });
   bind(els.jump, { down: () => touch.press('jump') });
   bind(els.swap, { down: () => touch.press('swap') });
   bind(els.skip, { down: () => touch.press('skip') });
@@ -154,6 +188,22 @@ export function createTouchUi({ root, controls, hooks }) {
       els.e.innerHTML = icon === 'foot' ? ICONS.foot : ICONS.e;
       els.e.dataset.icon = icon;
     }
+    // the hint: counts and shows only in play on touch with no cut scene (ctx.dt: this frame's seconds)
+    if (hint) {
+      const playing = show.look && !ctx.scene && html.classList.contains('touch');
+      if (playing) hintSeconds += Math.max(0, ctx.dt || 0);
+      const { visible, phase } = lookHintState({ playing, swiped, playSeconds: hintSeconds });
+      if (phase === 'expired') hint.classList.add('gone'); // fades out; back at the next new game
+      else if (hint.hidden === visible) hint.hidden = !visible;
+    }
+  }
+
+  // A new game (a room from the title, Restart, Play again): the hint, unless swiped, starts over.
+  function newGame() {
+    hintSeconds = 0;
+    if (!hint) return;
+    hint.classList.remove('gone');
+    hint.hidden = true; // shown again by setContext once play begins
   }
 
   function destroy() {
@@ -164,7 +214,8 @@ export function createTouchUi({ root, controls, hooks }) {
     document.removeEventListener('gesturestart', onGesture, { capture: true });
     for (const id of [...held.keys()]) release(id);
     for (const el of Object.values(els)) el.remove();
+    if (hint) hint.remove();
   }
 
-  return { setContext, destroy, releasedAt: () => releasedAt };
+  return { setContext, newGame, destroy, releasedAt: () => releasedAt };
 }

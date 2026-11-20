@@ -209,6 +209,29 @@
     background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.44); font-weight: 700; letter-spacing: 0.08em; font-size: 15px; }
   #touch > [data-touch].on { background: rgba(255, 255, 255, 0.3); }
   #touch > [data-touch="look"] { left: 40%; right: 0; top: 0; bottom: 0; border-radius: 0; background: none; border: 0; } /* the whole right side; every button sits above it */
+  #touch > [data-touch="look"].on { background: none; } /* drawn nothing, pressed or not (the owner: the pressed look zone lit 60% of the screen) */
+  /* The swiping thumb (touchui.js, logic/touchmap.js lookHintState): over the look zone, centred between its left edge and
+     FIRE's, at 48% down. The box is the whole sweep (--sweep) plus the thumb, so nothing moves outside it. One 4 s cycle:
+     a fade in, left, right, a fade across, up, down; each leg 0.64 s eased, 0.16 s dwells at its ends. */
+  #touch > .lookhint { position: absolute; pointer-events: none; --thumb: clamp(40px, 12vh, 52px); --sweep: clamp(48px, 18vh, 80px);
+    width: calc(var(--thumb) + var(--sweep)); height: calc(var(--thumb) + var(--sweep));
+    left: calc((40% + 100% - 20px - var(--sar) - var(--fire)) / 2 - (var(--thumb) + var(--sweep)) / 2); top: calc(48% - (var(--thumb) + var(--sweep)) / 2);
+    display: flex; align-items: center; justify-content: center; color: var(--chalk); opacity: 0.7; transition: opacity 0.4s ease-out; }
+  #touch > .lookhint.gone { opacity: 0; }
+  #touch > .lookhint i { display: block; width: var(--thumb); height: var(--thumb); animation: lookswipe 4s infinite ease-in-out; }
+  #touch > .lookhint svg { width: 100%; height: 100%; display: block; }
+  @keyframes lookswipe {
+    0% { transform: translate(calc(var(--sweep) / 2), 0); opacity: 0; }
+    5%, 9% { transform: translate(calc(var(--sweep) / 2), 0); opacity: 1; }
+    25%, 29% { transform: translate(calc(var(--sweep) / -2), 0); opacity: 1; }
+    45%, 47% { transform: translate(calc(var(--sweep) / 2), 0); opacity: 1; }
+    50% { transform: translate(calc(var(--sweep) / 2), 0); opacity: 0; }
+    50.01% { transform: translate(0, calc(var(--sweep) / 2)); opacity: 0; }
+    55%, 59% { transform: translate(0, calc(var(--sweep) / 2)); opacity: 1; }
+    75%, 79% { transform: translate(0, calc(var(--sweep) / -2)); opacity: 1; }
+    95%, 97% { transform: translate(0, calc(var(--sweep) / 2)); opacity: 1; }
+    100% { transform: translate(0, calc(var(--sweep) / 2)); opacity: 0; }
+  }
   #touch > [data-touch="stick"] { left: calc(24px + var(--sal)); bottom: calc(16px + var(--sab)); width: var(--stick); height: var(--stick);
     background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.33); }
   #touch > [data-touch="stick"] i { width: 42%; height: 42%; border-radius: 50%; background: rgba(255, 255, 255, 0.33); pointer-events: none; }
@@ -222,8 +245,10 @@
     width: var(--ctx); height: var(--ctx); border-style: dashed; border-color: #c9a25c; background: rgba(201, 162, 92, 0.2); font-size: 22px; }
   #touch > [data-touch="swap"], #touch > [data-touch="pause"], #touch > [data-touch="log"], #touch > [data-touch="skip"] {
     width: var(--small); height: var(--small); font-size: 12px; background: rgba(255, 255, 255, 0.1); }
-  /* one column over FIRE, bottom to top: E, swap, log. Each has its own fixed slot, so swap and log stay put while E hides and shows */
-  #touch > [data-touch="swap"], #touch > [data-touch="log"] { right: calc(20px + var(--sar) + (var(--fire) - var(--small)) / 2); }
+  /* over FIRE, bottom to top: E, swap, log. Each has its own fixed slot, so swap and log stay put while E hides and shows.
+     E is centred over FIRE; swap and log share an x of their own, 3/4 of the way from that column to the right edge (the owner,
+     2026-11-19): a quarter of the column's right offset, never nearer the edge than 8 px inside the safe area (notch, corners) */
+  #touch > [data-touch="swap"], #touch > [data-touch="log"] { right: max(calc(8px + var(--sar)), calc((20px + var(--sar) + (var(--fire) - var(--small)) / 2) / 4)); }
   #touch > [data-touch="swap"] { bottom: calc(16px + var(--sab) + var(--fire) + 12px + var(--ctx) + var(--gap)); }
   #touch > [data-touch="log"] { bottom: calc(16px + var(--sab) + var(--fire) + 12px + var(--ctx) + var(--gap) + var(--small) + var(--gap)); }
   #touch > [data-touch="pause"] { left: 50%; top: calc(10px + var(--sat)); margin-left: calc(var(--small) / -2); }
@@ -254,8 +279,8 @@
      Every card fits the screen with no scroll; buttons stay at least 44 px tall; body text stays 13 px or more. */
   html.touch { --sat: env(safe-area-inset-top, 0px); --sar: env(safe-area-inset-right, 0px); --sab: env(safe-area-inset-bottom, 0px); --sal: env(safe-area-inset-left, 0px); }
   @media (max-height: 480px) {
-    /* HUD: health top-left under the wave plate, ammo top-right left of the log and swap column (the stick and FIRE own the bottom corners).
-       --colr: from the right edge to 12 px left of that column (#touch's --fire and --small in vh, never smaller than the dvh ones) */
+    /* HUD: health top-left under the wave plate, ammo top-right left of the E column over FIRE (swap and log sit further right still; the stick and FIRE own the bottom corners).
+       --colr: from the right edge to 12 px left of the E column's line (#touch's --fire and --small in vh, never smaller than the dvh ones) */
     html.touch { --colr: calc(20px + var(--sar) + (clamp(110px, 40vh, 180px) + clamp(44px, 12vh, 52px)) / 2 + 12px); }
     html.touch .plate { padding: 4px 10px; }
     html.touch #wavebox { top: calc(8px + var(--sat)); left: calc(8px + var(--sal)); gap: 12px; }

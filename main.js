@@ -38,7 +38,7 @@ function fatal(text) {
 }
 
 function loadSettings() {
-  const d = { sensitivity: 1, touchSensitivity: 1, reducedFlash: false, muted: false };
+  const d = { sensitivity: 1, touchSensitivity: 1, reducedFlash: false, muted: false, lookSwiped: false };
   const look = (v) => typeof v === 'number' && v >= 0.2 && v <= 3;
   try {
     const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
@@ -46,6 +46,7 @@ function loadSettings() {
     if (look(s.touchSensitivity)) d.touchSensitivity = s.touchSensitivity; // the look speed on touch, kept apart from the mouse's
     if (typeof s.reducedFlash === 'boolean') d.reducedFlash = s.reducedFlash;
     if (typeof s.muted === 'boolean') d.muted = s.muted;
+    if (s.lookSwiped === true) d.lookSwiped = true; // the touch look hint: swiped once, never shown again
   } catch { /* defaults */ }
   return d;
 }
@@ -104,21 +105,23 @@ async function boot() {
   const actors = createActors(scene);
   const vm = createViewmodel(camera.aspect, camera);
   const controls = createControls(canvas);
+  const settings = loadSettings();
   // Touch (layout C): the on-screen controls feed controls.touch; with no touch they stay hidden.
   const touchUi = createTouchUi({
     root: document.getElementById('touch'),
     controls,
+    lookSwiped: settings.lookSwiped, // the swiping-thumb hint: shown until the first look-swipe, ever
     hooks: {
       pause: () => pause(),
       toggleLog: () => { if (state === 'LOG') closeLog(); else if (state === 'PLAYING' && inLogRoom()) openLog(); }, // as Tab
       modeChanged: () => { if (document.pointerLockElement) document.exitPointerLock(); hud.syncSettings(settings); if (state === 'PLAYING') pause(); }, // the lock goes with the mode: let the browser's go too
       holdE: (down) => { eHeld = !!down && state === 'PLAYING'; }, // the touch E, as the E key: the cord reads it as `hold`
+      lookSwiped: () => { settings.lookSwiped = true; saveSettings(settings); }, // kept with the settings (without storage, for this page only)
     },
   });
   const pages = createPages();
   const handover = createHandover(renderer); // #29: the fade and the dissolve between levels
 
-  const settings = loadSettings();
   audio.setMuted(settings.muted);
   vm.setReducedFlash(settings.reducedFlash);
   actors.setReducedFlash(settings.reducedFlash);
@@ -480,6 +483,7 @@ async function boot() {
       runRoom = room;
       runStart = room === 'castle' && (start === 'road' || start === 'tunnel') ? start : null;
       enterRoom(room);
+      touchUi.newGame(); // the look hint starts over (unless the player has swiped to look before)
       // The Road start (the owner, 2026-11-17): the castle run, seated at the road's foot. The Tunnel
       // start (the owner, 2026-11-19): the same run, seated just through the Caterpillar's gate at the
       // start of the walk to the road, right after his death, with the kit the wood leaves.
@@ -1039,6 +1043,8 @@ async function boot() {
       film: !!cut && cut.kind === 'cutaway', // the werewolf cutaway: SKIP alone over the film
       weaponCount: carried(sim).length, // in hand, the holster (next on Q) and the rack (the castle's lantern, once taken)
       useIcon: useIcon(usePrompt && sim.waves ? sim.waves.focus : null), // E's picture: a foot for the Knight's Walk leap, else a hand
+      scene: !!cut || theEnd, // any cut scene: the look hint holds (and does not count) under it
+      dt, // the look hint counts the seconds of play
     });
 
     renderer.info.reset();

@@ -54,6 +54,26 @@ export function isGhostClick(now, openedAt, releasedAt, ms) {
   return now - openedAt < ms || now - releasedAt < ms;
 }
 
+// The swiping-thumb hint over the look zone (the owner, 2026-11-19: "I like the thumb that swipes. It only shows
+// once after the user does the swiping, it doesn't need to appear again"). A drag in the look zone whose path
+// is LOOK_SWIPE_PX or longer is a real look-swipe: the hint goes for good (remembered across sessions).
+// Unswiped, it gives up after LOOK_HINT_GIVE_UP_S seconds of play in one game and comes back at the next new game.
+export const LOOK_SWIPE_PX = 24;
+export const LOOK_HINT_GIVE_UP_S = 30;
+
+export function swipedEnough(travelPx) {
+  return Number.isFinite(travelPx) && travelPx >= LOOK_SWIPE_PX;
+}
+
+// playing: PLAYING with the touch overlay up and no cut scene; playSeconds: such seconds this game.
+// phase: 'done' (swiped, never again), 'expired' (this game's time is up), 'held' (not playing now), 'showing'.
+export function lookHintState({ playing, swiped, playSeconds }) {
+  if (swiped) return { visible: false, phase: 'done' };
+  if (!(playSeconds < LOOK_HINT_GIVE_UP_S)) return { visible: false, phase: 'expired' }; // NaN counts as expired
+  if (!playing) return { visible: false, phase: 'held' };
+  return { visible: true, phase: 'showing' };
+}
+
 // A thumb at (px, py) on a fixed stick centred at (cx, cy): its offset over the radius,
 // clamped to the unit circle. x right, y down (the input stickToMove takes).
 export function stickFromPoint(px, py, cx, cy, radius) {
