@@ -194,6 +194,7 @@ function stepFirstSuit(e, sim, dt, events, c) {
     if (e.walked < c.firstSteps) return;
     // It stops where it stands and comes apart a piece at a time (#14); the heap is down at the end.
     e.state = 'crumble';
+    e.anchored = true; // it stands where it comes apart: nothing shoves it now (its pieces are shoved one by one: armourheap.js)
     e.crumbleT = 0; // its own clock: the cup's stop and enemy.js reset e.timer
     e.said = 0;
     e.speedNow = 0;
@@ -614,6 +615,7 @@ export function seatSentries(sim, events, at = sim.cfg.sentries, firstFallen = n
     if (fallen) {
       e.state = 'heap';
       e.dead = true;
+      e.anchored = true;
     }
   }
   if (at.suits && at.suits[1] && !done.armour) {

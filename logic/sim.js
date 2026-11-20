@@ -423,7 +423,7 @@ function slain(sim, e, events) {
   const { cfg, player: pl } = sim;
   sim.stats.kills += 1;
   sim.enemies = sim.enemies.filter((x) => x !== e);
-  events.push({ type: 'kill', id: e.id, enemy: e.type, x: e.x, y: e.y, z: e.z });
+  events.push({ type: 'kill', id: e.id, enemy: e.type, x: e.x, y: e.y, z: e.z, heading: e.heading });
   // Drops are weighted by the salt gun's ammunition, found by name wherever it is carried (A2).
   const kind = cfg[e.type].noDrop ? null : rollDrop(sim.rng, pl, gunOf(sim), cfg);
   if (kind) {

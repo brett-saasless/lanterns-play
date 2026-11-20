@@ -338,6 +338,7 @@ export function separate(sim) {
   for (let i = 0; i < enemies.length; i++) {
     const a = enemies[i];
     if (a.friendly || a.phantom) continue; // a friendly figure, or the castle's wife, is never pushed, and pushes nothing
+    // a suit come apart (sentries.js e.anchored) is never moved: its pieces are shoved one by one (armourheap.js)
     const boxes = blockersFor(sim, a);
     const ra = cfg[a.type].radius;
     const levels = climbs(cfg); // the yard: movers on different levels do not push (#21)
@@ -353,16 +354,17 @@ export function separate(sim) {
       if (d < min) {
         const nx = d > 1e-6 ? dx / d : 1;
         const nz = d > 1e-6 ? dz / d : 0;
-        const push = (min - d) / 2;
-        moveCircle(a, { x: -nx * push, z: -nz * push }, ra, boxes, cfg.arena.half);
-        moveCircle(b, { x: nx * push, z: nz * push }, rb, blockersFor(sim, b), cfg.arena.half);
+        if (a.anchored && b.anchored) continue;
+        const push = a.anchored || b.anchored ? min - d : (min - d) / 2;
+        if (!a.anchored) moveCircle(a, { x: -nx * push, z: -nz * push }, ra, boxes, cfg.arena.half);
+        if (!b.anchored) moveCircle(b, { x: nx * push, z: nz * push }, rb, blockersFor(sim, b), cfg.arena.half);
       }
     }
     const dx = a.x - pl.x;
     const dz = a.z - pl.z;
     const d = Math.hypot(dx, dz);
     const min = ra + cfg.player.radius + 0.35;
-    if (d < min && !(levels && Math.abs(a.y - pl.y) > SEPARATE_DY)) {
+    if (d < min && !a.anchored && !(levels && Math.abs(a.y - pl.y) > SEPARATE_DY)) {
       const nx = d > 1e-6 ? dx / d : 1;
       const nz = d > 1e-6 ? dz / d : 0;
       moveCircle(a, { x: nx * (min - d), z: nz * (min - d) }, ra, boxes, cfg.arena.half);

@@ -396,15 +396,17 @@ export function trackEnd(track) {
  * stood and where the design lays them); boxes: the live collision list. Each piece's resting
  * place is made clear (clearRest) and its fall integrated (fallTrack), in the world; the tracks
  * come back in the suit's frame ({ r, rate, n, data, rested } each, data local), so the view plays
- * them under the suit's own group.
+ * them under the suit's own group. rests (optional): each piece's resting place already laid in
+ * the world ({ a, b }, clear: armourheap.js layHeap, the rules' own heap), used as it is.
  */
-export function planFall(frame, bodies, boxes) {
+export function planFall(frame, bodies, boxes, rests = null) {
   const stone = stoneFor(boxes, frame.y, frame, 7);
   const pivot = { x: frame.x, z: frame.z };
-  return bodies.map((bd) => {
+  return bodies.map((bd, i) => {
     const s = { a: toWorld(frame, bd.start.a), b: toWorld(frame, bd.start.b) };
-    const q = { a: toWorld(frame, bd.rest.a), b: toWorld(frame, bd.rest.b) };
-    const rest = clearRest(q, bd.r, stone, pivot, frame.y);
+    const given = rests && rests[i];
+    const rest = given ? { a: given.a.slice(), b: given.b.slice() }
+      : clearRest({ a: toWorld(frame, bd.rest.a), b: toWorld(frame, bd.rest.b) }, bd.r, stone, pivot, frame.y);
     const tr = fallTrack(s, rest, bd.r, stone, { floor: frame.y, pivot });
     const w = v3(); const l = v3();
     for (let i = 0; i < tr.n * 2; i++) {

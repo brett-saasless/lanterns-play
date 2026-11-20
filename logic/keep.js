@@ -35,6 +35,7 @@ import {
   createCount, stepCount, pullCord, shotsAtCurtains, countDeath, startScene, stepScene, curtainReady, countHint, FINAL_CURTAIN,
 } from './count.js';
 import { seatSentries, sentryKilled, innerDoorOpen, lowerGarlic } from './sentries.js';
+import { stepHeaps } from './armourheap.js'; // a fallen suit's pieces, each pushed on its own and kept out of stone
 import { LEAF_DOORS, doorLeafBoxes, swingToward } from './doorleaves.js'; // the door leaves, solid in every state
 import { createHaunts, stepHaunts, ghostScream, landRaven } from './haunts.js';
 import { reflectionLook } from './reflection.js';
@@ -64,7 +65,7 @@ export const KEEP_RESTORE_FIELDS = Object.freeze({
   waves: Object.freeze({
     writes: Object.freeze(['index', 'queue', 'phase', 'under', 'walk', 'clocks', 'tiles', 'board', 'count', 'haunts', 'raised',
       'items', 'loot', 'stakes', 'bodies', 'pins', 'dropped', 'stock', 'hints', 'focus', 'line', 'notice', 'scene',
-      'checkpoint', 'pressed', 'leap', 'struck', 'falling', 'snake', 'claw', 'lanternPrev']),
+      'checkpoint', 'pressed', 'leap', 'struck', 'falling', 'snake', 'claw', 'lanternPrev', 'heaps']),
     keeps: Object.freeze(['done', 'game', 'log', 'talk', 'road', 'leaves']), // road (#29): the dark and both scares' latches, settled; leaves: each door's swing, as it stood
   }),
 });
@@ -125,6 +126,7 @@ export function createKeep(cfg, rng = () => 0.5) {
     loot: cfg.loot.map((l) => ({ key: l.key, taken: false })),
     stakes: [],
     bodies: [],
+    heaps: [], // the fallen suits' pieces, each pushed on its own (armourheap.js)
     pins: [],
     dropped: [],
     stock: freshStock(),
@@ -437,7 +439,7 @@ function validStake(st) {
 
 /** A body: the second suit where it fell (the only body the castle lays out). */
 function validBody(b) {
-  return isObj(b) && (b.id == null || isId(b.id)) && b.enemy === 'armour' && finite(b.x) && finite(b.z);
+  return isObj(b) && (b.id == null || isId(b.id)) && b.enemy === 'armour' && finite(b.x) && finite(b.z) && (b.heading == null || finite(b.heading));
 }
 
 /** A stuck pin or any world point: finite place. */
@@ -748,6 +750,7 @@ export function restoreCheckpoint(sim, ...given) {
   w.loot = s.loot;
   w.stakes = s.stakes;
   w.bodies = withBodies(w.done, s.bodies, fallen);
+  w.heaps = []; // laid again where the suits fell, every piece at its rest (armourheap.js stepHeaps)
   w.pins = s.pins;
   w.dropped = s.dropped;
   w.stock = freshStock();
@@ -1276,7 +1279,9 @@ function settleKills(sim, events) {
   for (const ev of events) {
     if (ev.type !== 'kill' || seen.has(ev.id)) continue;
     seen.add(ev.id);
-    w.bodies.push({ id: ev.id, enemy: ev.enemy, x: ev.x, z: ev.z });
+    const body = { id: ev.id, enemy: ev.enemy, x: ev.x, z: ev.z };
+    if (Number.isFinite(ev.heading)) body.heading = ev.heading; // its heap lies as it fell (armourheap.js)
+    w.bodies.push(body);
     stakesToBody(sim, ev.id, ev.x, ev.z);
   }
   const before = w.done.armour;
@@ -1301,6 +1306,7 @@ export function stepKeep(sim, dt, events, input = {}) {
     if (w.notice.left <= 0) w.notice = null;
   }
   settleKills(sim, events);
+  stepHeaps(sim, events); // the fallen suits' pieces: the warden shoves each on its own, never into stone
   for (const ev of events) if (ev.type === 'pickup' && KEEP_NOTICES[ev.kind]) notice(sim, KEEP_NOTICES[ev.kind], events);
   stepRoad(w.road, pl, dt, events, sim.rng); // issue #29: the dark's ratchet, the boulder and the bats
   if (cutawayDue(sim)) startCutaway(sim, events); // the boulder is gone: the werewolf cutaway, once (logic/cutaway.js)
