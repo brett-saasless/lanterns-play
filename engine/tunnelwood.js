@@ -37,8 +37,8 @@ import {
 } from '../logic/tunnelwalk.js';
 import { buildTweedles } from './tweedles.js';
 import { mats } from './court.js';
-import { victorianTree, hauntedTree } from './mazetrees.js';
-import { TREE_LOD, lodState, planLod } from '../logic/treelod.js';
+import { victorianTree, hauntedTree, farConeTree } from './mazetrees.js';
+import { TREE_LOD, lodState, planLod, FAR_BARE_RAG_AT } from '../logic/treelod.js';
 
 let TIER = null;
 /**
@@ -775,14 +775,17 @@ function kitFor(tier) {
   for (const list of Object.values(bp)) for (const v of list) v.ext = extentOf(v);
   // the far trees: the maze's own (mazetrees.js), in the maze's matte material with the walk's land
   // lift; and the average colour each texture lays over its tree, so a far tree is its tree's colour
+  // (the cone tree with the maze's leaf blobs on its crown, measured by its plain cone so it stands as
+  // before; the bare tree's rags of leaf in its crown, not off its tips)
   const far = {
-    cone: victorianTree(1, 0), bare: hauntedTree(S.rng(0x51ee), 0),
+    cone: farConeTree(), bare: hauntedTree(S.rng(0x51ee), 0, { ragAt: FAR_BARE_RAG_AT }),
+    coneMeasure: victorianTree(1, 0),
     stemN: new THREE.CylinderGeometry(0.035, 0.05, 0.5, 6, 1, false).attributes.position.count, // (the cone tree's stem: its first vertices, mazetrees.js)
     mat: fadeOn(mats().matte.clone(), 'tunnel-far', null, 'bark'),
   };
   for (const k of ['cone', 'bare']) {
-    const g = far[k]; g.computeBoundingBox();
-    const bb = g.boundingBox;
+    const g = far[k]; const gm = k === 'cone' ? far.coneMeasure : g; gm.computeBoundingBox();
+    const bb = gm.boundingBox;
     far[`${k}H`] = bb.max.y;
     far[`${k}R`] = Math.max(-bb.min.x, bb.max.x, -bb.min.z, bb.max.z);
     // the vertex colour of its crown (the cone above the stem) or its wood: what the instance colour multiplies

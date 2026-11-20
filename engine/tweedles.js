@@ -23,17 +23,23 @@
 
 import * as THREE from 'three';
 import * as S from './sculpt.js';
+import { TWEEDLE_LOOK, soiled } from '../logic/tweedlelook.js';
 
-const JACKET = 0x6d7c99; // a slate-blue cloth, light enough to read in the wood's shade
-const JACKET_TORN = 0x8e9ab2; // the cloth's paler underside where it is torn back
-const BREECHES = 0xbfa877;
-const STOCKING = 0xe6dfcf;
+// Each brother's suit in his own bright colour (logic/tweedlelook.js: the owner, "add some brighter
+// colors ... so they stand out a little more"), a little soiled from lying on the floor.
+/** One brother's cloth colours, soiled as they lie. */
+function suitOf(name) {
+  const t = TWEEDLE_LOOK[name];
+  return {
+    jacket: soiled(t.jacket), torn: soiled(t.torn), cap: soiled(t.cap), knob: soiled(t.knob),
+    buttons: t.buttons, breeches: soiled(t.breeches), stocking: soiled(t.stocking),
+  };
+}
 const SHOE = 0x1c1816;
 const SKIN = 0xdcc6b2; // gone pale
 const CHEEK = 0xd2aa98;
-const COLLAR = 0xf7f3ea;
-const CAP = 0x2c3346;
-const LETTER = 0x8a2a1d;
+const COLLAR = soiled(TWEEDLE_LOOK.collar, TWEEDLE_LOOK.soil * 0.5);
+const LETTER = TWEEDLE_LOOK.letter;
 const BLOOD = 0x3f2117; // old blood, dried dark rust-brown
 const BLOOD_EDGE = 0x5a2d1d; // where it is thinner, at a rent's edge
 const GASH = 0x170b08; // the rent itself
@@ -100,7 +106,7 @@ function pool(x, z, r, seed, stretch = 0.8) {
  * wearer's right shoulder down across the belly: each a dark gash with a rust-brown lip, and the
  * cloth torn back from it in a pale flap.
  */
-function rents(P, seed) {
+function rents(P, seed, suit) {
   const r = S.rng(seed * 31 + 7);
   for (let k = 0; k < 3; k++) {
     const off = (k - 1) * 0.09;
@@ -111,7 +117,7 @@ function rents(P, seed) {
     P.push(prim(new THREE.BoxGeometry(len, 0.028, 0.024), GASH, [x, y, z - 0.004], [0, 0, tilt], 0.1, seed + k));
     // the torn cloth, lifted along the rent's upper edge
     const nx = -Math.sin(tilt) * 0.03; const ny = Math.cos(tilt) * 0.03;
-    P.push(prim(new THREE.BoxGeometry(len * 0.6, 0.045, 0.006), JACKET_TORN, [x + nx + (r() - 0.5) * 0.04, y + ny, z - 0.012], [-0.55, 0, tilt], 0.12, seed + k + 9));
+    P.push(prim(new THREE.BoxGeometry(len * 0.6, 0.045, 0.006), suit.torn, [x + nx + (r() - 0.5) * 0.04, y + ny, z - 0.012], [-0.55, 0, tilt], 0.12, seed + k + 9));
   }
   // dried blood run from the rents into the cloth
   for (const [x, y, rr] of [[0.06, 0.6, 0.06], [-0.05, 0.66, 0.05], [0.1, 0.72, 0.045]]) {
@@ -120,11 +126,11 @@ function rents(P, seed) {
 }
 
 /** The round skull-cap and its knob (in the standing frame, sat on a head whose crown is at about y 1.3). */
-function cap(tiltZ) {
+function cap(tiltZ, suit) {
   return S.merge([
-    prim(new THREE.SphereGeometry(0.19, 14, 6, 0, Math.PI * 2, 0, Math.PI * 0.5).scale(1, 0.62, 1), CAP, [0, 1.2, 0.015], [0.18, 0, tiltZ], 0.1),
-    prim(new THREE.CylinderGeometry(0.012, 0.016, 0.05, 6), CAP, [tiltZ * -0.14, 1.33, 0.04], [0.18, 0, tiltZ], 0.1),
-    prim(new THREE.SphereGeometry(0.026, 8, 6), 0x8a3a2a, [tiltZ * -0.18, 1.36, 0.045], [0, 0, 0], 0.1),
+    prim(new THREE.SphereGeometry(0.19, 14, 6, 0, Math.PI * 2, 0, Math.PI * 0.5).scale(1, 0.62, 1), suit.cap, [0, 1.2, 0.015], [0.18, 0, tiltZ], 0.1),
+    prim(new THREE.CylinderGeometry(0.012, 0.016, 0.05, 6), suit.cap, [tiltZ * -0.14, 1.33, 0.04], [0.18, 0, tiltZ], 0.1),
+    prim(new THREE.SphereGeometry(0.026, 8, 6), suit.knob, [tiltZ * -0.18, 1.36, 0.045], [0, 0, 0], 0.1),
   ]);
 }
 
@@ -135,6 +141,8 @@ function cap(tiltZ) {
 function standing(name, seed) {
   const P = [];
   const dee = name === 'dee';
+  const suit = suitOf(name);
+  const JACKET = suit.jacket; const BREECHES = suit.breeches; const STOCKING = suit.stocking;
   const sk = (rings, o = {}) => S.skin(rings, { sides: 10, detail: 2, budget: 700, seed, noise: 0.03, mottle: 0.08, shade: 0.25, ...o });
   // legs: breeches to the knee, stockings, buckled shoes (Dee's left knee drawn up)
   for (const s of [-1, 1]) {
@@ -155,8 +163,8 @@ function standing(name, seed) {
     { at: [0, 0.64, -0.03], r: 0.285, color: JACKET }, { at: [0, 0.76, -0.02], r: 0.265, color: JACKET },
     { at: [0, 0.87, 0], r: 0.2, color: JACKET }, { at: [0, 0.94, 0], r: 0.085, color: SKIN },
   ], { budget: 900, sides: 14 }));
-  for (let i = 0; i < 4; i++) P.push(prim(new THREE.SphereGeometry(0.016, 6, 4), 0xc9b27a, [-0.1, 0.56 + i * 0.07, -0.29 + Math.abs(i - 1.5) * 0.012], [0, 0, 0], 0)); // brass buttons (to one side: the rents run through the middle)
-  rents(P, seed);
+  for (let i = 0; i < 4; i++) P.push(prim(new THREE.SphereGeometry(0.016, 6, 4), suit.buttons, [-0.1, 0.56 + i * 0.07, -0.29 + Math.abs(i - 1.5) * 0.012], [0, 0, 0], 0)); // brass buttons (to one side: the rents run through the middle)
+  rents(P, seed, suit);
   // the broad turned-down collar, its rim bright, the word worked on it
   P.push(prim(new THREE.CylinderGeometry(0.11, 0.26, 0.075, 18, 1, true), COLLAR, [0, 0.905, 0], [0, 0, 0], 0.04));
   P.push(prim(new THREE.TorusGeometry(0.255, 0.012, 4, 18).rotateX(Math.PI / 2), COLLAR, [0, 0.868, 0], [0, 0, 0], 0.02)); // the rim
@@ -203,7 +211,7 @@ function standing(name, seed) {
   for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setY(i, y < 0.52 ? y * 1.25 : y + 0.13); }
   body.scale(SIZE, SIZE, SIZE);
   body.computeVertexNormals();
-  return { body, cap: cap(0) };
+  return { body, cap: cap(0, suit) };
 }
 
 /** Lays a geometry on the ground in its frame: its lowest point at y `sink` below 0, its boots' end at z 0. */

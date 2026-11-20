@@ -38,6 +38,21 @@ export const TREE_LOD = f({
   phone: { near: 18, nearBare: 28, hyst: 3, inView: 2, viewHalf: 40 * DEG, keepHalf: 55 * DEG, maxFull: 32, cap: 1 },
 });
 
+// The far leafy tree's crown (the owner, 2026-11-19: "add some blobs to the far off trees, as cones
+// only they are a bit stark"): engine/mazetrees.js farConeTree() sets these leaf blobs (the maze's
+// own rag of leaf, an icosahedron of 20 triangles) on the maze's cone (its kind-1 cone: base y
+// 0.285, 0.75 tall, radius 0.24, 18 triangles, on a 24-triangle stem), in the one far-cone geometry:
+// no draw call of its own. Each: [height on the cone (0 base, 1 tip), turn round it (radians),
+// radius, how far out its centre sits (x the cone's radius at that height)].
+export const FAR_CONE = f({ y0: 0.285, h: 0.75, r: 0.24, tris: 42, blobTris: 20 });
+export const FAR_CONE_BLOBS = f([
+  [0.14, 0.3, 0.13, 0.85], [0.2, 2.5, 0.125, 0.9], [0.28, 4.4, 0.12, 0.88],
+  [0.42, 1.4, 0.11, 0.85], [0.5, 3.6, 0.105, 0.85], [0.64, 5.4, 0.09, 0.8], [0.8, 2.1, 0.075, 0.6],
+]);
+// The far bare tree's rags of leaf (mazetrees.js hauntedTree opts.ragAt): partway along each limb,
+// in the crown, not at its tip (scaled to a walk tree they hung off the tips like nests in the sky).
+export const FAR_BARE_RAG_AT = 0.45;
+
 /** The level of detail's state for n trees (made once; planLod reuses it every frame). */
 export function lodState(n) {
   return {
