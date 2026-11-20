@@ -503,7 +503,11 @@ export function createVampKit(opts = {}) {
       const handle = torus(0.018, 0.006, 0, 0, 0, PALETTE.china, false, 10); handle.rotateY(Math.PI / 2).translate(0.058, 0.31, 0.53);
       cup.push(handle);
       // (group 3, o.cupFit: the china in the fittings, a third larger, so it keeps its own pale colour and reads as a cup, not as more stone)
-      if (o.cupFit) { const C = S.merge(cup); C.translate(0, -0.29, -0.53).scale(2.0, 2.0, 2.0).translate(0, 0.29, 0.58).scale(k, k, k); fit.push(C); } else st.push(...cup);
+      if (o.cupFit) {
+        const C = S.merge(cup); C.translate(0, -0.29, -0.53).scale(2.0, 2.0, 2.0).translate(0, 0.29, 0.58).scale(k, k, k);
+        if (o.cupTone) { const a = C.attributes.color.array; for (let i = 0; i < a.length; i++) a[i] *= o.cupTone; } // (group 5's fix round: china toned down, so it reads as a cup, not a white blob)
+        fit.push(C);
+      } else st.push(...cup);
     }
     // the head
     const hy = 0.66; const hz = 0.4;
@@ -870,7 +874,7 @@ export function createVampKit(opts = {}) {
     const pos = new Float32Array(n * 3); const col = new Float32Array(n * 3); const sd = new Float32Array(n);
     let o = 0;
     for (const { v, m } of parts) {
-      const tone = v.variant === 'moon' ? [0.5, 0.56, 0.68] : [0.95, 0.62, 0.36];
+      const tone = v.variant === 'moon' ? [0.5, 0.56, 0.68] : v.variant === 'dawn' ? [1.0, 0.8, 0.5] : [0.95, 0.62, 0.36]; // (group 5: the dawn's gold)
       pos.set(m.positions, o * 3);
       sd.set(m.seeds, o);
       for (let i = 0; i < v.n; i++) for (let k = 0; k < 3; k++) col[(o + i) * 3 + k] = tone[k] * m.glow[i] * 0.6;

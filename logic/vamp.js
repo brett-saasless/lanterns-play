@@ -26,6 +26,9 @@ import { makeRng } from './rng.js';
 import { BOARD, PIECE_FOOT, PADS, STAIRS, UPPER, WRECK, wreckFoot, wreckBoxes, stairFloor } from './keepmap.js'; // group 3: the Knight's Walk, the stairs, the landing
 import { MIRROR_ROOM, FURNITURE, NURSERY, COUNTWAY, HAUNT_PLACES } from './keepmap.js'; // group 4: the upper floor
 import { PROP_FOOT, footBox } from './solids.js'; // group 4: the furniture's and the nursery's footprints, as the collision has them
+import { COUNT_ROOM, MIDDLE_CURTAIN, END } from './keepmap.js'; // group 5: the Count's room
+import { LID } from './countlid.js'; // group 5: his lid, as it is built and swung
+import { shaftEdge, shaftAt } from './countshafts.js'; // group 5: where the dawn lies on his boards
 
 const f = (o) => {
   Object.values(o).forEach((v) => { if (v && typeof v === 'object' && !Object.isFrozen(v)) f(v); });
@@ -51,6 +54,7 @@ export const RICHNESS = f({
 export const DRESSED = f(['outside', 'hall', 'cor1', 'cor2', 'cor3', 'tea', 'gallery', 'crypt',
   'walk', 'stairs', 'landing', // group 3
   'mirror', 'passage', 'nursery', 'countway', // group 4 (the mirror room's stone now takes the landing's own tint, so the mirrorIn seam is gone)
+  'count', // group 5: the Count's room, at 1.0 in the same family, so the countIn seam is gone
 ]);
 
 /**
@@ -94,7 +98,15 @@ export const GRADE = f({
 export const WARM_BIAS = f({ gallery: 0.08, crypt: 0.08,
   walk: 0.03, stairs: 0.06, landing: 0.06, // group 3: half in the moon's walk, ramping to the stair's along the walk's last third (WARM_RAMP), so it eases into the stair
   mirror: 0.06, passage: 0.06, nursery: 0.06, countway: 0.06, // group 4: the landing's, so no wall upstairs steps at a door (the countway is only a shade darker, by its richness)
+  count: 0.14, // group 5 (fix round, A1: at the landing's 0.06 his ashlar under the upper floor's moon-silver air read cold slate beside the torchlit countway; warmer, so his walls read as the same family)
 });
+
+/**
+ * Group 5's fix round (the art critic, A2: the richest room read black overhead): how much a room's night air (the hemisphere's
+ * share of the ambient) is lifted on top of its own, a share. It belongs to the grade's air, so it eases across a threshold and
+ * gives way to the dawn as the crimson does (gradeAir). No light is added.
+ */
+export const AIR_LIFT = f({ count: 0.18 });
 
 /**
  * Group 3, round 2 (the art critic, H9: the cold walk cut to a warm stair at the door): the walk's stone takes
@@ -109,7 +121,8 @@ export const WARM_RAMP = f({ walk: { z0: -109, z1: -117, to: 0.06 } });
  */
 export const GRADE_HUE = f({ stairs: { fire: 0xd8282e, sky: 0x4a1a24 }, landing: { fire: 0xd8282e, sky: 0x4a1a24 },
   // group 4: the whole upper floor keeps the landing's crimson and oxblood, so the hue never steps at a door upstairs
-  mirror: { fire: 0xd8282e, sky: 0x4a1a24 }, passage: { fire: 0xd8282e, sky: 0x4a1a24 }, nursery: { fire: 0xd8282e, sky: 0x4a1a24 }, countway: { fire: 0xd8282e, sky: 0x4a1a24 } });
+  mirror: { fire: 0xd8282e, sky: 0x4a1a24 }, passage: { fire: 0xd8282e, sky: 0x4a1a24 }, nursery: { fire: 0xd8282e, sky: 0x4a1a24 }, countway: { fire: 0xd8282e, sky: 0x4a1a24 },
+  count: { fire: 0xd8282e, sky: 0x4a1a24 } }); // group 5: his room in the same crimson and oxblood
 
 /**
  * The grade of one zone: { r, fire, sky, shadow, fog, stoneK, warm, glow } with every mix already
@@ -129,6 +142,7 @@ export function gradeOf(id) {
     stoneK: 1 - GRADE.stone * r,
     warm: GRADE.warm * r,
     bias: DRESSED.includes(id) && WARM_BIAS[id] ? WARM_BIAS[id] : 0,
+    lift: DRESSED.includes(id) && AIR_LIFT[id] ? AIR_LIFT[id] : 0, // group 5's fix round: the night air lifted a share
     fireHex: (DRESSED.includes(id) && GRADE_HUE[id] && GRADE_HUE[id].fire) || GRADE.fire.hex, // group 3: the hue the flames lean to
     skyHex: (DRESSED.includes(id) && GRADE_HUE[id] && GRADE_HUE[id].sky) || GRADE.sky.hex, // and the night air
     glow: g0.map((c, i) => c + (GRADE.glow[i] - c) * r),
@@ -146,6 +160,18 @@ export function gradeTint(g) {
   if (!g.r) return [1, 1, 1];
   const w = g.warm + (g.bias || 0);
   return [g.stoneK * (1 + w), g.stoneK, g.stoneK * (1 - w)];
+}
+
+/**
+ * Group 5: the grade's night air as the dawn comes up in the Count's room. The air's crimson (its sky, its fog, its
+ * shadows, its warm bias and its lift) gives way to the dawn by its level (castle.js dawnLevel, 0 at night, 1 once he is ash), so
+ * the daylight is the gold it always was; the stone keeps its grade. Fills `out` ({ sky, fog, shadow, bias, lift }) in place
+ * (castle.js calls it every frame) and returns it.
+ */
+export function gradeAir(g, dawn, out = {}) {
+  const k = 1 - clamp(dawn || 0);
+  out.sky = g.sky * k; out.fog = g.fog * k; out.shadow = g.shadow * k; out.bias = (g.bias || 0) * k; out.lift = (g.lift || 0) * k;
+  return out;
 }
 
 /**
@@ -167,6 +193,7 @@ export const FIT_STONE = f({ gargoyle: 0.6, bat: 0.4 });
 export const FIT_STONE_ROOMS = f({ hall: 0.5, cor1: 0.55, cor2: 0.55, cor3: 0.55, tea: 1, gallery: 1, crypt: 1,
   walk: 0.85, stairs: 0.36, landing: 0.36, // group 3: the walk's moon pool is brighter than the gallery's; the stair and landing torchlit close (round 2: 0.8 of 0.45, cooled: FIT_COOL)
   mirror: 0.42, nursery: 0.42, passage: 0.4, countway: 0.4, // group 4: a shade under the walk's (at 0.6 they read pale lavender against the dark upper walls)
+  count: 0.4, // group 5: the countway's
 });
 
 /**
@@ -181,9 +208,10 @@ export const FIT_HUE = 0.45; // (at 0.3 a crypt gargoyle's moonward side still r
  * half its red against walls at about 0.85): there the lean to the torchlight is small and the stone is cooled a
  * shade toward grey-violet, so a gargoyle reads as the wall's own stone, darker.
  */
-export const FIT_HUE_ROOMS = f({ stairs: 0.1, landing: 0.1, mirror: 0.1, passage: 0.1, nursery: 0.1, countway: 0.1 }); // group 4: the same crimson, the same lesson
+export const FIT_HUE_ROOMS = f({ stairs: 0.1, landing: 0.1, mirror: 0.1, passage: 0.1, nursery: 0.1, countway: 0.1, count: 0.1 }); // group 4: the same crimson, the same lesson
 export const FIT_COOL = f({ stairs: [0.96, 0.95, 1.06], landing: [0.96, 0.95, 1.06],
-  mirror: [0.96, 0.95, 1.06], passage: [0.96, 0.95, 1.06], nursery: [0.96, 0.95, 1.06], countway: [0.96, 0.95, 1.06] });
+  mirror: [0.96, 0.95, 1.06], passage: [0.96, 0.95, 1.06], nursery: [0.96, 0.95, 1.06], countway: [0.96, 0.95, 1.06],
+  count: [0.96, 0.97, 1.03] }); // (group 5's fix round, A7: on his warmer walls the countway's cool read lilac on the carving; a shade toward warm grey)
 /** How far a room's carving leans to its light (FIT_HUE, or its own). */
 export function fitHueOf(id) { return Object.prototype.hasOwnProperty.call(FIT_HUE_ROOMS, id) ? FIT_HUE_ROOMS[id] : FIT_HUE; }
 
@@ -605,6 +633,8 @@ export function decorPlan(seed = VAMP_SEED) {
   out.push(...groupThree(makeRng((seed * 13 + 3) >>> 0)));
   // ---- group 4: the mirror room, the passage, the nursery, the countway (its own seeded hand) ----
   out.push(...groupFour(makeRng((seed * 17 + 4) >>> 0)));
+  // ---- group 5: the Count's room (its own seeded hand) ----
+  out.push(...groupFive(makeRng((seed * 19 + 5) >>> 0)));
 
   const plan = f(out);
   if (seed === VAMP_SEED) PLAN = plan;
@@ -756,6 +786,7 @@ export function boxOf(p) {
     }
     return { minX: lo[0] - a, maxX: hi[0] + a, minY: lo[1] - a * 0.7, maxY: hi[1] + a * 0.7, minZ: lo[2] - a, maxZ: hi[2] + a };
   }
+  if (p.kind === 'glow' && p.mount === 'ceiling') return { minX: p.x - p.w / 2, maxX: p.x + p.w / 2, minY: p.y - 0.01, maxY: p.y, minZ: p.z - p.h / 2, maxZ: p.z + p.h / 2 }; // (group 5) a still wash on a ceiling, w by h
   if (p.kind === 'glow') { // a baked pool of light on a wall: w along it, h tall, centred on (x, y), a hair off the face
     const ax = p.n[1] !== 0;
     return ax ? { minX: p.x - p.w / 2, maxX: p.x + p.w / 2, minY: p.y - p.h / 2, maxY: p.y + p.h / 2, minZ: Math.min(p.z, p.z - p.n[1] * 0.03), maxZ: Math.max(p.z, p.z - p.n[1] * 0.03) }
@@ -887,6 +918,7 @@ export function keepClear(zone) {
   }
   keepClearThree(zone, box, out); // group 3: the Knight's Walk, the stairs, the landing
   keepClearFour(zone, box); // group 4: the mirror room, the passage, the nursery, the countway
+  keepClearFive(zone, box); // group 5: the Count's room
   return out;
 }
 
@@ -1301,4 +1333,196 @@ function keepClearFour(zone, box) {
   if (zone === 'countway') { // the card tacked under the torch (keepprops.js: 0.44 by 0.33)
     const n = COUNTWAY.note; box('note', 'clue', n.x - 0.05, n.x + 0.1, y0 + n.y - 0.2, y0 + n.y + 0.2, n.z - 0.25, n.z + 0.25);
   }
+}
+
+// ---- group 5: the Count's room (1.0), the last and the richest -------------------------------------------
+//
+// Lavish and wrong. His room keeps everything it had and everything the game turns on: the box in the middle and its
+// lid (it swings up over the top on its east hinge and lies as a ramp to the floor), the three shades over the east
+// windows with their cord, padlock and nails, the three shafts of dawn they let in (the middle one on the box, the side
+// ones beside it), the hearth, the two sconces, the carpet, the way from his door to the box and to the middle window,
+// and every line the death scene's and the triumph's camera looks along. The decor stands on the walls, high in the
+// corners and hangs from the beam over the room's axis, north and south of the box, never over it:
+// - his arms (the bat in the dragon's coil), the largest in the house, painted in crimson and gilt on the far wall
+//   under a still candle wash, carved over his door, painted in the hearth's overmantel; the heart carved on the west wall;
+// - two iron chandeliers (not twins: eight arms and six) hung from the beam over the axis, one by the far wall, one
+//   by the door, their webs in their arms; six candelabras: two either side of the arms, two either side of the door,
+//   two either side of the hearth (the south one with teacups for pans);
+// - a gargoyle crouched in each corner under the beams' corbels (the far east one the Cheshire grin, baked pale), two
+//   flanking his door (the east one holding a teacup), two with spread wings on the west wall either side of the hearth;
+// - carved bats: two flanking his arms, two on the door wall, one on each pier between the windows (dark against the
+//   dawn when it comes), and the pocket-watch bat on the west wall (no puzzle here turns on a clock);
+// - webs in every corner, in the arch of his door and where the tie beams meet the west wall; dust in the hearth's
+//   light and under the far chandelier; and dust in each shaft of dawn, drawn only while its shade is open.
+// No coffin or niche is added (his box is his own), no drape, no throne, no bones, no mist.
+
+/** The Count's room's ceiling (castle.js beams(): n 8 along z, h 6): the beams' middles, their underside, the two tie beams across and the corbels under each beam's ends. */
+export const COUNT_BEAMS = f((() => {
+  const r = COUNT_ROOM.rect; const n = 8;
+  return { ceil: 6, beamBottom: 6 - 0.4, tieBottom: 6 - 0.65, corbel: 6 - 0.72,
+    beams: Array.from({ length: n + 1 }, (_, i) => r.minX + 0.25 + (r.maxX - r.minX - 0.5) * i / n),
+    ties: [r.minZ + (r.maxZ - r.minZ) / 3, r.minZ + 2 * (r.maxZ - r.minZ) / 3] };
+})());
+
+/** The windows castle.js cuts in his east wall (makePlan: WIN(0, 'e', c.z, 1.8, 4.2, 0.9)), and the shades keepprops.js hangs over them (2.7 wide, 4.7 tall from 0.12, 0.34 m in; the pelmet, the pole, the bar and the skirting reach 1.62 m either side and up to 5.15). */
+export const COUNT_WINDOW = f({ w: 1.8, h: 4.2, sill: 0.9 });
+export const COUNT_SHADES = f({ half: 1.62, reach: 0.65, top: 5.15 });
+
+/** The two sconces castle.js buildCount sets on the far wall, 4 m in from each end, at 2.2 (kept equal by a test): [{ x, z, n, y }]. */
+export function countLights() {
+  const r = COUNT_ROOM.rect; const y = vampZone('count').y;
+  return [r.minX + 4, r.maxX - 4].map((c) => ({ ...onWall(r, 'n', c), y: y + 2.2 }));
+}
+
+/** How high over the boards a shaft of dawn reaches at x: the window's head at the sill, down to nothing at the shaft's far end (countshafts.js). */
+export function shaftTop(x) {
+  const x0 = shaftEdge(MIDDLE_CURTAIN, 0, {}).x; const x1 = shaftEdge(MIDDLE_CURTAIN, 1, {}).x;
+  return (COUNT_WINDOW.sill + COUNT_WINDOW.h) * (1 - clamp((x0 - x) / (x0 - x1)));
+}
+
+/**
+ * The cut scenes' camera in his room (logic/countcam.js, the one castle.js sceneCamera draws), re-exported for the plan's
+ * checks: kind 'pyre' or 'triumph', t seconds in, pl the warden. { pos, target, fov }.
+ */
+export { countSceneCamera, COUNT_CAM } from './countcam.js';
+
+/** How long a shaft's dust takes to come up or go (seconds): the shade's own pace (keepprops.js, toward(open, goal, dt / 0.7)). */
+export const DAWN_DUST_PACE = 0.7;
+
+/**
+ * One frame of the dawn's dust (castle.js draws it from this): levels, [0..1] by shade, eased toward 1 for each open
+ * shade (open[i]) and for all three once he is ash (ash), toward 0 otherwise, at DAWN_DUST_PACE; dt 0 sets them at once.
+ * Fills levels in place; returns whether any of it is drawn (all dark: no draw call at all).
+ */
+export function stepDawnDust(levels, open, ash, dt) {
+  let any = false;
+  for (let i = 0; i < levels.length; i++) {
+    const goal = ash || (open && open[i]) ? 1 : 0; const was = levels[i];
+    levels[i] = dt > 0 ? (goal > was ? Math.min(goal, was + dt / DAWN_DUST_PACE) : Math.max(goal, was - dt / DAWN_DUST_PACE)) : goal;
+    if (levels[i] > 0.001) any = true;
+  }
+  return any;
+}
+
+/** A shaft of dawn's dust: in shaft i's light from x0 down to x1 (each end on the shaft's own centre line), from y0 to y1 over the floor. */
+function dawnMotes(i, x0, x1, y0, y1, n) {
+  const fy = vampZone('count').y;
+  const mid = (x) => { const s = shaftAt(i, x); return (s.z0 + s.z1) / 2; };
+  return { id: `count-motes-dawn-${i}`, zone: 'count', kind: 'motes', variant: 'dawn', hybrid: false, mount: 'air', shaft: i,
+    from: [x0, fy + y0, mid(x0)], to: [x1, fy + y1, mid(x1)], spread: [0.7, 0.5], n };
+}
+
+function groupFive(rand) {
+  const out = [];
+  const add = (...xs) => out.push(...xs);
+  const gseed = () => Math.floor(rand() * 1000);
+  const kz = vampZone('count'); const R = kz.rects[0]; const y0 = kz.y; const CB = COUNT_BEAMS;
+  const bat = (id, at, y, v = 'bat', w = 1.0, more = {}) => wallThing(id, 'count', 'bat', v, at, y0 + y, w, 0.44, 0.09, { tilt: (rand() - 0.5) * 0.22, seed: gseed(), ...more });
+  const garg = (id, at, y, v, h = 1.0) => wallThing(id, 'count', 'gargoyle', v, at, y0 + y, v === 'spread' ? 1.1 : 0.62, h, v === 'spread' ? 0.72 : 0.6, { seed: gseed(), edge: 'gilt', corbelTone: true });
+  const candelabra = (id, at, more = {}) => wallThing(id, 'count', 'candelabra', 'iron', at, y0 + 1.85, 0.7, 0.62, 0.3, { arms: 5, ...more });
+
+  // his arms, the largest in the house, painted in crimson and gilt on the far wall (seen from his door over the box), under
+  // the corbel of the beam over the room's axis, and a still candle wash behind them so they read from the door
+  add(wallThing('count-crest-arms', 'count', 'crest', 'dracul', onWall(R, 'n', 13), y0 + 2.75, 1.9, 2.3, 0.08, { finish: 'plaque', frame: 'gilt' }));
+  add({ id: 'count-glow-arms', zone: 'count', kind: 'glow', variant: 'wall', hybrid: false, mount: 'air', still: true, x: 13, y: y0 + 3.9, z: R.minZ + 0.03, n: [0, 1], w: 3.0, h: 3.2, strength: 0.1 });
+  // painted in crimson and gilt over his door (on the room's side), a fainter wash behind; painted in the hearth's overmantel panel
+  const ki = archFace('countIn', 'count');
+  add(wallThing('count-crest-door', 'count', 'crest', 'dracul', { x: ki.x, z: ki.z, n: ki.n }, y0 + 3.4, 1.1, 1.3, 0.08, { finish: 'plaque', frame: 'gilt', mount: 'lintel', door: 'countIn' })); // (painted, as on the countway's side of the same door: carved, between two candelabras, it read as a pale grey plaque, and a darker tone barely moved it)
+  add({ id: 'count-glow-door', zone: 'count', kind: 'glow', variant: 'wall', hybrid: false, mount: 'lintel', door: 'countIn', still: true, x: ki.x, y: y0 + 4.05, z: ki.z - 0.03, n: ki.n, w: 1.6, h: 1.4, strength: 0.07 });
+  const hz = (HEARTHS.count.minZ + HEARTHS.count.maxZ) / 2;
+  add(wallThing('count-crest-hearth', 'count', 'crest', 'dracul', onWall(R, 'w', hz), y0 + 3.05, 0.75, 0.94, 0.04, { finish: 'plaque', out: 0.35, mount: 'overmantel' }));
+  // the heart, painted in crimson in a gilt frame on the west wall by the door's corner (an Alice hybrid; carved, it read as a grey plaque)
+  add(wallThing('count-crest-heart', 'count', 'crest', 'heart', onWall(R, 'w', -153.2), y0 + 3.0, 1.1, 1.3, 0.08, { finish: 'plaque', frame: 'gilt' })); // (fix round, A6: larger, so the card's heart reads)
+
+  // two iron chandeliers hung from the beam over the room's axis (x 13), their roses 5 mm under it: eight arms by the far
+  // wall, six by the door; north and south of the box, out of the lid's swing, the shafts and the cut scenes' lines
+  // (fix round, A4: the far one a metre nearer the box, so from his door its ring no longer crosses his arms' crown; A2: their floor pools 3 m)
+  for (const [s, zz, arms, w, low] of [['n', -166.5, 8, 2.2, 3.7], ['s', -154.5, 6, 1.7, 3.65]]) {
+    add({ id: `count-chandelier-${s}`, zone: 'count', kind: 'chandelier', variant: 'iron', hybrid: false, x: 13, y: y0 + low, z: zz, n: [0, 0],
+      w, h: CB.beamBottom - 0.005 - low, proud: 0, out: 0, mount: 'hang', arms, pool: 3.0 });
+  }
+  // six candelabras of five: either side of his arms, either side of his door, either side of the hearth (the south one
+  // of four with teacups for pans, larger and paler, to read from across the room)
+  add(candelabra('count-candelabra-n0', onWall(R, 'n', 10.4)), candelabra('count-candelabra-n1', onWall(R, 'n', 15.6)));
+  add(candelabra('count-candelabra-s0', onWall(R, 's', 9.6)), candelabra('count-candelabra-s1', onWall(R, 's', 16.4)));
+  add(candelabra('count-candelabra-hearth', onWall(R, 'w', -157.4)));
+  add(candelabra('count-candelabra-teacup', onWall(R, 'w', -164.6), { variant: 'teacup', hybrid: true, w: 0.9, arms: 4, cups: 1.5 }));
+
+  // a gargoyle crouched in each corner under the beams' corbels; the far east one the Cheshire grin, baked pale
+  for (const c of concaveCorners('count')) {
+    const ne = c.x > 13 && c.z < -161;
+    add({ ...cornerThing(`count-garg-${c.x},${c.z}`, 'count', 'gargoyle', ne ? 'cheshire' : 'crouch', c, y0 + 4.2, 0.55, ne ? 0.95 : 0.85, 0.48), seed: gseed(), edge: 'gilt', corbelTone: true, ...(ne ? { glow: true } : {}) });
+  }
+  // two flanking his door, high (the east one holding a teacup, its china in the fittings), two with spread wings on the west wall
+  add(garg('count-garg-door-w', onWall(R, 's', 10.4), 4.1, 'crouch', 0.95), { ...garg('count-garg-door-e', onWall(R, 's', 15.6), 4.1, 'teacup', 1.0), cupTone: 0.62 }); // (fix round, A5: its china toned down, a cup, not a white blob)
+  add(garg('count-garg-west-s', onWall(R, 'w', -155.5), 4.4, 'spread'), garg('count-garg-west-n', onWall(R, 'w', -166.5), 4.4, 'spread'));
+
+  // carved bats, a metre across: flanking his arms, on the door wall, on the piers between the windows (a shade smaller,
+  // between the shades), and the pocket-watch bat on the west wall, its face 1.3 times as large
+  add(bat('count-bat-n0', onWall(R, 'n', 8.6), 4.3), bat('count-bat-n1', onWall(R, 'n', 17.4), 4.3));
+  add(bat('count-bat-s0', onWall(R, 's', 6.5), 4.2), bat('count-bat-s1', onWall(R, 's', 19.5), 4.2));
+  add(bat('count-bat-e0', onWall(R, 'e', -158.5), 4.5, 'bat', 1.0), bat('count-bat-e1', onWall(R, 'e', -163.5), 4.5, 'bat', 1.0)); // (fix round, A3: a metre across, as the rest)
+  add(bat('count-bat-watch', onWall(R, 'w', -169.0), 3.9, 'watch', 1.0, { watchK: 1.3 }));
+
+  // webs: every corner under the beams, his door's arch, and where each tie beam meets the west wall
+  for (const c of concaveCorners('count')) add(cornerWeb(`count-web-${c.x},${c.z}`, 'count', c, y0 + CB.beamBottom - 0.05, 1.0));
+  add(...doorWebs('count-web-countIn', 'count', 'countIn'));
+  CB.ties.forEach((tz, i) => add({ id: `count-web-tie-${i}`, zone: 'count', kind: 'web', variant: 'corner', hybrid: false, mount: 'corner',
+    pts: [[R.minX + 0.015, y0 + CB.tieBottom - 0.02, tz + 0.23], [R.minX + 0.015, y0 + CB.tieBottom - 0.72, tz + 0.95], [R.minX + 0.8, y0 + CB.tieBottom - 0.02, tz + 0.23]] }));
+
+  // dust: in each shaft of dawn (castle.js draws it only while that shade is open), the middle one kept over the
+  // warden's head where the way to the middle window runs; in the hearth's light; under the far chandelier
+  for (const i of [0, 1, 2]) add(i === MIDDLE_CURTAIN ? dawnMotes(i, 23.4, 21.0, 3.9, 3.25, 100) : dawnMotes(i, 23.4, 20.6, 3.9, 0.9, 110));
+  add({ id: 'count-motes-hearth', zone: 'count', kind: 'motes', variant: 'fire', hybrid: false, mount: 'air', from: [R.minX + 1.3, y0 + 1.7, hz], to: [R.minX + 2.4, y0 + 0.5, hz], spread: [0.8, 0.3], n: 80 });
+  add({ id: 'count-motes-chandelier', zone: 'count', kind: 'motes', variant: 'fire', hybrid: false, mount: 'air', from: [13, y0 + 3.45, -166.5], to: [13, y0 + 2.6, -166.5], spread: [1.0, 0.25], n: 55, size: 0.7 }); // (fewer and finer: at 100 full-size they read as snow from the far wall)
+
+  // (fix round, A1 and A2) still candle washes high on his walls between the flames' pools, so warm light runs along every
+  // wall: behind the two spread gargoyles, the two over his door, the bats flanking his arms and the bats on the piers; and a
+  // still wash on the ceiling over each chandelier, so the beams and the boards between them take its warmth. No light.
+  const wash = (id, at, y, w, h, strength) => ({ id, zone: 'count', kind: 'glow', variant: 'wall', hybrid: false, mount: 'air', still: true, x: at.x + at.n[0] * 0.03, y: y0 + y, z: at.z + at.n[1] * 0.03, n: at.n, w, h, strength });
+  add(wash('count-glow-west-s', onWall(R, 'w', -155.5), 4.6, 2.2, 2.0, 0.09), wash('count-glow-west-n', onWall(R, 'w', -166.5), 4.6, 2.2, 2.0, 0.09));
+  add(wash('count-glow-door-w', onWall(R, 's', 10.4), 4.5, 1.6, 1.8, 0.08), wash('count-glow-door-e', onWall(R, 's', 15.6), 4.5, 1.6, 1.8, 0.08));
+  add(wash('count-glow-bat-n0', onWall(R, 'n', 8.6), 4.5, 1.6, 1.3, 0.08), wash('count-glow-bat-n1', onWall(R, 'n', 17.4), 4.5, 1.6, 1.3, 0.08));
+  add(wash('count-glow-bat-e0', onWall(R, 'e', -158.5), 4.72, 1.0, 1.2, 0.08), wash('count-glow-bat-e1', onWall(R, 'e', -163.5), 4.72, 1.0, 1.2, 0.08));
+  for (const c of out.filter((q) => q.kind === 'chandelier')) add({ id: `${c.id}-ceiling-glow`, zone: 'count', kind: 'glow', variant: 'wall', hybrid: false, mount: 'ceiling', still: true, x: c.x, y: y0 + CB.ceil - 0.02, z: c.z, n: [0, 0], w: 5.0, h: 5.0, strength: 0.14 });
+
+  // the lean build; the carving a paler stone (1.65, as the upper rooms' high carving), so it keeps a visible edge against
+  // his dark walls at walking distance; the teacup gargoyle's china in the fittings
+  for (const p of out) {
+    p.lean = true;
+    if (p.kind === 'gargoyle') p.light = 1.65;
+    if (p.kind === 'bat') p.light = 2.0; // (fix round, A3: at 1.65 the bats were too faint on his walls)
+    if (p.variant === 'teacup' && p.kind === 'gargoyle') p.cupFit = true;
+  }
+  return out;
+}
+
+/** Group 5's boxes nothing may enter (called by keepClear with its padded box()). */
+function keepClearFive(zone, box) {
+  if (zone !== 'count') return;
+  const z = zoneOf(zone); const y0 = z.y; const R = z.rects[0]; const B = COUNT_ROOM.box;
+  // the two sconces on the far wall
+  for (const t of countLights()) box(`torch ${t.x},${t.z}`, 'torch', t.x - 0.3, t.x + 0.3, t.y - 0.5, t.y + 0.75, t.z, t.z + 0.6);
+  // the hearth: its chimneypiece and mantel shelf (castle.js hearth 3.0 by 2.5, 0.7 deep, the shelf w + 0.46 long, to h + 0.18)
+  const h = HEARTHS.count; box('hearth', 'torch', R.minX, R.minX + 1.05, y0, y0 + 2.5 + 0.18, h.minZ - 0.25, h.maxZ + 0.25);
+  // the box, and him standing up in it
+  box('box', 'clue', B.minX, B.maxX, y0, y0 + B.h + 2.0, B.minZ, B.maxZ);
+  // the lid's swing (countlid.js LID): up over the top on its east hinge and down to its ramp on the floor
+  box('lid swing', 'route', LID.hingeX - LID.len - 0.1, LID.hingeX + LID.len + 0.1, y0, LID.hingeY + LID.len + LID.thick + 0.1, LID.z - LID.halfZ - 0.05, LID.z + LID.halfZ + 0.05);
+  // and the head room over both, to the beams: nothing hangs over his box
+  box('box head room', 'route', B.minX - 0.5, LID.hingeX + LID.len + 0.3, y0, y0 + COUNT_BEAMS.beamBottom, B.minZ - 0.5, B.maxZ + 0.5);
+  // the three windows and their shades (the cord, the padlock and its bar, the hem's nails, the pelmet and pole, the skirting)
+  COUNT_ROOM.curtains.forEach((c, i) => {
+    box(`window ${c.z}`, 'window', R.maxX - 0.3, R.maxX, y0 + COUNT_WINDOW.sill, y0 + COUNT_WINDOW.sill + COUNT_WINDOW.h, c.z - COUNT_WINDOW.w / 2, c.z + COUNT_WINDOW.w / 2);
+    box(`shade ${i}`, 'clue', R.maxX - COUNT_SHADES.reach, R.maxX, y0, y0 + COUNT_SHADES.top, c.z - COUNT_SHADES.half, c.z + COUNT_SHADES.half);
+    // each shaft of dawn, strip by strip as keepprops.js lays it, from the boards up to the light's reach (the window's head falling to the far end)
+    const a = {}; const b = {};
+    for (let k = 0; k < 10; k++) {
+      shaftEdge(i, k / 10, a); shaftEdge(i, (k + 1) / 10, b);
+      box(`shaft ${i} ${k}`, 'window', b.x, a.x, y0, y0 + shaftTop(a.x), Math.min(a.z0, b.z0), Math.max(a.z1, b.z1));
+    }
+  });
+  // the way in from his door to the box, and the place before the middle window the warden walks to after the dawn (keepmap END)
+  box('way in', 'route', 12, 14, y0, y0 + 2.4, B.maxZ + 0.6, R.maxZ - 0.45); // (to the doorway's own box: the arch's webs hang in its top corners)
+  box('end', 'route', END.x - END.r, END.x + END.r, y0, y0 + 2.4, END.z - END.r, END.z + END.r);
 }

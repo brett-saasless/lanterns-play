@@ -35,6 +35,7 @@ import { SIGHT } from '../logic/sightlines.js'; // fix/doorway-sky: which zones 
 import * as V from '../logic/vamp.js'; // the Dracula pass: how rich each room is, its grade, where the decor stands
 import { createVampKit, placeMatrix } from './vampkit.js'; // the Dracula pass's shared kit (gargoyles, crests, coffins, chandeliers, cobwebs, dust)
 import * as LAMP from '../logic/lantern.js'; // the hand lantern: it borrows one of the pool lights below while it is up
+import { countSceneCamera } from '../logic/countcam.js'; // the Count's room's cut-scene camera, one for the view and the decor's checks
 import { shadowFaces } from '../logic/shadowfaces.js'; // fix/walk-seam-light: which shell faces throw the key's shadow
 
 const HUE = ST.STONE;
@@ -856,6 +857,7 @@ export function buildCastle(scene, cfg) {
   // ---- the zones ----
   const keys = {}; // zone id -> its key light
   let dawnView = null; // K1: the view out of the Count's windows (built with the room)
+  let dawnDust = null; // the Dracula pass, group 5: the dust in each shaft of dawn, { pts, col, base, ranges: [{ shaft, from, to, drawn }], levels }
   const surfaces = cfg && cfg.surfaces ? cfg.surfaces.zones.filter((q) => q.shape === 'rect') : [];
   const inZone = (z, x, zz) => z.rects.some((r) => x >= r.x0 - 0.01 && x <= r.x1 + 0.01 && zz >= r.z0 - 0.01 && zz <= r.z1 + 0.01);
 
@@ -1247,7 +1249,7 @@ export function buildCastle(scene, cfg) {
       walls = p.zone === 'crypt' ? lowList : wallList(z); // the crypt's carving in its own run-down stone (and under its grade)
       const m = p.kind === 'web' || p.kind === 'motes' || p.kind === 'glow' ? null : placeMatrix(p.x, p.y, p.z, p.n, p.out || 0);
       if (p.kind === 'gargoyle') {
-        const b = vamp.gargoyle({ variant: p.variant, h: p.h, seed: p.seed, corbel: p.mount !== 'top', wings: p.wings, edge: p.edge, lean: p.lean, light: p.light, glow: p.glow, cupFit: p.cupFit, corbelTone: p.corbelTone });
+        const b = vamp.gargoyle({ variant: p.variant, h: p.h, seed: p.seed, corbel: p.mount !== 'top', wings: p.wings, edge: p.edge, lean: p.lean, light: p.light, glow: p.glow, cupFit: p.cupFit, corbelTone: p.corbelTone, cupTone: p.cupTone });
         carved(p, b.stone, m); if (b.fit) z.fit.push(put(b.fit, m));
         if (b.glow) z.moonGlow.push(put(b.glow, m)); // the Cheshire grin and eyes, baked pale over the carving (no light)
         if (p.rim) z.moonGlow.push(vamp.glowDisc([p.x, p.y + p.h * 0.55, p.z + p.n[1] * 0.02 + 0.0], [0.85, 0, 0], [0, 0.9, 0], V.GRADE.moon, 0.26)); // a moonlit rim behind it on the pier
@@ -1292,6 +1294,7 @@ export function buildCastle(scene, cfg) {
         z.glow.push(vamp.glowDisc([p.x + p.n[0] * 0.03, p.y + 0.42, p.z + p.n[1] * 0.03], al.map((v) => v * 0.75), [0, 0.95, 0], rgb, 0.34)); // on the wall behind
         if (!TOUCH_TIER || V.TOUCH.floorGlow) z.glow.push(vamp.glowDisc([p.x + p.n[0] * 0.7, fy + 0.03, p.z + p.n[1] * 0.7], al.map((v) => v * 1.3), [p.n[0] * 0.8, 0, p.n[1] * 0.8], rgb, 0.16)); // and on the floor under it (not on a phone)
       } else if (p.kind === 'glow') { // a broad baked pool on a wall (the crypt's far end), in the zone's candle colour
+        if (p.mount === 'ceiling') { z.moonGlow.push(vamp.glowDisc([p.x, p.y, p.z], [p.w / 2, 0, 0], [0, 0, p.h / 2], rgb, p.strength)); continue; } // (group 5) a still wash on the ceiling, over a chandelier
         const al = [p.n[1], 0, -p.n[0]];
         (p.still ? z.moonGlow : z.glow).push(vamp.glowDisc([p.x + p.n[0] * 0.03, p.y, p.z + p.n[1] * 0.03], al.map((v) => v * p.w / 2), [0, p.h / 2, 0], p.variant === 'moon' ? V.MOON_WASH : rgb, p.strength)); // still: the kit's still glow (it breathes, never flickers); group 3's moon washes in a pale moon blue
       } else if (p.kind === 'wreck') { // group 3: the broken White Knight on the walk's floor, its ivory in the fittings (pale under the room's grade)
@@ -1560,11 +1563,25 @@ export function buildCastle(scene, cfg) {
       const m = add(new THREE.Mesh(S.merge(z.moonGlow), vamp.materials.still), false, false);
       m.renderOrder = 3;
     }
-    if (z.motes.length) {
-      const vols = TOUCH_TIER ? z.motes.map((v) => ({ ...v, n: Math.max(8, Math.round(v.n * V.TOUCH.motes)) })) : z.motes;
+    // (group 5: the dust in a shaft of dawn is its own draw, lit shaft by shaft as its shade opens: dawnDust, update)
+    const thin = (list) => (TOUCH_TIER ? list.map((v) => ({ ...v, n: Math.max(8, Math.round(v.n * V.TOUCH.motes)) })) : list);
+    const vols = thin(z.motes.filter((v) => v.variant !== 'dawn'));
+    if (vols.length) {
       const pts = new THREE.Points(vamp.motes(vols, z.index + 1), vamp.materials.motes);
       pts.renderOrder = 4;
       z.group.add(pts);
+    }
+    const dawnVols = thin(z.motes.filter((v) => v.variant === 'dawn'));
+    if (dawnVols.length) {
+      const geo = vamp.motes(dawnVols, z.index + 7);
+      const col = geo.attributes.color; const base = col.array.slice();
+      const ranges = []; let o = 0;
+      for (const v of dawnVols) { ranges.push({ shaft: v.shaft, from: o * 3, to: (o + v.n) * 3, drawn: 0 }); o += v.n; }
+      col.array.fill(0); // dark until its shade opens
+      const pts = new THREE.Points(geo, vamp.materials.motes);
+      pts.renderOrder = 4; pts.visible = false; pts.name = 'castle:dawn-dust';
+      z.group.add(pts);
+      dawnDust = { pts, col, base, ranges, levels: [0, 0, 0] }; // levels by shade (V.stepDawnDust)
     }
     if (!z.flames.empty) {
       const m = add(new THREE.Mesh(z.flames.build(), flameMat), false, false);
@@ -2082,6 +2099,20 @@ export function buildCastle(scene, cfg) {
     }
     dawnLevel += (dawn - dawnLevel) * Math.min(1, dt * 1.2);
     if (dt === 0) dawnLevel = dawn;
+    // the Dracula pass, group 5: the dust in each shaft of dawn comes up as its shade opens (at the shade's own pace, 0.7 s),
+    // and in all three once he is ash; dark and not drawn while every shade is shut
+    if (dawnDust) {
+      const cs = w && w.count;
+      dawnDust.pts.visible = V.stepDawnDust(dawnDust.levels, cs && cs.open, !!(w && w.done && w.done.dawn), dt);
+      for (const r of dawnDust.ranges) {
+        const k = smooth(dawnDust.levels[r.shaft] || 0);
+        if (k === r.drawn) continue;
+        r.drawn = k;
+        const a = dawnDust.col.array; const b = dawnDust.base;
+        for (let i = r.from; i < r.to; i++) a[i] = b[i] * k;
+        dawnDust.col.needsUpdate = true;
+      }
+    }
     skyMat.uniforms.dawn.value = dawnLevel;
     // #27: the first glow of dawn, from the Knight's Walk (stage 4) on, coming up over seconds
     const glow = w && w.index >= WALK_STAGE ? 1 : 0;
@@ -2164,10 +2195,11 @@ export function buildCastle(scene, cfg) {
     const amb = (lowerNow && cur.cryptAmbient != null ? cur.cryptAmbient : cur.ambient == null ? 0.2 : cur.ambient);
     const mixK = dt === 0 ? 1 : Math.min(1, dt * 2);
     const gr = lowerNow && cur.cryptGrade ? cur.cryptGrade : cur.grade; // the Dracula pass: under the gallery, the crypt's deeper grade
-    for (const k of GRADE_MIX) _gm[k] += (gr[k] - _gm[k]) * mixK; // eased like the ambient, so crossing into the crypt on its stair never steps
+    V.gradeAir(gr, dawnLevel, _ga); // (group 5: in the Count's room the air's crimson gives way to the dawn as it comes, so the daylight is the gold it was)
+    for (const k of GRADE_MIX) _gm[k] += (_ga[k] - _gm[k]) * mixK; // eased like the ambient, so crossing into the crypt on its stair never steps
     const cold = coldZone(cur); // K3: the upper storey's air is moon-silver
     // (the moon-silver lift gives way as the dawn comes, so the Count's room takes the gold cast it always had: no flood)
-    hemi.intensity += (amb * (cold ? lerp(COLD.hemiK, 1, clamp(dawnLevel * 2)) : 1) * (1 + 0.6 * dawnLevel) - hemi.intensity) * mixK;
+    hemi.intensity += (amb * (cold ? lerp(COLD.hemiK, 1, clamp(dawnLevel * 2)) : 1) * (1 + 0.6 * dawnLevel) * (1 + _gm.lift) - hemi.intensity) * mixK; // (group 5: the Count's room's air lifted, V.AIR_LIFT, gone by full dawn)
     hemi.color.setHex(0x6f86b4);
     if (cold) hemi.color.setHex(COLD.hemi);
     hemi.color.lerp(_gold, dawnLevel * 0.8);
@@ -2196,7 +2228,8 @@ export function buildCastle(scene, cfg) {
   const _vFire = new THREE.Color(V.GRADE.fire.hex); const _vSkyNow = new THREE.Color(V.GRADE.sky.hex);
   const _vShadow = new THREE.Color(V.GRADE.shadow.hex); const _vFog = new THREE.Color(V.GRADE.fog.hex);
   const _vWarm = new THREE.Color(0x8a5a40); // the warm bias's target (V.WARM_BIAS)
-  const GRADE_MIX = ['sky', 'fog', 'shadow', 'bias']; const _gm = { sky: 0, fog: 0, shadow: 0, bias: 0 }; // the grade's air, eased
+  const GRADE_MIX = ['sky', 'fog', 'shadow', 'bias', 'lift']; const _gm = { sky: 0, fog: 0, shadow: 0, bias: 0, lift: 0 }; // the grade's air, eased (group 5: and its lift)
+  const _ga = { sky: 0, fog: 0, shadow: 0, bias: 0, lift: 0 }; // (group 5) the air the grade wants this frame, the dawn taken off it (V.gradeAir)
   const _ridgeLift = new THREE.Color(RIDGE).sub(new THREE.Color(0x080b12));
 
   // ---- the title fly-through: over the bridge, in at the door and through every room ----
@@ -2236,23 +2269,11 @@ export function buildCastle(scene, cfg) {
       return { position: scenePos, target: sceneTarget };
     }
     if (kind === 'pyre') {
-      // K10: close on him while he burns (he stands about half the frame's height), then crane up
-      // with the whirlwind from 5 s so the shades go out through the dawn in frame, then settle on
-      // the ash in the still gold. A longer lens than the warden's.
-      const y = byId.count.y;
-      const bx = KM.COUNT_ROOM.boxAt.x; const bz = KM.COUNT_ROOM.boxAt.z;
-      const win = KM.COUNT_ROOM.curtains[KM.MIDDLE_CURTAIN];
-      const pl = sim && sim.player;
-      const side = pl && pl.z > bz ? 1 : -1; // from the warden's side of the room
-      const push = smooth(t / 5);
-      const crane = smooth((t - 4.2) / 3.0);
-      const settle = smooth((t - 8.3) / 1.5);
-      scenePos.set(lerp(bx - 4.3, bx - 3.8, push), y + lerp(1.85, 2.0, push), bz + side * lerp(3.1, 2.7, push));
-      scenePos.x = lerp(scenePos.x, bx - 5.2, crane); scenePos.y = lerp(scenePos.y, y + 3.4, crane); scenePos.z = lerp(scenePos.z, bz + side * 3.8, crane);
-      sceneTarget.set(bx, y + lerp(2.15, 2.25, push), bz);
-      sceneTarget.x = lerp(sceneTarget.x, win.x - 4, crane); sceneTarget.y = lerp(sceneTarget.y, y + 3.9, crane); sceneTarget.z = lerp(sceneTarget.z, win.z, crane);
-      sceneTarget.x = lerp(sceneTarget.x, bx + 1.5, settle); sceneTarget.y = lerp(sceneTarget.y, y + 1.0, settle); sceneTarget.z = lerp(sceneTarget.z, bz, settle);
-      return { position: scenePos, target: sceneTarget, fov: lerp(48, 62, crane) };
+      // K10: close on him while he burns, crane up with the whirlwind so the shades go out through the dawn in frame, then
+      // settle on the ash in the still gold (logic/countcam.js: the one camera, which the Dracula pass checks its decor against)
+      const c = countSceneCamera('pyre', t, sim && sim.player, _countCam);
+      scenePos.fromArray(c.pos); sceneTarget.fromArray(c.target);
+      return { position: scenePos, target: sceneTarget, fov: c.fov };
     }
     if (kind === 'triumph') return triumphCamera(sim, sc);
     if (kind === 'cutaway') return roadView.sceneCamera(sim, sc); // the werewolf cutaway, on the road and the castle's front
@@ -2266,24 +2287,12 @@ export function buildCastle(scene, cfg) {
    * starts from where the warden faced, so there is no cut from the warden's eye.
    */
   function triumphCamera(sim, sc) {
-    const y = byId.count.y;
-    const r = byId.count.rects[0];
-    const pl = sim && sim.player;
-    const win = KM.COUNT_ROOM.curtains[KM.MIDDLE_CURTAIN];
-    const px = pl && Number.isFinite(pl.x) ? pl.x : win.x - 2; const pz = pl && Number.isFinite(pl.z) ? pl.z : win.z;
     const t = sc.t != null ? sc.t : (sc.total || 8) - (sc.left || 0);
-    // The look starts where the warden was looking (no cut), level, from the warden's eye.
-    const yaw = pl && Number.isFinite(pl.yaw) ? pl.yaw : -Math.PI / 2;
-    const eyeY = y + 1.65;
-    // K12: the warden goes up to the middle window and the look rises into it, square on, so by
-    // THE END (4 s) the window's sky and the sunrise over the land fill most of the frame
-    const go = smooth(clamp(t / 4.2));
-    const lift = smooth(clamp((t - 0.6) / 4.6));
-    const sill = r.x1 - 1.3; // close to the window's inner face, so its light fills the frame
-    scenePos.set(lerp(px, sill, go), lerp(eyeY, y + 1.75, go), lerp(pz, win.z, go));
-    sceneTarget.set(lerp(px - Math.sin(yaw) * 4, r.x1 + 6, go), lerp(eyeY, y + 1.75 + 6 * 0.17, lift), lerp(pz - Math.cos(yaw) * 4, win.z, go));
-    return { position: scenePos, target: sceneTarget, fov: lerp(75, 50, smooth(clamp(t / 4.6))) };
+    const c = countSceneCamera('triumph', t, sim && sim.player, _countCam); // (logic/countcam.js, K12: square on into the middle window by THE END)
+    scenePos.fromArray(c.pos); sceneTarget.fromArray(c.target);
+    return { position: scenePos, target: sceneTarget, fov: c.fov };
   }
+  const _countCam = { pos: [0, 0, 0], target: [0, 0, 0], fov: 0 }; // (made once: the scenes' camera fills it every frame)
 
   /** Draw calls (meshes) and triangles each zone adds when it is on screen. */
   function counts() {
