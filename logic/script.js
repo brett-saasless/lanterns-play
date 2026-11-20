@@ -166,11 +166,11 @@ export const ENTRIES = f({
   // above (Renfield's hour, unchanged); the dawn card's log half is `dawn`.
   garlicScratch: { kind: 'clue', text: 'Scratched by the nail: bullets go through them, garlic they cannot abide. Somebody learned it here.' },
   hare: { kind: 'clue', text: 'A hare in a solicitor\'s coat, chained in the crypt. He says the mirror tells the truth, backwards: what it does not show will not hold me.' },
-  boardPlate: { kind: 'clue', text: 'WHITE TO MOVE. One knight and no other piece. Black does not move. Black keeps what it guards.' },
+  boardPlate: { kind: 'clue', text: 'WHITE TO MOVE. One knight and no other piece. Black does not move. Black keeps what it guards. Reach the far rank. The king need not fall.' },
   dawn: { kind: 'note', text: CARDS.dawn.log },
   plainClocks: { kind: 'plain', text: 'Five clocks, all stopped on the hour, no two agreeing on which. Renfield gave me the hour. A clock that is right starts to tick.' },
   plainGallery: { kind: 'plain', text: 'The carpet is not in the glass. Neither is half the floor. Walk on what the mirror shows, and mind that it swaps left for right.' },
-  plainBoard: { kind: 'plain', text: 'I go as the knight goes. A square one of theirs can reach costs me blood when I land on it. Landing on one of them takes it off the board.' },
+  plainBoard: { kind: 'plain', text: 'I go as the knight goes. A square one of theirs can reach costs me blood when I land on it. Landing on one of them takes it off the board. I do not have to take the king. I only have to reach the back row.' },
   // ---- issues #7, #8: the Count's room (DRAFT, for the owner's approval) ----
   // The card by the Count's door (READS.curtainNote is its found words), and the plain line a
   // death in his room writes for the next curtain still shut (count.js CURTAIN_PLAIN).
@@ -271,6 +271,15 @@ export const CASTLE_PLACES = f([
   'Here lies the master',
   'The Count\'s door',
 ]);
+
+/**
+ * The small line under a castle place banner, by stage index (the owner, 2026-11-19: tell the
+ * player the Knight's Walk is won on the far rank, not by taking the king). Stages not listed
+ * show the place name alone.
+ */
+export const CASTLE_PLACE_SUBS = f({
+  4: 'Reach the far rank. The king need not fall.',
+});
 
 /** The place plate on the walk from the Caterpillar's gate to the road (the owner's review, 2026-11-19). */
 export const WALK_PLACE = 'The Wood Path';

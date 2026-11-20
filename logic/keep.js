@@ -18,7 +18,7 @@ import {
   STOCK, WINDOWS, HAUNT_PLACES, CURTAIN_TARGETS, TEA, DOORS, PIKES,
   floorZoneAt, zoneAt, stageOf, tileAt, tileRect, squareRect, squareCell, squareAt, walkWallsNear,
 } from './keepmap.js';
-import { CASTLE_PLACES, ENTRIES } from './script.js';
+import { CASTLE_PLACES, CASTLE_PLACE_SUBS, ENTRIES } from './script.js';
 import { cryptSolids, pitPiers, furnitureBoxes } from './solids.js';
 import { addEntry } from './journal.js';
 import { MATERIALS, surfaceAt } from './surfaces.js';
@@ -1223,7 +1223,8 @@ function enterStage(sim, k, events) {
   w.index = k;
   w.phase = phaseFor(w, k);
   sim.stats.waveReached = Math.max(sim.stats.waveReached, k + 1);
-  events.push({ type: 'checkpoint', index: k, name: CASTLE_PLACES[k] });
+  const sub = CASTLE_PLACE_SUBS[k];
+  events.push({ type: 'checkpoint', index: k, name: CASTLE_PLACES[k], ...(sub ? { sub } : {}) });
   events.push({ type: 'waveStart', wave: k + 1, of: STAGES, stage: k });
   w.checkpoint = snapshot(sim, k);
 }

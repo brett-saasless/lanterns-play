@@ -351,9 +351,16 @@ function plateTexture(text) {
     const sentences = text.split('. ').map((s2, i, a) => (i < a.length - 1 ? `${s2}.` : s2));
     g.font = 'bold 34px Georgia, "Times New Roman", serif';
     g.fillText(sentences[0], w / 2, 74);
-    g.font = '24px Georgia, "Times New Roman", serif';
-    let y = 116;
-    for (const s2 of sentences.slice(1)) for (const ln of wrapText(g, s2, w - 90)) { g.fillText(ln, w / 2, y); y += 34; }
+    // The rest a sentence to a line (wrapped if long), smaller when there are more than three
+    // lines, so the last stays inside the inner rule.
+    const lines = (px) => {
+      g.font = `${px}px Georgia, "Times New Roman", serif`;
+      return sentences.slice(1).flatMap((s2) => wrapText(g, s2, w - 90));
+    };
+    let body = lines(24);
+    let y = 116; let step = 34;
+    if (body.length > 3) { body = lines(20); y = 108; step = 26; }
+    for (const ln of body) { g.fillText(ln, w / 2, y); y += step; }
   });
 }
 

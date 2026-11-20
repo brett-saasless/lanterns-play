@@ -326,7 +326,9 @@ export function createHud(settings, onSettingsChange, lookKey = () => 'sensitivi
       case 'notice':
         if (Object.prototype.hasOwnProperty.call(NOTICES, ev.key)) notice(NOTICES[ev.key]);
         break;
-      case 'checkpoint': banner(ev.name, '', 2.5); break; // the court: a place name and nothing else
+      // A place name and nothing else, save a castle stage with a line under it (the Knight's
+      // Walk's goal), which stays up long enough to read.
+      case 'checkpoint': banner(ev.name, ev.sub || '', ev.sub ? 4.5 : 2.5); break;
       case 'waveCleared':
         if (copy.cleared) banner(copy.cleared[0], copy.cleared[1], room === 'yard' ? CONFIG.breather : 2.5);
         break;
