@@ -35,6 +35,7 @@ import { SIGHT } from '../logic/sightlines.js'; // fix/doorway-sky: which zones 
 import * as V from '../logic/vamp.js'; // the Dracula pass: how rich each room is, its grade, where the decor stands
 import { createVampKit, placeMatrix } from './vampkit.js'; // the Dracula pass's shared kit (gargoyles, crests, coffins, chandeliers, cobwebs, dust)
 import * as LAMP from '../logic/lantern.js'; // the hand lantern: it borrows one of the pool lights below while it is up
+import { shadowFaces } from '../logic/shadowfaces.js'; // fix/walk-seam-light: which shell faces throw the key's shadow
 
 const HUE = ST.STONE;
 const INSET = 0; // walls stand just outside a zone's clear floor, as keepmap.js builds them
@@ -1786,6 +1787,19 @@ export function buildCastle(scene, cfg) {
   key.shadow.bias = -0.0006;
   key.shadow.normalBias = 0.02;
   root.add(key, key.target);
+  // fix/walk-seam-light (the owner: "at the seam of the wall, a line of bright light"). three draws a one-sided
+  // material's far faces into the shadow map, which is right for a fire inside a room (the walls' outer faces
+  // throw its shadows) but wrong for a key that shines in from outside (the moon through the walk's and the
+  // gallery's windows, a passage's slit, the dawn): the wall's inner face is then the shadow's surface, and the
+  // floor, a wall shaft or the next wall touching that face lie within the shadow's bias of it, so a strip a few
+  // centimetres wide along every such seam took the moon. For a key from outside, the shell casts with its near
+  // (outer) faces, a wall's thickness away from anything inside. Same light, same map, no light added.
+  const shellCasters = new Set();
+  const castFrom = (through) => {
+    if (!shellCasters.size) root.traverse((o) => { if (o.isMesh && o.castShadow && o.material && o.material.userData.stone) shellCasters.add(o.material); });
+    const side = through ? THREE.FrontSide : null;
+    for (const m of shellCasters) m.shadowSide = side;
+  };
   const pool = [];
   for (let i = 0; i < POOL; i++) {
     const l = new THREE.PointLight(FIRELIGHT, 0, 16, 1.7);
@@ -2098,6 +2112,7 @@ export function buildCastle(scene, cfg) {
           key.shadow.camera.far = want.kind === 'fire' ? want.distance : far * 1.5;
           key.shadow.camera.updateProjectionMatrix();
         }
+        castFrom(!!want && shadowFaces(want.pos, cur.rects) === 'outer'); // fix/walk-seam-light: a key from outside casts with the shell's outer faces
       }
     } else if (want) keyState.level += (1 - keyState.level) * k;
     const ks = keyState.spec;
@@ -2294,6 +2309,7 @@ export function buildCastle(scene, cfg) {
    */
   function dispose() {
     hide();
+    castFrom(false); // the stone materials are a shared cache: leave them casting as three's default
     roadView.dispose(); // the walk from the gate's instance buffers (InstancedMesh.dispose: a geometry's dispose leaves them)
     scene.remove(root);
     root.traverse((o) => {
