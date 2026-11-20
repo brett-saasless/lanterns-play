@@ -31,6 +31,7 @@
 //   group 3: gargoyle variant 'hatter' (the Hatter's hat and its 10/6 card, in fit), o.cupFit (a teacup's china in fit, a third larger),
 //            chandelier o.rod (a plain iron rod for a long drop in place of the chain)
 //   kit.wreck(W, y0, seed)                          -> one geometry: the broken White Knight (the Gryphon) on the floor (logic/vamp.js WRECK), for the fittings
+//   group 4: kit.band({ w, h, proud }) -> { quad (EAT ME, kit.materials.crest), stone, fit }; candelabra o.cups (the teacups' size)
 //   kit.webs(tris)                                  -> uv'd geometry for kit.materials.web
 //   kit.glowDisc(c, a, b, rgb, strength)            -> glow geometry (castle's flickering glowMat, or kit.materials.still)
 //   kit.motes(vols, seed)                           -> Points geometry for kit.materials.motes
@@ -166,6 +167,25 @@ function drawLabel(g, x, y) {
   g.fillStyle = '#cdbf98'; g.fillRect(0, 0, LABEL_W, LABEL_H);
   g.strokeStyle = '#8c6c30'; g.lineWidth = 6; g.strokeRect(5, 5, LABEL_W - 10, LABEL_H - 10);
   g.fillStyle = '#2a1a0e'; g.font = 'bold 40px serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('DRINK ME', LABEL_W / 2, LABEL_H / 2 + 2);
+  g.restore();
+}
+
+// group 4: beside the label, the EAT ME band: gilt letters cut in a dusty crimson field between gilt rules, BAND_W by LABEL_H at BAND_X
+const BAND_X = 260; const BAND_W = 360;
+/** The EAT ME band at (x, y) of the atlas canvas; height: the same letters and rules raised on a flat grey (the bump map), so they read as cut. */
+function drawBand(g, x, y, height = false) {
+  g.save(); g.translate(x, y);
+  g.fillStyle = height ? '#505050' : '#4a1418'; g.fillRect(0, 0, BAND_W, LABEL_H);
+  const gilt = height ? '#e8e8e8' : '#b8903e';
+  g.strokeStyle = gilt; g.lineWidth = 5; g.strokeRect(6, 6, BAND_W - 12, LABEL_H - 12);
+  g.lineWidth = 2; g.strokeRect(14, 14, BAND_W - 28, LABEL_H - 28);
+  for (const cx of [34, BAND_W - 34]) { // a currant-studded little cake at each end (the cake that says EAT ME)
+    g.fillStyle = gilt; g.beginPath(); g.moveTo(cx - 14, 64); g.lineTo(cx + 14, 64); g.lineTo(cx + 11, 42); g.lineTo(cx - 11, 42); g.closePath(); g.fill();
+    g.fillStyle = height ? '#909090' : '#2a0a0c'; for (const [dx, dy] of [[-5, 50], [4, 47], [0, 57], [7, 56]]) { g.beginPath(); g.arc(cx + dx, dy, 2.2, 0, TAU); g.fill(); }
+  }
+  g.fillStyle = gilt; g.font = 'bold 50px serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  if (!height) { g.strokeStyle = '#1a0606'; g.lineWidth = 3; g.strokeText('EAT ME', BAND_W / 2, LABEL_H / 2 + 3); }
+  g.fillText('EAT ME', BAND_W / 2, LABEL_H / 2 + 3);
   g.restore();
 }
 
@@ -336,6 +356,7 @@ function crestAtlas() {
   const cell = (g, fi, vi, fn) => { g.save(); g.translate(fi * CELL_W, vi * CELL_H); g.beginPath(); g.rect(0, 0, CELL_W, CELL_H); g.clip(); fn(); g.restore(); };
   const colour = drawCanvas(W, H, (g) => {
     drawLabel(g, 0, CELL_H * VARIANTS.length); // the DRINK ME label, in the strip under the arms
+    drawBand(g, BAND_X, CELL_H * VARIANTS.length); // and the EAT ME band beside it (group 4)
     VARIANTS.forEach((v, vi) => FINISHES.forEach((fin, fi) => cell(g, fi, vi, () => {
       const rand = S.rng(31 + vi * 7 + fi);
       drawArms(g, CELL_W, CELL_H, v, PAINT[fin], rand, true);
@@ -349,6 +370,7 @@ function crestAtlas() {
   });
   const height = drawCanvas(W, H, (g) => {
     VARIANTS.forEach((v, vi) => FINISHES.forEach((fin, fi) => cell(g, fi, vi, () => drawArms(g, CELL_W, CELL_H, v, PAINT.height, S.rng(5), false))));
+    drawBand(g, BAND_X, CELL_H * VARIANTS.length, true); // the band's letters raised (group 4)
   });
   const map = new THREE.CanvasTexture(colour); map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 4;
   const bump = new THREE.CanvasTexture(height); bump.anisotropy = 4;
@@ -414,6 +436,7 @@ export function createVampKit(opts = {}) {
   const crestMat = new THREE.MeshStandardMaterial({
     map: atlas.map, bumpMap: atlas.bump, bumpScale: 5, roughness: 0.72, metalness: 0.18, alphaTest: 0.5,
     emissive: 0x3a2214, emissiveMap: atlas.map, emissiveIntensity: 0.35, // the gilt holds a little of the candlelight
+    vertexColors: true, // (group 4: a quad's own tone, mergeUV's colour from its userData.tone; white for every other)
   });
   // a baked light that holds still (the moon's on what stands in its shaft), beside castle.js's flickering glowMat
   const stillMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide });
@@ -426,7 +449,8 @@ export function createVampKit(opts = {}) {
   moteMat.onBeforeCompile = (sh) => {
     sh.uniforms.uTime = time;
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aMote;\nuniform float uTime;')
+      .replace('#include <common>', '#include <common>\nattribute float aMote;\nattribute float aSize;\nuniform float uTime;')
+      .replace('gl_PointSize = size;', 'gl_PointSize = size * aSize;') // (group 4: a shaft's own share of the size)
       .replace('#include <color_vertex>', `#include <color_vertex>\n  vColor.rgb *= 0.55 + 0.45 * sin( uTime * ${MOTES.twinkle.toFixed(3)} + aMote * 40.0 );`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
       {
@@ -573,7 +597,7 @@ export function createVampKit(opts = {}) {
     }
     if (o.variant === 'watch') { // a pocket-watch on a short chain from the right foot
       // big enough to read as a watch at a few metres (the art critic)
-      const top = V3(0.03, 0.12, 0.06); const at = V3(0.06, -0.04, 0.07); const R = 0.085;
+      const top = V3(0.03, 0.12, 0.06); const at = V3(0.06, -0.04, 0.07); const R = 0.085 * (o.watchK || 1); // (group 4, o.watchK: a larger face, to read from a door)
       fit.push(rod(top, at, 0.006, PALETTE.gold, 4));
       const caseG = new THREE.CylinderGeometry(R, R, 0.022, 16); caseG.deleteAttribute('uv'); caseG.rotateX(Math.PI / 2).translate(at.x, at.y - R - 0.01, at.z);
       fit.push(S.tint(caseG, PALETTE.gold, 0.15, 2));
@@ -751,7 +775,7 @@ export function createVampKit(opts = {}) {
       const x = lerp(-W / 2 + 0.05, W / 2 - 0.05, k);
       const top = 0.36 + 0.08 * (1 - Math.abs(k - 0.5) * 2);
       fit.push(rod(V3(x * 0.85, 0.24, out), V3(x, top - 0.04, out), 0.012, I, 4));
-      flames.push(candle(fit, x, top, out, rand, cupped));
+      flames.push(candle(fit, x, top, out, rand, cupped, 1, o.cups || 1)); // (group 4, o.cups: larger, paler teacups for pans, so the hybrid reads from the floor)
     }
     return { fit: S.merge(fit), flames };
   }
@@ -776,6 +800,25 @@ export function createVampKit(opts = {}) {
       quad.translate(0, 0.12, 0.04).scale(k * w / 0.3, k, 1);
     }
     return o.gilt ? { stone: null, fit: g, quad } : { stone: g, quad };
+  }
+
+  /**
+   * Group 4: a carved band cut over a door, w by h, standing on y = 0, facing +z: the atlas's EAT ME (gilt letters
+   * and two little cakes in a crimson field) on a moulded stone tablet, a tarnished gilt fillet round it.
+   */
+  function band(o = {}) {
+    const w = o.w || 1.2; const h = o.h || w * LABEL_H / BAND_W; const proud = o.proud == null ? 0.06 : o.proud;
+    const quad = new THREE.PlaneGeometry(w, h);
+    const uv = quad.attributes.uv; const AW = CELL_W * FINISHES.length;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, lerp(BAND_X / AW, (BAND_X + BAND_W) / AW, uv.getX(i)), uv.getY(i) * LABEL_H / ATLAS_H);
+    quad.translate(0, h / 2, proud - 0.015); // 5 mm before the tablet's panel (its face at proud - 0.02), inside the frame
+    const t = 0.05;
+    const st = [ST.block(0, -t, proud / 2, w + 2 * t, t, proud + 0.02, 0xb4b7bb), ST.block(0, h, proud / 2, w + 2 * t, t, proud + 0.02, 0xb4b7bb)];
+    for (const sd of [-1, 1]) st.push(ST.block(sd * (w / 2 + t / 2), 0, proud / 2, t, h, proud + 0.02, 0xb4b7bb));
+    st.push(ST.block(0, 0, proud / 2 - 0.01, w, h, proud - 0.02, 0x8a8d92));
+    const f = [];
+    for (const y of [h + t / 2, -t / 2]) f.push(boxG(w + 2 * t, 0.016, 0.01, 0, y, proud + 0.017, PALETTE.gold, 0.3)); // a gilt line along the middle of the top and bottom bars
+    return { quad, stone: S.merge(st), fit: S.merge(f) };
   }
 
   /** Cobwebs: one triangle per [a, b, c] (world points), uv'd to the drawn web. */
@@ -837,6 +880,10 @@ export function createVampKit(opts = {}) {
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     g.setAttribute('aMote', new THREE.BufferAttribute(sd, 1));
+    // (group 4) each shaft's own point size, a share of MOTES.size (v.size, 1 when absent): a narrow passage's dust smaller, so it reads as motes up close
+    const sz = new Float32Array(n); o = 0;
+    for (const { v } of parts) { sz.fill(v.size || 1, o, o + v.n); o += v.n; }
+    g.setAttribute('aSize', new THREE.BufferAttribute(sz, 1));
     g.computeBoundingSphere();
     g.boundingSphere.radius += MOTES.amp * 2;
     return g;
@@ -853,6 +900,11 @@ export function createVampKit(opts = {}) {
       for (const p of parts) { arr.set(p.attributes[name].array, o); o += p.attributes[name].count * size; }
       out.setAttribute(name, new THREE.BufferAttribute(arr, size));
     }
+    // (group 4) a colour for every vertex: each part's userData.tone ([r, g, b], white when it has none), so one quad can be drawn darker
+    const total = parts.reduce((s, p) => s + p.attributes.position.count, 0);
+    const col = new Float32Array(total * 3); let o = 0;
+    parts.forEach((p, i) => { const t = list[i].userData.tone || [1, 1, 1]; for (let k = 0; k < p.attributes.position.count; k++, o++) col.set(t, o * 3); });
+    out.setAttribute('color', new THREE.BufferAttribute(col, 3));
     return out;
   }
 
@@ -995,5 +1047,6 @@ export function createVampKit(opts = {}) {
     gargoyle: leanly(gargoyle), bat: leanly(bat), crest, coffin: leanly(coffin), chandelier: leanly(chandelier), candelabra: leanly(candelabra), bottle: leanly(bottle),
     webs, glowDisc, motes, mergeUV, dispose,
     wreck, moonRim, // group 3
+    band, // group 4
   };
 }

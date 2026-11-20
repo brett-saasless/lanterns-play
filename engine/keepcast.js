@@ -2284,6 +2284,7 @@ export const REFLECTED_TOOLS = Object.freeze({
   halberd: Object.freeze({ name: 'halberd', grips: [[0, -0.03, 0.14], [0, -0.01, -0.3]], free: [false, false], lift: 0.5 }),
   cup: Object.freeze({ name: 'cup', grips: [[0.045, -0.02, -0.26], [-0.045, -0.02, -0.26]], free: [false, false], lift: 0 }),
   garlic: Object.freeze({ name: 'garlic', grips: [[0, 0.0, -0.28], [-0.2, 0.86, 0.08]], free: [false, true], lift: 0.25 }), // the braid held out, the other hand down
+  lantern: Object.freeze({ name: 'lantern', grips: [[0, 0.02, -0.3], [-0.2, 0.86, 0.08]], free: [false, true], lift: 0 }), // the hand lantern held up by its ring
 });
 // A free grip is a hand hanging at the side, placed in the body's frame (not the tool's, so it does not swing with the look).
 const EMPTY_HANDS = Object.freeze({ name: null, grips: [[0.2, 0.86, 0.08], [-0.2, 0.86, 0.08]], free: [true, true], lift: 0 });
@@ -2362,6 +2363,16 @@ function reflectionTools(M, seed) {
   const out = {};
   for (const [name, geo] of Object.entries({ bore: gun, crossbow, halberd, cup })) out[name] = mesh(geo, M.metal);
   out.garlic = mesh(S.merge(braid), M.skin);
+  // the hand lantern (logic/lantern.js), hanging from the ring in the fist: cap, four posts, base, the warm glass
+  const LI = 0x2b2326;
+  const lamp = [
+    S.tint(new THREE.TorusGeometry(0.03, 0.007, 4, 10).translate(0, 0.0, -0.3), LI, 0.1, 7),
+    S.tint(new THREE.ConeGeometry(0.11, 0.08, 4).rotateY(Math.PI / 4).translate(0, -0.07, -0.3), LI, 0.1, 8),
+    slab(0.17, 0.022, 0.17, 0, -0.33, -0.3, LI, 0.1),
+    slab(0.13, 0.2, 0.13, 0, -0.21, -0.3, 0xe0a85a, 0.05), // the glass, lit
+  ];
+  for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) lamp.push(slab(0.014, 0.22, 0.014, x * 0.075, -0.21, -0.3 + z * 0.075, LI, 0));
+  out.lantern = mesh(S.merge(lamp), M.metal);
   return out;
 }
 

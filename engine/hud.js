@@ -35,8 +35,9 @@ const ROOM_COPY = {
     wave: PLACES[0], ammo: 'Salt', unit: 'salt', dry: 'No salt. Find a cache.', downed: 'Figures downed',
     // The plate's label is read from sim.weapon.name every frame (R22); the halberd and the cup have no ammunition.
     // The castle's garlic (#9) is named by its approved notice word, 'Garlic'.
-    ammoBy: { bore: 'Salt', crossbow: 'Stakes', halberd: LABELS.halberd, cup: LABELS.cup, garlic: NOTICES.garlic },
-    dryBy: { crossbow: '', halberd: '', cup: '', garlic: '' }, drawing: 'Drawing',
+    // The castle's hand lantern shows its own label and a dash, as the garlic.
+    ammoBy: { bore: 'Salt', crossbow: 'Stakes', halberd: LABELS.halberd, cup: LABELS.cup, garlic: NOTICES.garlic, lantern: LABELS.lantern },
+    dryBy: { crossbow: '', halberd: '', cup: '', garlic: '', lantern: '' }, drawing: 'Drawing',
     // The court's end card leads into the castle (main.js): there is no closing card, so no won words.
     reached: 'Place reached', wonTitle: '', wonSub: '',
     lostSub: (st, n, at) => `The warden wakes at ${PLACES[at] || PLACES[0]}.`,
@@ -202,8 +203,8 @@ export function createHud(settings, onSettingsChange, lookKey = () => 'sensitivi
       el.lowhp.classList.toggle('on', hp > 0 && hp < 30);
     }
     // R22: the label, the count and the pips are all read from sim.weapon here, every frame.
-    // The halberd and the garlic show a dash and no pips; the cup shows one pip, lit when full (waves.items.cup).
-    const noAmmo = court && !!(spec.melee || spec.splash || spec.ward);
+    // The halberd, the garlic and the lantern show a dash and no pips; the cup shows one pip, lit when full (waves.items.cup).
+    const noAmmo = court && !!(spec.melee || spec.splash || spec.ward || spec.lamp);
     const isCup = noAmmo && w.name === 'cup';
     const cupFull = isCup && !!sim.waves.items && sim.waves.items.cup === 'full';
     set('mag', el.mag, noAmmo ? (isCup ? '' : '\u2013') : String(w.mag));

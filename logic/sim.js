@@ -21,6 +21,7 @@ import { createKeep, stepKeep, keepBoxes, startKeep, keepFloor, keepGround, step
 import { lodgeStake } from './stakes.js';
 import { splashStun } from './courtiers.js';
 import { raiseGarlic, stepGarlic } from './sentries.js';
+import { lanternSwap, noteLanternDraw } from './lantern.js';
 import { stepHazards } from './hazards.js';
 import { restockPads, rollDrop, addDrop, stepPickups } from './pickups.js';
 import { openPassage, stepPassage, stepFollow, pathOf } from './journey.js'; // issue #29: the way on from a won level
@@ -33,7 +34,7 @@ export const MAX_DT = 0.05;
 
 /**
  * interact and swap are one-shot, like jump. swap: true is Q (the next carried weapon); a name
- * ('bore', 'crossbow', 'halberd', 'cup', 'garlic': keys 1 to 5) asks for that one. skip (Enter)
+ * ('bore', 'crossbow', 'halberd', 'cup', 'garlic', 'lantern': keys 1 to 6) asks for that one. skip (Enter)
  * ends the bloom scene early, as E, Space or a click do. hold is E held down (the castle's cord,
  * read only from a press the sim observed: keep.js, security A6). The castle's garlic is raised
  * by fire, from a press the sim observed (sentries.js raiseGarlic).
@@ -588,7 +589,14 @@ export function stepSim(sim, input = IDLE_INPUT, dt = 1 / 60) {
   movePlayer(sim, input, dt, events);
   if (pl.grace > 0) pl.grace = Math.max(0, pl.grace - dt);
 
-  if (input.swap && sim.holster && swapWeapon(sim, input.swap)) events.push({ type: 'swap', weapon: sim.weapon.name });
+  // (key 6 with the castle's lantern already up puts it away: lantern.js lanternSwap)
+  if (input.swap && sim.holster) {
+    const from = sim.weapon.name;
+    if (swapWeapon(sim, lanternSwap(sim, input.swap))) {
+      noteLanternDraw(sim, from); // the castle's lantern remembers what it was drawn from
+      events.push({ type: 'swap', weapon: sim.weapon.name });
+    }
+  }
   const w = sim.weapon;
   if (input.reload && startReload(w, cfg)) events.push({ type: 'reloadStart' });
   for (const t of stepWeapon(w, dt, cfg)) events.push({ type: t });
@@ -600,6 +608,8 @@ export function stepSim(sim, input = IDLE_INPUT, dt = 1 / 60) {
     // The castle's garlic (#9): a fresh press holds it up, and while it is up it may find the wife.
     raiseGarlic(sim, w, !!input.fire, events);
     stepGarlic(sim, w, dt, events);
+  } else if (specOf(cfg, w).lamp) {
+    // the castle's hand lantern: it is held up, not fired (logic/lantern.js); the button does nothing
   } else if (input.fire && !pl.climbing) fire(sim, events); // on a ladder both hands are on the rungs (#21)
 
   if (sim.status === 'winning') {

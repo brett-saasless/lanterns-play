@@ -219,9 +219,10 @@
   #touch > [data-touch="jump"] { right: calc(20px + var(--sar) + var(--fire) + 14px); bottom: calc(10px + var(--sab)); width: var(--jump); height: var(--jump); }
   #touch > [data-touch="e"] { right: calc(20px + var(--sar) + (var(--fire) - var(--ctx)) / 2); bottom: calc(16px + var(--sab) + var(--fire) + 12px);
     width: var(--ctx); height: var(--ctx); border-style: dashed; border-color: #c9a25c; background: rgba(201, 162, 92, 0.2); font-size: 22px; }
-  #touch > [data-touch="swap"], #touch > [data-touch="pause"], #touch > [data-touch="log"], #touch > [data-touch="skip"] {
+  #touch > [data-touch="swap"], #touch > [data-touch="lamp"], #touch > [data-touch="pause"], #touch > [data-touch="log"], #touch > [data-touch="skip"] {
     width: var(--small); height: var(--small); font-size: 12px; background: rgba(255, 255, 255, 0.1); }
   #touch > [data-touch="swap"] { right: calc(20% + var(--sar)); top: 30%; }
+  #touch > [data-touch="lamp"] { right: calc(20% + var(--sar) + var(--small) + 14px); top: 30%; } /* the castle's lantern, beside swap */
   #touch > [data-touch="pause"] { left: 50%; top: calc(10px + var(--sat)); margin-left: calc(var(--small) / -2); }
   #touch > [data-touch="log"] { right: calc(20% + var(--sar)); top: calc(10px + var(--sat)); }
   #touch > [data-touch="skip"] { left: calc(50% + var(--small)); top: calc(10px + var(--sat)); width: auto; padding: 0 16px; border-radius: 26px; }

@@ -7,7 +7,8 @@
 // Count's room (count.js), so the stage count is STAGES. `under` is derived from position by
 // keepmap.js floorZoneAt (security A3). `hold` counts only from a press the sim observed
 // (`pressed`, security A6). The hall's inner door opens on garlic carried (A7), and the garlic
-// is wielded on Q while any is carried (syncGarlic, #9).
+// is wielded on Q while any is carried (syncGarlic, #9). The hand lantern, once taken in the hall,
+// is carried on the same cycle (syncLantern; its rules in lantern.js) and put away outdoors.
 // Creature rules live in sentries.js, the puzzles in clocks.js, gallery.js and knight.js, the
 // Count in count.js and the dread in haunts.js; this file seats them, calls them and applies
 // what they return (damage through the shipped hurtPlayer, done flags, under).
@@ -41,6 +42,7 @@ import { createRoad, settledRoad, stepRoad, roadBlock, outSeat } from './road.js
 import { tunnelSeat, startSeat, TUNNEL } from './tunnelwalk.js'; // the walk from the Caterpillar's gate to the road
 import { cutawayDue, startCutaway, stepCutaway } from './cutaway.js'; // the werewolf cutaway, right after the boulder
 import { lidBox } from './countlid.js'; // the Count's thrown-back lid, solid once it lies there
+import { LANTERN, lanternRoom, lanternIndoors, lanternBack } from './lantern.js'; // the hand lantern, found in the hall
 
 /** The bridge, then one stage per checkpoint (the castle door to the Count's door). */
 export const STAGES = 7;
@@ -62,13 +64,13 @@ export const KEEP_RESTORE_FIELDS = Object.freeze({
   waves: Object.freeze({
     writes: Object.freeze(['index', 'queue', 'phase', 'under', 'walk', 'clocks', 'tiles', 'board', 'count', 'haunts', 'raised',
       'items', 'loot', 'stakes', 'bodies', 'pins', 'dropped', 'stock', 'hints', 'focus', 'line', 'notice', 'scene',
-      'checkpoint', 'pressed', 'leap', 'struck', 'falling', 'snake', 'claw']),
+      'checkpoint', 'pressed', 'leap', 'struck', 'falling', 'snake', 'claw', 'lanternPrev']),
     keeps: Object.freeze(['done', 'game', 'log', 'talk', 'road', 'leaves']), // road (#29): the dark and both scares' latches, settled; leaves: each door's swing, as it stood
   }),
 });
 
 /** The notice line's key (script.js NOTICES) for each thing taken here. */
-export const KEEP_NOTICES = Object.freeze({ garlic: 'garlic', health: 'health', ammo: 'ammo', salt: 'ammo', stakes: 'stake' });
+export const KEEP_NOTICES = Object.freeze({ garlic: 'garlic', health: 'health', ammo: 'ammo', salt: 'ammo', stakes: 'stake', lantern: 'lantern' });
 
 /** Puzzle by zone, for the hint ladder (R19). */
 const PUZZLE_OF = Object.freeze({ tea: 'clocks', gallery: 'gallery', crypt: 'gallery', walk: 'board' });
@@ -140,6 +142,7 @@ export function createKeep(cfg, rng = () => 0.5) {
     falling: null, // 'pit' while falling into the pit, 'crypt' after a tile gave way
     snake: 0, // seconds to the next bite on the pit floor
     claw: { tell: 0, cool: 0 }, // the werewolf's arm
+    lanternPrev: null, // the weapon in hand when the lantern came up: putting it away goes back there (lantern.js)
     road: createRoad(true), // issue #29: the road behind the warden (a journey from the wood seats a fresh one: enterRoad)
     leaves: {}, // door id -> its leaves' swing, 0 shut to 1 open (doorleaves.js); a door not yet seen stands as the rules say
   };
@@ -322,6 +325,31 @@ function syncGarlic(sim) {
   }
 }
 
+/**
+ * The hand lantern (logic/lantern.js) is carried once it is taken (items.lantern): it joins the
+ * cycle at its place in cfg.weaponOrder (last), and a snapshot or a carry that does not hold it
+ * never wields it. Nothing spends it, so in play it only ever joins, when it is taken in the hall.
+ */
+function syncLantern(sim) {
+  const { cfg, waves: w } = sim;
+  if (!lanternRoom(cfg)) return;
+  const has = !!(w.items && w.items.lantern === true);
+  const l = weaponNamed(sim, LANTERN.name);
+  if (has && !l) carryWeapon(sim, createWeapon(cfg, cfg.weapons.lantern));
+  else if (!has && l) {
+    const list = carried(sim).filter((x) => x !== l);
+    sim.weapon = list[0];
+    sim.holster = list[1] || null;
+    sim.rack = list.slice(2);
+  }
+}
+
+/** Outdoors (the road, the bridge, the forecourt) the lantern is not up: it goes back for the next weapon on Q. */
+function stowLantern(sim, events) {
+  if (!sim.weapon || sim.weapon.name !== LANTERN.name || lanternIndoors(sim)) return;
+  if (swapWeapon(sim, lanternBack(sim))) events.push({ type: 'swap', weapon: sim.weapon.name });
+}
+
 /** Seats the Castle start's kit: full health, four weapons, the cup full, one garlic, the two cards' entries. */
 function seatTitle(sim) {
   const { cfg, waves: w } = sim;
@@ -385,15 +413,16 @@ const CUPS = Object.freeze(['none', 'empty', 'full']);
 
 /** Most garlic or spare stakes a warden can hold (the court's patches and the braid; the crossbow's reserve). */
 export const ITEM_LIMITS = Object.freeze({ garlic: 9, stakes: 10 });
-const ITEM_KEYS = Object.freeze(['garlic', 'cup', 'ticket', 'stakes']);
+const ITEM_KEYS = Object.freeze(['garlic', 'cup', 'ticket', 'stakes', 'lantern']);
 const count = (n, max) => Number.isInteger(n) && n >= 0 && n <= max;
 
-/** Items (A2): only the castle's four keys; whole counts within their limits; a cup state; a ticket flag. */
+/** Items (A2): only the castle's five keys; whole counts within their limits; a cup state; a ticket flag; a lantern flag. */
 function validItems(it) {
   return isObj(it) && Object.keys(it).every((k) => ITEM_KEYS.includes(k))
     && count(it.garlic, ITEM_LIMITS.garlic)
     && (it.cup == null || CUPS.includes(it.cup))
     && (it.ticket == null || typeof it.ticket === 'boolean')
+    && (it.lantern == null || typeof it.lantern === 'boolean')
     && (it.stakes == null || count(it.stakes, ITEM_LIMITS.stakes));
 }
 
@@ -508,6 +537,7 @@ export function arrive(sim, carry) {
   w.log = carry.log.filter((k, i) => carry.log.indexOf(k) === i);
   if (!w.log.includes('toCastle')) w.log.push('toCastle');
   syncGarlic(sim);
+  syncLantern(sim); // a carry never brings one: the lantern is the castle's own
   sim.boxes = keepBoxes(cfg, w);
   w.checkpoint = snapshot(sim, 0);
   return [];
@@ -624,6 +654,9 @@ export function validKeepSnapshot(s, cfg, nextId = null) {
   if (!validItems(s.items)) return false;
   if (!Array.isArray(s.loot) || s.loot.length !== cfg.loot.length) return false;
   if (!s.loot.every((l, i) => isObj(l) && l.key === cfg.loot[i].key && typeof l.taken === 'boolean' && Object.keys(l).length === 2)) return false;
+  // the lantern is carried exactly when it has been taken from its nail
+  const li = cfg.loot.findIndex((l) => l.key === LANTERN.name);
+  if (li >= 0 && (s.items.lantern === true) !== s.loot[li].taken) return false;
   if (!Array.isArray(s.stakes) || s.stakes.length > cfg.weapons.crossbow.maxReserve + 1 || !s.stakes.every(validStake)) return false;
   if (!Array.isArray(s.bodies) || s.bodies.length > 4 || !s.bodies.every(validBody)) return false;
   if (!Array.isArray(s.pins) || s.pins.length > (cfg.maxPins || 0) || !s.pins.every(validPoint)) return false;
@@ -730,6 +763,7 @@ export function restoreCheckpoint(sim, ...given) {
   w.falling = null;
   w.snake = 0;
   w.claw = { tell: 0, cool: 0 };
+  w.lanternPrev = null; // never in a snapshot: a restore puts away with the next on Q until it is drawn again
   w.road = settledRoad(w.road); // kept (#29): the dark and the latches as they were; a scare in the air is over
   hush(sim);
 
@@ -743,6 +777,7 @@ export function restoreCheckpoint(sim, ...given) {
   sim.player = pl;
   seatWeapons(sim, list);
   syncGarlic(sim);
+  syncLantern(sim); // the lantern stays carried after a death once it was taken (the checkpoint's items)
   lowerGarlic(sim); // a button held through the lost card counts for nothing (A6)
   sim.enemies = [];
   sim.bolts = [];
@@ -830,7 +865,7 @@ export function focusOf(sim) {
     if (l.level === 'crypt' && (where.under !== 'crypt' || pl.y > CRYPT.floor + 1)) return;
     if (l.level === 'upper' && (where.under || pl.y < CRYPT.top - 0.5)) return;
     if (l.missing && carries(sim, l.kind)) return;
-    consider({ kind: 'loot', verb: 'take', index: i, key: l.key, item: l.kind }, l.x, l.z, ic.reach, 0.5);
+    consider({ kind: 'loot', verb: l.kind === 'lantern' ? 'takeLantern' : 'take', index: i, key: l.key, item: l.kind }, l.x, l.z, ic.reach, 0.5);
   });
   for (const s of w.stakes) if (pullable(s)) consider({ kind: 'stake', verb: 'pull', id: s.id }, s.x, s.z, ic.reach, 0.4);
 
@@ -887,6 +922,16 @@ function takeLoot(sim, i, events) {
   } else if (l.kind === 'garlic') {
     w.items.garlic += l.gives || 1;
     syncGarlic(sim); // the braid joins the Q cycle (#9)
+  } else if (l.kind === 'lantern') {
+    if (!lanternRoom(cfg)) return;
+    w.items.lantern = true;
+    syncLantern(sim); // it joins the cycle, last (Q, key 6); the weapon in hand stays in hand
+    // Once found it is the warden's for the game: the checkpoint already written keeps it too, so a
+    // death before the next one does not hang it back on its nail (unlike the braid, A7's key).
+    const cp = w.checkpoint;
+    if (cp && cp.items && Array.isArray(cp.loot)) {
+      w.checkpoint = { ...cp, items: { ...cp.items, lantern: true }, loot: cp.loot.map((x) => (x.key === l.key ? { key: x.key, taken: true } : x)) };
+    }
   } else if (l.kind === 'crossbow') {
     if (carries(sim, 'crossbow')) return;
     const cb = createWeapon(cfg, cfg.weapons.crossbow);
@@ -1272,6 +1317,7 @@ export function stepKeep(sim, dt, events, input = {}) {
   const holding = w.pressed && (held || press);
   if (holding && f && f.kind === 'cord') pullCord(sim, dt, events, input);
   if (press && f) interact(sim, f, events, input);
+  stowLantern(sim, events); // the lantern is an indoor thing: out of the front door it is put away
 
   stepPit(sim, dt, events);
   stepClaw(sim, dt, events, where.zone);

@@ -35,6 +35,20 @@ const GARLIC = {
   reloadTime: 0,
   autoReloadDelay: 0,
 };
+// The hand lantern (the owner's idea, logic/lantern.js): found in the hall beside the braid, carried
+// from then on (keep.js syncLantern) and drawn from the cycle like the garlic. It fires nothing
+// (sim.js: the fire button does nothing while it is up) and has no ammunition: explicit zeros.
+const LANTERN = {
+  name: 'lantern',
+  lamp: true,
+  magazine: 0,
+  startReserve: 0,
+  maxReserve: 0,
+  fireInterval: 0,
+  dryInterval: 0,
+  reloadTime: 0,
+  autoReloadDelay: 0,
+};
 const zoneRects = (id, material) => ZONES.find((z) => z.id === id).rects
   .map((r) => ({ shape: 'rect', minX: r.minX, maxX: r.maxX, minZ: r.minZ, maxZ: r.maxZ, material }));
 
@@ -72,10 +86,11 @@ export const CASTLE_CONFIG = deepFreeze({
   },
 
   // The salt gun is cfg.weapon; the allow-list a checkpoint and a carry are checked against is
-  // the court's four, unchanged, and the garlic (#9; security A2 checks it by name as the rest).
+  // the court's four, unchanged, the garlic (#9; security A2 checks it by name as the rest) and the
+  // hand lantern, last in the cycle (logic/lantern.js; carried only once it is taken in the hall).
   weapon: C.weapon,
-  weapons: { ...C.weapons, garlic: GARLIC },
-  weaponOrder: [...C.weaponOrder, 'garlic'],
+  weapons: { ...C.weapons, garlic: GARLIC, lantern: LANTERN },
+  weaponOrder: [...C.weaponOrder, 'garlic', 'lantern'],
 
   // The Castle start (R2, G1): full health, the salt gun with a full magazine and 30 in reserve,
   // the crossbow with one stake drawn and three more, the halberd, the cup full, one garlic.

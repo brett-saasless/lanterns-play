@@ -42,6 +42,7 @@ const ICON = {
   cupFull: SVG('<path class="full" d="M6 11h12l-1 9H7z"/><path d="M5 5h14l-2 15H7z"/>'),
   stake: SVG('<path d="M12 2l3 5v15h-6V7z"/>'),
   ticket: SVG('<path d="M3 7h18v4a2 2 0 0 0 0 4v4H3v-4a2 2 0 0 0 0-4z"/><path d="M14 7v12" stroke-dasharray="2 2"/>'),
+  lantern: SVG('<circle cx="12" cy="3.4" r="1.9"/><path d="M8 8.4L12 5.4l4 3z"/><path d="M7.6 8.6h8.8v10.2H7.6z"/><path d="M6.6 20.6h10.8"/><path d="M12 11c1.3 1.5 1.7 2.7 1.7 3.6a1.7 1.7 0 0 1-3.4 0c0-.9.4-2.1 1.7-3.6z"/>'), // the castle's hand lantern
 };
 
 /**
@@ -207,6 +208,7 @@ export function createPages(opts = {}) {
     else if (items.cup === 'full') out.push({ id: 'cupFull', icon: ICON.cupFull });
     if (items.stakes > 0) out.push({ id: 'stake', icon: ICON.stake, n: items.stakes });
     if (items.ticket) out.push({ id: 'ticket', icon: ICON.ticket });
+    if (items.lantern === true) out.push({ id: 'lantern', icon: ICON.lantern }); // the castle's (no ticket there, so it fits the four)
     return out.slice(0, 4);
   }
 

@@ -34,6 +34,7 @@ import { nightSky, SKY } from '../logic/nightsky.js'; // fix/wives-window: the m
 import { SIGHT } from '../logic/sightlines.js'; // fix/doorway-sky: which zones are in sight of which
 import * as V from '../logic/vamp.js'; // the Dracula pass: how rich each room is, its grade, where the decor stands
 import { createVampKit, placeMatrix } from './vampkit.js'; // the Dracula pass's shared kit (gargoyles, crests, coffins, chandeliers, cobwebs, dust)
+import * as LAMP from '../logic/lantern.js'; // the hand lantern: it borrows one of the pool lights below while it is up
 
 const HUE = ST.STONE;
 const INSET = 0; // walls stand just outside a zone's clear floor, as keepmap.js builds them
@@ -1250,10 +1251,11 @@ export function buildCastle(scene, cfg) {
         if (b.glow) z.moonGlow.push(put(b.glow, m)); // the Cheshire grin and eyes, baked pale over the carving (no light)
         if (p.rim) z.moonGlow.push(vamp.glowDisc([p.x, p.y + p.h * 0.55, p.z + p.n[1] * 0.02 + 0.0], [0.85, 0, 0], [0, 0.9, 0], V.GRADE.moon, 0.26)); // a moonlit rim behind it on the pier
       } else if (p.kind === 'bat') {
-        const b = vamp.bat({ variant: p.variant, w: p.w, tilt: p.tilt, seed: p.seed, lean: p.lean, light: p.light });
+        const b = vamp.bat({ variant: p.variant, w: p.w, tilt: p.tilt, seed: p.seed, lean: p.lean, light: p.light, watchK: p.watchK });
         carved(p, b.stone, m); if (b.fit) z.fit.push(put(b.fit, m));
       } else if (p.kind === 'crest') {
         const b = vamp.crest({ variant: p.variant, finish: p.finish, w: p.w, h: p.h, proud: p.proud, frame: p.frame });
+        if (p.tone) { b.quad.userData.tone = [p.tone, p.tone, p.tone]; tintColours(b.stone, [p.tone, p.tone, p.tone]); } // group 4: a relief drawn darker, so it stays stone in a torch's light
         z.crest.push(put(b.quad, m)); walls.push(put(b.stone, m)); if (b.fit) z.fit.push(put(b.fit, m));
       } else if (p.kind === 'coffin') {
         const b = vamp.coffin({ variant: p.variant, w: p.w, h: p.h, proud: p.proud, lean: p.lean, lid: p.lid });
@@ -1262,6 +1264,9 @@ export function buildCastle(scene, cfg) {
           const al = [p.n[1], 0, -p.n[0]];
           z.moonGlow.push(vamp.glowDisc([p.x + p.n[0] * (p.proud + 0.01), p.y + 1.0, p.z + p.n[1] * (p.proud + 0.01)], al.map((v) => v * 0.62), [0, 0.9 * 1.15, 0], V.GRADE.moon, 0.245)); // 0.9 m, the niche the brightest thing down the passage
         }
+      } else if (p.kind === 'band') { // group 4: EAT ME cut over the nursery's door (the arms' atlas, its stone tablet, a gilt line)
+        const b = vamp.band({ w: p.w, h: p.h, proud: p.proud });
+        z.crest.push(put(b.quad, m)); walls.push(put(b.stone, m)); z.fit.push(put(b.fit, m));
       } else if (p.kind === 'bottle') {
         const b = vamp.bottle({ w: p.w, h: p.h, lean: p.lean, gilt: p.gilt, label: p.label });
         if (b.stone) walls.push(put(b.stone, m)); if (b.fit) z.fit.push(put(b.fit, m)); if (b.quad) z.crest.push(put(b.quad, m));
@@ -1278,7 +1283,7 @@ export function buildCastle(scene, cfg) {
         // (group 3: p.pool its radius, 0 for none: none over the stair's treads, a small one kept on the landing)
         if (z.id !== 'gallery' && !p.cold && p.pool !== 0) z.glow.push(vamp.glowDisc([p.x, fy + 0.03, p.z], [p.pool || 2.6, 0, 0], [0, 0, p.pool || 2.6], rgb, 0.2));
       } else if (p.kind === 'candelabra') {
-        const b = vamp.candelabra({ variant: p.variant, arms: p.arms, w: p.w, seed: z.index + p.y, lean: p.lean });
+        const b = vamp.candelabra({ variant: p.variant, arms: p.arms, w: p.w, seed: z.index + p.y, lean: p.lean, cups: p.cups });
         z.fit.push(iron(p, put(b.fit, m), 0.24));
         if (p.cold) continue; // group 3: a cold candelabra, its candles guttered: no flame, no pool
         lit(m, b.flames, p.zone);
@@ -1846,6 +1851,7 @@ export function buildCastle(scene, cfg) {
 
   function hide() {
     root.visible = false;
+    lampReset(); // the hand lantern's lent light goes with the room
     if (renderer) {
       renderer.shadowMap.enabled = false;
       if (saved) { renderer.toneMapping = saved.tone; renderer.toneMappingExposure = saved.exposure; }
@@ -1909,6 +1915,101 @@ export function buildCastle(scene, cfg) {
   const _cand = [];
   const byDistance = (a, b) => a.d - b.d;
   let stamp = 0;
+
+  // ---- the hand lantern (logic/lantern.js): one of the POOL lights, lent while it is up ----
+  // No light is added: the slot the rules pick (a free one, else the weakest flame's) hands over in
+  // a dip through zero over LANTERN.fade, then is driven from the look: a point ahead of the eye,
+  // stood off whatever the look meets, its reach the room's ceiling height, its strength constant.
+  const lamp = { m: 0, slot: -1 };
+  const _lampMix = { flame: 1, lamp: 0 };
+  const _lampDir = new THREE.Vector3(0, 0, -1);
+  const _lampLook = new THREE.Vector3();
+  const _lampC = new THREE.Color(LAMP.LANTERN.color);
+  const _lampRoom = { minX: 0, maxX: 0, minZ: 0, maxZ: 0, minY: 0, maxY: 0 };
+  const _lampAt = { x: 0, y: 0, z: 0, reach: 0, t: 0 };
+  const skipUpper = (b) => b.floor === 'upper'; // in the crypt the gallery floor's solids are overhead
+  let lampDt = 0;
+  let lampSnap = true;
+  let lampLastReach = 0;
+  const seatFlame = (s, f) => s.l.position.set(f.x, f.y, f.z); // a flame takes a pool light: it stands where the flame throws from
+  /** This frame's lent slot (-1 while the lantern is down): steps the hand-over; a slot handed back gets the flames' falloff again. */
+  function lampLend(sim, inRun, dt) {
+    const was = lamp.slot;
+    const on = !!inRun && LAMP.lanternLit(sim); // the owner (SYNC): with the model, as it comes up into view
+    if (lamp.m === 0 && on) lampSnap = true; // the light starts where the look is, not swinging in from the last time
+    // a game that does not own the lantern (a new one, the title) has no light left over from the last: off at once
+    LAMP.stepBorrow(lamp, pool, on, inRun && LAMP.ownsLantern(sim) ? dt : 0);
+    if (was >= 0 && lamp.slot < 0) lampGiveBack(was);
+    lampDt = dt;
+    return lamp.slot;
+  }
+  /** The slot handed back to the flames: their falloff again, and nothing of the lantern left in it. */
+  function lampGiveBack(i) {
+    const s = pool[i];
+    s.l.distance = 16; s.l.decay = 1.7;
+    if (!s.at) { s.level = 0; s.l.intensity = 0; }
+  }
+  /**
+   * The lantern's strength in a room (logic/lantern.js lanternIntensity): one number per room, from its height and
+   * its brightest flame's pool light, worked out the first time and kept on the zone (the crypt apart from the gallery).
+   */
+  function lampStrength(z, crypt, reach) {
+    const k = crypt ? 'lampICrypt' : 'lampI';
+    if (z[k] == null) {
+      let top = 0;
+      for (const f of z.fires) {
+        if (z.id === 'gallery' && (f.y < z.y) !== crypt) continue;
+        top = Math.max(top, 12 * (f.passage ? PASSAGE_FIRE : FIRE_SHARE) * (f.cold ? COLD.fire : 1) * f.power);
+      }
+      z[k] = LAMP.lanternIntensity(reach, top);
+    }
+    return z[k];
+  }
+  /** The castle put away (another room, the title): the lantern's state with it. */
+  function lampReset() {
+    const was = lamp.slot;
+    lamp.m = 0; lamp.slot = -1; lampLastReach = 0;
+    if (was >= 0) lampGiveBack(was);
+  }
+  /** The lent slot this frame: its flame going down (or the next flame coming back), or the lantern's light. */
+  function lampLight(sim, cur, picked) {
+    const s = pool[lamp.slot];
+    LAMP.slotMix(lamp.m, _lampMix);
+    if (camera) camera.getWorldDirection(_lampLook);
+    if (lampSnap) { _lampDir.copy(_lampLook); lampSnap = false; } else LAMP.easeLook(_lampDir, _lampLook, lampDt);
+    if (lamp.m >= 0.5) {
+      s.at = null;
+      s.level = 0;
+      const crypt = lowerNow && cur.id === 'gallery';
+      const reach = LAMP.lampReach(crypt ? 'crypt' : cur.id, lampLastReach); // outdoors, fading out: the last room's
+      lampLastReach = reach;
+      const floor = crypt ? V.CRYPT_ZONE.y : cur.y;
+      let inside = null;
+      for (let i = 0; i < cur.rects.length; i++) {
+        const r = cur.rects[i];
+        if (eye.x >= r.x0 && eye.x <= r.x1 && eye.z >= r.z0 && eye.z <= r.z1) { inside = r; break; }
+      }
+      _lampRoom.minX = inside ? inside.x0 : eye.x - reach; _lampRoom.maxX = inside ? inside.x1 : eye.x + reach;
+      _lampRoom.minZ = inside ? inside.z0 : eye.z - reach; _lampRoom.maxZ = inside ? inside.z1 : eye.z + reach;
+      _lampRoom.minY = floor + 0.05; _lampRoom.maxY = floor + reach;
+      const t = LAMP.aimDistance(eye, _lampDir, _lampRoom, sim && sim.boxes, floor, reach, crypt ? skipUpper : null);
+      const d = LAMP.lampDistance(t);
+      s.l.position.set(eye.x + _lampDir.x * d, eye.y + _lampDir.y * d, eye.z + _lampDir.z * d);
+      s.l.color.copy(_lampC);
+      s.l.distance = reach;
+      s.l.decay = LAMP.LANTERN.decay;
+      s.l.intensity = lampStrength(cur, crypt, reach) * _lampMix.lamp;
+      _lampAt.x = s.l.position.x; _lampAt.y = s.l.position.y; _lampAt.z = s.l.position.z; _lampAt.reach = reach; _lampAt.t = t;
+      return;
+    }
+    if (!s.at) { // on the way back: the next flame in line takes the slot up
+      const f = LAMP.returnFlame(pool, _cand, picked);
+      if (f) { s.at = f; s.level = 1; f.stamp = stamp; s.l.position.set(f.x, f.y, f.z); }
+    }
+    s.l.distance = 16;
+    s.l.decay = 1.7;
+    s.l.intensity *= _lampMix.flame;
+  }
   /** Once a frame. sim may be null (the title). */
   function update(sim, dt, time) {
     if (!root.visible) return;
@@ -2025,26 +2126,10 @@ export function buildCastle(scene, cfg) {
     }
     _cand.sort(byDistance);
     stamp += 1;
-    const picked = Math.min(POOL, _cand.length);
-    for (let i = 0; i < picked; i++) _cand[i].stamp = stamp; // this frame's chosen flames
-    for (let i = 0; i < POOL; i++) {
-      const s = pool[i];
-      if (s.at && s.at.stamp !== stamp) {
-        s.level -= dt * 3.5;
-        if (s.level <= 0 || dt === 0) { s.at = null; s.level = 0; }
-      }
-    }
-    for (let i = 0; i < picked; i++) {
-      const f = _cand[i];
-      let held = false; let free = null;
-      for (let j = 0; j < POOL; j++) {
-        if (pool[j].at === f) held = true;
-        else if (!pool[j].at && !free) free = pool[j];
-      }
-      if (held || !free) continue;
-      free.at = f; free.level = dt === 0 ? 1 : 0;
-      free.l.position.set(f.x, f.y, f.z);
-    }
+    const lent = lampLend(sim, inRun, dt); // the hand lantern's borrowed slot (-1 while it is down): out of the flames' hands
+    const picked = LAMP.flamesPicked(POOL, _cand.length, lent);
+    // this frame's chosen flames stamped, the rest fading, each chosen one seated in a free slot (logic/lantern.js, tested)
+    LAMP.assignFlames(pool, _cand, picked, stamp, dt, lent, seatFlame);
     // the werewolf film's castle front: the torches' pools up, so the fire reads against the dusk (the art critic)
     const filmTorch = film && film.front ? CUTAWAY.sun.torch : 1;
     for (let i = 0; i < POOL; i++) {
@@ -2055,6 +2140,7 @@ export function buildCastle(scene, cfg) {
       if (s.at && s.at.red) s.l.color.lerp(s.at.redC || _vFire, s.at.red); // the Dracula pass: its zone's grade
       s.l.intensity = s.at ? 12 * (s.at.passage ? PASSAGE_FIRE : FIRE_SHARE) * (s.at.cold ? COLD.fire : 1) * s.at.power * clamp(s.level) * lightFlicker(time, s.at.seed) * filmTorch : 0;
     }
+    if (lent >= 0) lampLight(sim, cur, picked);
     vamp.materials.still.opacity = 1 - V.MOON_BREATH.depth + V.MOON_BREATH.depth * Math.sin(time * TAU / V.MOON_BREATH.period); // the moon's still glow breathes over 25 s
     glowMat.opacity = lightFlicker(time, 4.7); // the exit candle's pool breathes with its flame (slow drift under reduced flash)
     haloMat.opacity = 0.26 * (reduced ? 1 : 0.9 + 0.1 * Math.sin(time * 9.1) + 0.06 * Math.sin(time * 23.3));
@@ -2242,6 +2328,11 @@ export function buildCastle(scene, cfg) {
     get lower() { return lowerNow; },
     get shadowLevel() { return shadowLevel; },
     get moon() { return moonDir; },
+    /** The hand lantern's lent light now (the smoke reads it): the hand-over, the slot, where it stands, its reach and strength. */
+    get lantern() {
+      const s = lamp.slot >= 0 ? pool[lamp.slot].l : null;
+      return { m: lamp.m, slot: lamp.slot, at: { ..._lampAt }, intensity: s ? s.intensity : 0, distance: s ? s.distance : 0, pool: pool.length };
+    },
   };
   root.userData.castle = handle; // the cast and the props find the shell here (castle.sees, castle.visible)
   return handle;

@@ -31,6 +31,7 @@ export function visibleControls(ctx) {
     jump: on,
     e: on && !!ctx.hasUsePrompt,
     swap: on && ctx.weaponCount > 1,
+    lamp: on && !!ctx.hasLantern, // the castle's hand lantern, once taken, indoors (logic/lantern.js lanternReady)
     pause: on,
     log: on && !!ctx.inLogRoom,
     skip: ctx.state === 'PLAYING' && !!ctx.sceneSkippable,

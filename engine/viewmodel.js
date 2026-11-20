@@ -10,9 +10,10 @@ import { createCrossbow } from './crossbow.js';
 import { createHalberd } from './halberd.js';
 import { createTinCup } from './tincup.js';
 import { createBraid } from './braid.js';
+import { createHandLamp } from './handlamp.js'; // the castle's hand lantern (logic/lantern.js)
 import { drawnTool } from './hud.js'; // the pure rule for which tool is drawn (R22), kept where Node can test it
 
-const TOOLS = ['bore', 'crossbow', 'halberd', 'cup', 'garlic']; // the tools with a model of their own; anything else is the carbine
+const TOOLS = ['bore', 'crossbow', 'halberd', 'cup', 'garlic', 'lantern']; // the tools with a model of their own; anything else is the carbine
 
 function flashTexture() {
   const c = document.createElement('canvas');
@@ -149,7 +150,11 @@ export function createViewmodel(aspect, worldCamera) {
   const garlic = createBraid();
   garlic.group.visible = false;
   rig.add(garlic.group);
-  const tools = { bore, crossbow, halberd, cup, garlic };
+  // The castle's hand lantern: held up by its ring; its light in the room is castle.js's borrowed pool light.
+  const lantern = createHandLamp();
+  lantern.group.visible = false;
+  rig.add(lantern.group);
+  const tools = { bore, crossbow, halberd, cup, garlic, lantern };
   let weaponName = 'carbine';
   let lighting = 'yard'; // which light group the tools are seen by: yard, cave or court
   let specs = null; // the room's weapons table (court only) and its swap time
@@ -189,7 +194,7 @@ export function createViewmodel(aspect, worldCamera) {
   }
 
   /**
-   * 'carbine', 'bore', 'crossbow', 'halberd', 'cup' or 'garlic'. weaponCfg is that weapon's spec (the tools
+   * 'carbine', 'bore', 'crossbow', 'halberd', 'cup', 'garlic' or 'lantern'. weaponCfg is that weapon's spec (the tools
    * read magazine, reloadTime and the like). room (optional) picks the light the tool is seen by:
    * 'cave' (its own green), 'court' (daylight), 'castle' (moon and torches) or anything else (the yard's teal).
    */
@@ -217,7 +222,7 @@ export function createViewmodel(aspect, worldCamera) {
     if (tools[name]) tools[name].setConfig(weaponCfg || (specs && specs[name]));
     // The salt gun's pilot light is the cave's; in daylight it would only add a light to the world.
     bore.setActive(isBore && lighting === 'cave');
-    for (const k of ['crossbow', 'halberd', 'cup', 'garlic']) tools[k].setActive(k === name);
+    for (const k of ['crossbow', 'halberd', 'cup', 'garlic', 'lantern']) tools[k].setActive(k === name);
   }
 
   /** The court's weapons table and swap time, so a `swap` event can seat either tool. */
@@ -321,6 +326,35 @@ export function createViewmodel(aspect, worldCamera) {
     scene, camera, onEvent, update, cancel, setWeapon,
     get weapon() { return weaponName; },
     setSpecs,
+    /**
+     * Builds the programs for tools by name (each shown for one draw into a pixel, under the room's lights,
+     * then put back), so the first time one is drawn costs no frame: the castle's lantern as the castle starts.
+     */
+    warm(renderer, names) {
+      if (!renderer || !renderer.render) return false;
+      // shown as it will be drawn: the named tool alone (another tool's own light, the salt gun's pilot lamp, would
+      // change the lights the program is built for)
+      const all = [gun, ...Object.values(tools).map((t) => t.group)];
+      const seen = all.map((o) => o.visible);
+      all.forEach((o) => { o.visible = false; });
+      names.forEach((n) => { if (tools[n]) tools[n].group.visible = true; });
+      // drawn, not compiled: three's compile() counts the room's hidden light groups too, so its programs
+      // are not the ones a frame asks for. One draw into a single pixel (the next frame clears it) builds them.
+      const scissor = renderer.getScissorTest();
+      let ok = true;
+      try {
+        renderer.setScissorTest(true);
+        renderer.setScissor(0, 0, 1, 1);
+        renderer.render(scene, camera);
+      } catch (e) {
+        ok = false;
+        console.debug('viewmodel warm: built when first drawn instead', e); // best effort, but said
+      } finally {
+        renderer.setScissorTest(scissor);
+        all.forEach((o, i) => { o.visible = seen[i]; });
+      }
+      return ok;
+    },
     setReducedFlash(v) { reduced = v; for (const t of Object.values(tools)) t.setReducedFlash(v); },
     resize(aspect) { camera.aspect = aspect; camera.updateProjectionMatrix(); },
   };

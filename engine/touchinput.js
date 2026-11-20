@@ -10,6 +10,7 @@ export function createTouchInput() {
   let jump = false;
   let interact = false;
   let swap = false;
+  let lamp = false; // the castle's lantern button: up, or away again (controls.js asks for it by name)
   let skip = false;
 
   const roleOf = (id) => roles.get(id);
@@ -54,6 +55,7 @@ export function createTouchInput() {
     if (name === 'jump') jump = true;
     else if (name === 'interact') interact = true;
     else if (name === 'swap') swap = true;
+    else if (name === 'lamp') lamp = true;
     else if (name === 'skip') skip = true;
   }
   function cancel(id) {
@@ -70,16 +72,18 @@ export function createTouchInput() {
     jump = false;
     interact = false;
     swap = false;
+    lamp = false;
     skip = false;
   }
   /** Builds this frame's input and consumes look deltas and one-shot presses. */
   function take() {
-    const out = { ...stick, dx, dy, fire, jump, interact, swap, skip };
+    const out = { ...stick, dx, dy, fire, jump, interact, swap, lamp, skip };
     dx = 0;
     dy = 0;
     jump = false;
     interact = false;
     swap = false;
+    lamp = false;
     skip = false;
     return out;
   }

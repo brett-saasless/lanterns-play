@@ -11,6 +11,7 @@ const PARTS = [
   ['jump', ''],
   ['e', ''],
   ['swap', ''],
+  ['lamp', ''], // the castle's hand lantern, once taken (logic/touchmap.js visibleControls)
   ['pause', 'II'],
   ['log', ''],
   ['skip', 'SKIP'],
@@ -97,6 +98,7 @@ export function createTouchUi({ root, controls, hooks }) {
   bind(els.look, { move: (id, dx, dy) => touch.lookMove(id, dx, dy) });
   bind(els.jump, { down: () => touch.press('jump') });
   bind(els.swap, { down: () => touch.press('swap') });
+  bind(els.lamp, { down: () => touch.press('lamp') });
   bind(els.skip, { down: () => touch.press('skip') });
   bind(els.e, {
     down: () => { touch.press('interact'); hooks.holdE(true); },

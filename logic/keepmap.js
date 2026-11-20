@@ -429,6 +429,7 @@ export const PIKES = f([{ x: -3.6, z: 2.2, tag: 'style106' }, { x: 3.6, z: 2.2, 
 export const HALL = f({
   braid: { x: -3.6, z: -2.2 }, // on its nail by the west wall
   scratch: { x: -3.7, z: -3.4 }, // the words scratched beside it (read: garlicScratch)
+  lantern: { x: -3.6, z: -1.0, y: 1.72 }, // the hand lantern on its own nail, the braid's side of the scratched words (logic/lantern.js)
   curtain: { x: 3.7, z: -5.5 }, // a curtain, a tonic behind it (PADS)
 });
 
@@ -715,10 +716,11 @@ export const PADS = f([
  * Things E takes (keep.js). level: the floor it lies on where two floors share the plan
  * ('crypt', or 'upper' for the gallery floor), so it cannot be taken from the other one.
  * garlic: the braid (one garlic). health: a tonic (share: of the tonic's amount, 1 if absent).
- * crossbow: only for a warden without one.
+ * crossbow: only for a warden without one. lantern: the hand lantern (logic/lantern.js), once.
  */
 export const LOOT = f([
   { key: 'braid', kind: 'garlic', gives: 1, x: HALL.braid.x, z: HALL.braid.z, stage: 1 },
+  { key: 'lantern', kind: 'lantern', x: HALL.lantern.x, z: HALL.lantern.z, stage: 1 }, // the hand lantern, in the braid's room
   { key: 'cryptTonic', kind: 'health', x: CRYPT_PROPS.underStair.x, z: CRYPT_PROPS.underStair.z, stage: 3, level: 'crypt' },
   { key: 'nunTonic', kind: 'health', share: 0.5, x: CRYPT_PROPS.nunTonic.x, z: CRYPT_PROPS.nunTonic.z, stage: 3, level: 'crypt' },
   { key: 'pedestal', kind: 'health', x: GALLERY_PROPS.pedestal.x, z: GALLERY_PROPS.pedestal.z, stage: 3, level: 'upper' },

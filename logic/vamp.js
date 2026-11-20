@@ -24,6 +24,8 @@ import {
 import { doorHeight } from './doorleaves.js';
 import { makeRng } from './rng.js';
 import { BOARD, PIECE_FOOT, PADS, STAIRS, UPPER, WRECK, wreckFoot, wreckBoxes, stairFloor } from './keepmap.js'; // group 3: the Knight's Walk, the stairs, the landing
+import { MIRROR_ROOM, FURNITURE, NURSERY, COUNTWAY, HAUNT_PLACES } from './keepmap.js'; // group 4: the upper floor
+import { PROP_FOOT, footBox } from './solids.js'; // group 4: the furniture's and the nursery's footprints, as the collision has them
 
 const f = (o) => {
   Object.values(o).forEach((v) => { if (v && typeof v === 'object' && !Object.isFrozen(v)) f(v); });
@@ -48,8 +50,7 @@ export const RICHNESS = f({
  */
 export const DRESSED = f(['outside', 'hall', 'cor1', 'cor2', 'cor3', 'tea', 'gallery', 'crypt',
   'walk', 'stairs', 'landing', // group 3
-  // (until group 4 dresses the mirror room, the landing's graded stone meets the mirror room's ungraded stone at
-  // the mirrorIn arch: a one-step seam, acceptable only because the mirror room is dressed next)
+  'mirror', 'passage', 'nursery', 'countway', // group 4 (the mirror room's stone now takes the landing's own tint, so the mirrorIn seam is gone)
 ]);
 
 /**
@@ -92,6 +93,7 @@ export const GRADE = f({
  */
 export const WARM_BIAS = f({ gallery: 0.08, crypt: 0.08,
   walk: 0.03, stairs: 0.06, landing: 0.06, // group 3: half in the moon's walk, ramping to the stair's along the walk's last third (WARM_RAMP), so it eases into the stair
+  mirror: 0.06, passage: 0.06, nursery: 0.06, countway: 0.06, // group 4: the landing's, so no wall upstairs steps at a door (the countway is only a shade darker, by its richness)
 });
 
 /**
@@ -105,7 +107,9 @@ export const WARM_RAMP = f({ walk: { z0: -109, z1: -117, to: 0.06 } });
  * Group 3, round 2 (H9: the stair's red read mauve-pink): the stair's and the landing's flames lean to a deeper
  * crimson and their night air to an oxblood sky, at the same strengths as everywhere (only the hue steps).
  */
-export const GRADE_HUE = f({ stairs: { fire: 0xd8282e, sky: 0x4a1a24 }, landing: { fire: 0xd8282e, sky: 0x4a1a24 } });
+export const GRADE_HUE = f({ stairs: { fire: 0xd8282e, sky: 0x4a1a24 }, landing: { fire: 0xd8282e, sky: 0x4a1a24 },
+  // group 4: the whole upper floor keeps the landing's crimson and oxblood, so the hue never steps at a door upstairs
+  mirror: { fire: 0xd8282e, sky: 0x4a1a24 }, passage: { fire: 0xd8282e, sky: 0x4a1a24 }, nursery: { fire: 0xd8282e, sky: 0x4a1a24 }, countway: { fire: 0xd8282e, sky: 0x4a1a24 } });
 
 /**
  * The grade of one zone: { r, fire, sky, shadow, fog, stoneK, warm, glow } with every mix already
@@ -162,6 +166,7 @@ export const FIT_STONE = f({ gargoyle: 0.6, bat: 0.4 });
  */
 export const FIT_STONE_ROOMS = f({ hall: 0.5, cor1: 0.55, cor2: 0.55, cor3: 0.55, tea: 1, gallery: 1, crypt: 1,
   walk: 0.85, stairs: 0.36, landing: 0.36, // group 3: the walk's moon pool is brighter than the gallery's; the stair and landing torchlit close (round 2: 0.8 of 0.45, cooled: FIT_COOL)
+  mirror: 0.42, nursery: 0.42, passage: 0.4, countway: 0.4, // group 4: a shade under the walk's (at 0.6 they read pale lavender against the dark upper walls)
 });
 
 /**
@@ -176,8 +181,9 @@ export const FIT_HUE = 0.45; // (at 0.3 a crypt gargoyle's moonward side still r
  * half its red against walls at about 0.85): there the lean to the torchlight is small and the stone is cooled a
  * shade toward grey-violet, so a gargoyle reads as the wall's own stone, darker.
  */
-export const FIT_HUE_ROOMS = f({ stairs: 0.1, landing: 0.1 });
-export const FIT_COOL = f({ stairs: [0.96, 0.95, 1.06], landing: [0.96, 0.95, 1.06] });
+export const FIT_HUE_ROOMS = f({ stairs: 0.1, landing: 0.1, mirror: 0.1, passage: 0.1, nursery: 0.1, countway: 0.1 }); // group 4: the same crimson, the same lesson
+export const FIT_COOL = f({ stairs: [0.96, 0.95, 1.06], landing: [0.96, 0.95, 1.06],
+  mirror: [0.96, 0.95, 1.06], passage: [0.96, 0.95, 1.06], nursery: [0.96, 0.95, 1.06], countway: [0.96, 0.95, 1.06] });
 /** How far a room's carving leans to its light (FIT_HUE, or its own). */
 export function fitHueOf(id) { return Object.prototype.hasOwnProperty.call(FIT_HUE_ROOMS, id) ? FIT_HUE_ROOMS[id] : FIT_HUE; }
 
@@ -277,6 +283,7 @@ export const SLIT_SIZE = f({ w: 0.5, h: 1.7, sill: 1.1, rise: 0.25 });
 /** The rooms' windows as castle.js makePlan cuts them (WIN(0, side, z, w, h, sill), kept equal by a test), at keepmap WINDOWS. */
 export const ROOM_WINDOWS = f({ tea: { side: 'e', w: 1.5, h: 3.8, sill: 1.3 }, gallery: { side: 'e', w: 1.7, h: 4.6, sill: 0.9 },
   walk: { side: 'e', w: 10, h: 9.6, sill: 1.4 }, // group 3: the Knight's Walk's great east window
+  nursery: { side: 'w', w: 1.4, h: 3.2, sill: 1.1 }, // group 4: the nursery's west window, where the figures pass
 });
 
 /**
@@ -409,7 +416,7 @@ export function archFace(doorId, id) {
 // ---- the plan: group 1 (the forecourt and bridge, the hall, cor1, cor2, cor3) -----------------
 
 const VAMP_SEED = 1897; // the year of the book
-const HYBRID = new Set(['cheshire', 'teacup', 'watch', 'spade', 'heart', 'drinkme', 'hatter']);
+const HYBRID = new Set(['cheshire', 'teacup', 'watch', 'spade', 'heart', 'drinkme', 'hatter', 'eatme']);
 const CORBEL_Y = 2.58; // a passage's carved things sit under its vault's springing (3.0)
 
 function wallThing(id, zone, kind, variant, at, y, w, h, proud, more = {}) {
@@ -596,6 +603,8 @@ export function decorPlan(seed = VAMP_SEED) {
   out.push(...groupTwo(makeRng((seed * 7 + 2) >>> 0)));
   // ---- group 3: the Knight's Walk, the stairs, the landing (its own seeded hand) ----
   out.push(...groupThree(makeRng((seed * 13 + 3) >>> 0)));
+  // ---- group 4: the mirror room, the passage, the nursery, the countway (its own seeded hand) ----
+  out.push(...groupFour(makeRng((seed * 17 + 4) >>> 0)));
 
   const plan = f(out);
   if (seed === VAMP_SEED) PLAN = plan;
@@ -813,7 +822,8 @@ export function keepClear(zone) {
     const wall = nearestWall(zone, a.x, a.z);
     const isBanner = a.id.startsWith('banner');
     // where each canvas really hangs (keepcast.js): the gallery's sitters centred at 2.35, the werewolf at 1.95; frames 0.1 m round
-    const hung = a.id.startsWith('gallery-') ? [2.35, WALL_ART.portrait.h] : a.id === 'werewolf' ? [1.95, WALL_ART.werewolf.h] : null;
+    // (group 4: the mirror room's three sitters hang centred at 2.1, keepcast.js)
+    const hung = a.id.startsWith('gallery-') ? [2.35, WALL_ART.portrait.h] : a.id === 'werewolf' ? [1.95, WALL_ART.werewolf.h] : a.id.startsWith('mirror-') ? [2.1, WALL_ART.mirrorPortrait.h] : null;
     const ys = isBanner ? [y0 + 0.4, y0 + 3.0] : hung ? [y0 + hung[0] - hung[1] / 2 - 0.1, y0 + hung[0] + hung[1] / 2 + 0.1] : [y0 + 0.95, y0 + 2.65];
     if (wall.alongX) box(a.id, 'art', a.x - a.w / 2, a.x + a.w / 2, ys[0], ys[1], wall.at - 0.2, wall.at + 0.2);
     else box(a.id, 'art', wall.at - 0.2, wall.at + 0.2, ys[0], ys[1], a.z - a.w / 2, a.z + a.w / 2);
@@ -842,7 +852,8 @@ export function keepClear(zone) {
   }
   if (ROOM_WINDOWS[zone]) {
     const ws = ROOM_WINDOWS[zone]; const r = z.rects[0];
-    for (const w of WINDOWS[zone]) box(`window ${w.z}`, 'window', r.maxX - 0.3, r.maxX, y0 + ws.sill, y0 + ws.sill + ws.h, w.z - ws.w / 2, w.z + ws.w / 2);
+    const [wx0, wx1] = ws.side === 'w' ? [r.minX, r.minX + 0.3] : [r.maxX - 0.3, r.maxX]; // (group 4: the nursery's is in its west wall)
+    for (const w of WINDOWS[zone]) box(`window ${w.z}`, 'window', wx0, wx1, y0 + ws.sill, y0 + ws.sill + ws.h, w.z - ws.w / 2, w.z + ws.w / 2);
   }
   if (zone === 'tea') {
     const T = z.rects[0];
@@ -875,6 +886,7 @@ export function keepClear(zone) {
     const st = CRYPT.stair.rect; box('crypt stair', 'route', st.minX, st.maxX, y0, 0, st.minZ, st.maxZ); // its treads and the head room over them
   }
   keepClearThree(zone, box, out); // group 3: the Knight's Walk, the stairs, the landing
+  keepClearFour(zone, box); // group 4: the mirror room, the passage, the nursery, the countway
   return out;
 }
 
@@ -1077,4 +1089,216 @@ function keepClearThree(zone, box, out) {
     }
   }
   if (zone === 'landing') box('landing way', 'route', st.minX, st.maxX, y0, y0 + 2.4, z.rects[0].minZ, z.rects[0].maxZ); // the stair's head to the mirror room's door
+}
+
+// ---- group 4: the mirror room (0.8), the passage (0.8), the nursery (0.8), the countway (0.9) ----------
+//
+// The upper floor is the climax before the Count's room: lavish and wrong. The mirror room keeps its
+// figure-mirror, its table and salt box, its sitters, its three doorways and the strip before the glass
+// clear (its west wall carries only two bats, high and well apart from the glass); the Count's arms are
+// painted in crimson and gilt over the way to him, carved over the way in, and the Hatter's hat is painted
+// in the overmantel; two iron chandeliers hang from the tie beams on the room's axis, two candelabras
+// flank the hearth (one with teacups), a gargoyle crouches in each far corner under the beams (the
+// north-east one holds a teacup). The passage is group 1's run-down passage at the upper
+// floor's richness, with EAT ME cut over the nursery's door. The nursery is a child's room gone wrong
+// but never cruel: a lit iron chandelier, the Count's arms in the overmantel over the little hearth,
+// a carved bat by the rocking horse (beside it, never on it), the Cheshire grin in the far corner, a
+// pocket-watch bat, webs, and dust in the firelight; the cot, the horse, the music box, the sheets and
+// the window stay as they were. The countway, the Count's own passage, is the richest: his painted arms
+// in gilt over his door under a still candle wash, a carved bat over the way back, webs in both arches
+// and the dust in its slit's moon (its walls are its two doorways', its torch's, its card's and its
+// slit's: nothing else fits). No coffins: they are the lower rooms' (the owner's brief).
+
+/** The rectangles castle.js draws for a zone: a passage as wide as its door runs on to the door's middle (castle.js makePlan). */
+export function castleRects(id) {
+  const z = zoneOf(id);
+  return z.rects.map((r0) => {
+    const r = { ...r0 };
+    for (const d of DOORS.filter((q) => q.zones.includes(id))) {
+      const q = d.rect; const alongX = (q.maxX - q.minX) >= (q.maxZ - q.minZ);
+      const [a0, a1, lo, hi] = alongX ? ['minX', 'maxX', 'minZ', 'maxZ'] : ['minZ', 'maxZ', 'minX', 'maxX'];
+      if (Math.abs(r[a0] - q[a0]) > 1e-6 || Math.abs(r[a1] - q[a1]) > 1e-6) continue;
+      const mid = (q[lo] + q[hi]) / 2;
+      if (Math.abs(r[lo] - q[hi]) < 1e-6) r[lo] = mid;
+      else if (Math.abs(r[hi] - q[lo]) < 1e-6) r[hi] = mid;
+    }
+    return r;
+  });
+}
+
+/**
+ * The flames castle.js hangs on the upper floor's walls (kept equal by a test), so decor keeps off them:
+ * [{ x, z, n, y }]. The mirror room's two sconces (buildMirror); a passage's torches by buildPassage's own
+ * rule over the rectangles it really draws (castleRects: the run-on into each door moves them a little).
+ */
+export function upperLights(id) {
+  const z = zoneOf(id);
+  if (id === 'mirror') { const r = z.rects[0]; return [['e', r.minZ + 4.8], ['w', r.maxZ - 1.5]].map(([s, c]) => ({ ...onWall(r, s, c), y: z.y + 2.6 })); }
+  if (id !== 'passage' && id !== 'countway') return [];
+  const taken = [CORRIDOR.painting, ...CORRIDOR.banners];
+  const out = []; let k = 0;
+  for (const r of castleRects(id)) {
+    const alongZ = (r.maxZ - r.minZ) >= (r.maxX - r.minX);
+    const len = alongZ ? r.maxZ - r.minZ : r.maxX - r.minX;
+    const sides = alongZ ? ['w', 'e'] : ['n', 's'];
+    const lo = alongZ ? r.minZ : r.minX;
+    const n = Math.max(1, Math.round(len / 7));
+    for (let i = 0; i < n; i++) {
+      const p = onWall(r, sides[(k++) % 2], lo + (len * (i + 0.5)) / n);
+      if (taken.every((q) => Math.hypot(q.x - p.x, q.z - p.z) > 2.2)) out.push({ ...p, y: z.y + 2.15 });
+    }
+  }
+  return out;
+}
+
+/** The mirror room's ceiling (castle.js beams(): n 7 along z, two tie beams across at a third and two thirds, 0.3 deep, their middles 0.5 under the ceiling). */
+export const MIRROR_BEAMS = f({ ceil: 5, tieBottom: 5 - 0.65, beamBottom: 5 - 0.4, ties: [-146 + 14 / 3, -146 + 28 / 3] });
+/** The nursery's (beams n 5 along z, h 4.4). */
+export const NURSERY_BEAMS = f({ ceil: 4.4, tieBottom: 4.4 - 0.65, beamBottom: 4.4 - 0.4, ties: [-159.5 + 10 / 3, -159.5 + 20 / 3] });
+/** The EAT ME band's height to its width: its strip in the arms' atlas is 360 by 100 (vampkit.js BAND_W, LABEL_H; a test keeps them equal). */
+export const BAND_ASPECT = 100 / 360;
+/** The passages' vault: springing 3.0 over the floor, a half ellipse rising 0.8 across their 2 m (castle.js PASSAGE). */
+export const PASSAGE_VAULT = f({ spring: 3.0, rise: 0.8, half: 1.0 });
+/** The vault's height over the floor at `off` metres from a 2 m passage's middle. */
+export function passageVaultAt(off) { return PASSAGE_VAULT.spring + PASSAGE_VAULT.rise * Math.sqrt(Math.max(0, 1 - (off / PASSAGE_VAULT.half) ** 2)); }
+
+function groupFour(rand) {
+  const out = [];
+  const add = (...xs) => out.push(...xs);
+  const gseed = () => Math.floor(rand() * 1000);
+  const bat = (id, zone, at, y, v = 'bat', w = 0.8, more = {}) => wallThing(id, zone, 'bat', v, at, y, w, 0.44, 0.09, { tilt: (rand() - 0.5) * 0.22, seed: gseed(), ...more });
+  const corner = (id, zone, c, y, v, h, more = {}) => ({ ...cornerThing(id, zone, 'gargoyle', v, c, y, 0.55, h, 0.48), seed: gseed(), edge: 'gilt', corbelTone: true, ...more });
+  const candelabra = (id, zone, at, y, more = {}) => wallThing(id, zone, 'candelabra', 'iron', at, y, 0.7, 0.62, 0.3, { arms: 5, ...more });
+
+  // ---- the mirror room (0.8): lavish and wrong; the figure-mirror, the table, the sitters and the doorways as they were ----
+  const mz = zoneOf('mirror'); const M = mz.rects[0]; const my = mz.y; const MB = MIRROR_BEAMS;
+  // the Count's arms painted in crimson and gilt over the way on to him (as over his own door at the countway's end); carved over the way in
+  const ci = archFace('countwayIn', 'mirror'); const mi = archFace('mirrorIn', 'mirror');
+  add(wallThing('mirror-crest-countway', 'mirror', 'crest', 'dracul', { x: ci.x, z: ci.z, n: ci.n }, my + 3.35, 1.0, 1.2, 0.08, { finish: 'plaque', frame: 'gilt', mount: 'lintel', door: 'countwayIn' }));
+  add(wallThing('mirror-crest-door', 'mirror', 'crest', 'dracul', { x: mi.x, z: mi.z, n: mi.n }, my + 3.4, 0.9, 1.05, 0.1, { finish: 'relief', frame: 'gilt', mount: 'lintel', door: 'mirrorIn' }));
+  // a still, faint candle wash behind the arms over the way on, so they read from the far door (no light; under the candelabra's 0.34)
+  add({ id: 'mirror-crest-glow', zone: 'mirror', kind: 'glow', variant: 'wall', hybrid: false, mount: 'lintel', door: 'countwayIn', still: true, x: ci.x, y: my + 3.95, z: ci.z + 0.03, n: ci.n, w: 1.8, h: 1.7, strength: 0.08 });
+  // the Hatter's hat with its 10/6 painted in the overmantel's panel over the hearth (castle.js hearth 2.4 by 2.3: its panel from 2.56, its head from 3.22)
+  add(wallThing('mirror-crest-hearth', 'mirror', 'crest', 'hatter', onWall(M, 'n', 18), my + 2.8, 0.6, 0.75, 0.04, { finish: 'plaque', out: 0.35, mount: 'overmantel' }));
+  // two iron chandeliers on the room's axis, each hung from a tie beam (its rose 5 mm under it), their lowest point 3.25 m up;
+  // (fix round, M6: not twins: the south one of five, the north one of four, a little smaller)
+  for (const [s, zz, arms, w] of [['s', MB.ties[1], 5, 1.4], ['n', MB.ties[0], 4, 1.25]]) {
+    add({ id: `mirror-chandelier-${s}`, zone: 'mirror', kind: 'chandelier', variant: 'iron', hybrid: false, x: 13, y: my + 3.25, z: zz, n: [0, 0],
+      w, h: MB.tieBottom - 0.005 - 3.25, proud: 0, out: 0, mount: 'hang', arms, pool: 2.2 });
+  }
+  // a candelabra of four either side of the hearth, the west one with teacups for pans (larger and paler, to read from the door)
+  // (the pair once planned either side of the way in is left out: the room's triangle budget)
+  add(candelabra('mirror-candelabra-teacup', 'mirror', onWall(M, 'n', 15.6), my + 1.85, { variant: 'teacup', hybrid: true, w: 0.9, arms: 4, cups: 1.5 }));
+  add(candelabra('mirror-candelabra-iron', 'mirror', onWall(M, 'n', 20.4), my + 1.85, { w: 0.62, arms: 4 }));
+  // a gargoyle crouched in each of the far corners under the beams, seen from the way in; the north-east one holds a teacup, larger, its china in the fittings
+  for (const c of concaveCorners('mirror').filter((q) => q.z < M.minZ + 1)) {
+    const ne = c.x > M.minX + 1;
+    add(corner(`mirror-garg-${c.x},${c.z}`, 'mirror', c, my + 3.1, ne ? 'teacup' : 'crouch', ne ? 1.0 : 0.85));
+  }
+  // carved bats high on the long walls: two flanking the figure-mirror 2.4 m either side of it and over 1 m above its crest, two on the east wall
+  // (fix round, M1: a metre across, so they read at walking distance)
+  add(bat('mirror-bat-w0', 'mirror', onWall(M, 'w', -134.6), my + 3.95, 'bat', 1.0), bat('mirror-bat-w1', 'mirror', onWall(M, 'w', -139.4), my + 3.95, 'bat', 1.0));
+  add(bat('mirror-bat-e0', 'mirror', onWall(M, 'e', -134.4), my + 3.95, 'bat', 1.0), bat('mirror-bat-e1', 'mirror', onWall(M, 'e', -139.6), my + 3.95, 'bat', 1.0));
+  // webs in the corners under the beams, and in each arch's top corners
+  for (const c of concaveCorners('mirror')) add(cornerWeb(`mirror-web-${c.x},${c.z}`, 'mirror', c, my + MB.beamBottom - 0.05, 0.8));
+  add(...doorWebs('mirror-web-mirrorIn', 'mirror', 'mirrorIn'), ...doorWebs('mirror-web-countwayIn', 'mirror', 'countwayIn'), ...doorWebs('mirror-web-passageIn', 'mirror', 'passageIn'));
+  // dust in the hearth's light, and under the south chandelier
+  add({ id: 'mirror-motes-hearth', zone: 'mirror', kind: 'motes', variant: 'fire', hybrid: false, mount: 'air', from: [18.4, my + 2.0, -144.5], to: [18.6, my + 0.6, -143.4], spread: [0.7, 0.35], n: 90 }); // (east of the chair's place by the hearth)
+  add({ id: 'mirror-motes-chandelier', zone: 'mirror', kind: 'motes', variant: 'fire', hybrid: false, mount: 'air', from: [13, my + 3.0, MB.ties[1]], to: [13, my + 2.1, MB.ties[1]], spread: [0.9, 0.25], n: 100 });
+
+  // ---- the passage (0.8): group 1's run-down passage, richer; EAT ME over the nursery's door ----
+  const pz = zoneOf('passage'); const py = pz.y; const [P0, P1] = pz.rects;
+  add(bat('passage-bat-0', 'passage', onWall(P0, 's', -4.6), py + CORBEL_Y - 0.04, 'bat', 0.76), bat('passage-bat-1', 'passage', onWall(P0, 'n', -3.2), py + CORBEL_Y - 0.04, 'bat', 0.76));
+  add(bat('passage-bat-2', 'passage', onWall(P1, 'e', -144.6), py + CORBEL_Y - 0.04, 'bat', 0.76));
+  // (fix round, M1: the corner gargoyle a paler stone, on the gilt lip, its web drawn small into the very top of the corner, over its head)
+  for (const c of concaveCorners('passage')) add(corner(`passage-garg-${c.x},${c.z}`, 'passage', c, py + 2.3, 'crouch', 0.5, { w: 0.5, proud: 0.46, light: 1.65 }));
+  add(candelabra('passage-candelabra-0', 'passage', onWall(P0, 'n', -0.9), py + 1.85, { w: 0.6 }), candelabra('passage-candelabra-1', 'passage', onWall(P1, 'e', -147.3), py + 1.85, { w: 0.6 }));
+  // (fix round, M3: the relief drawn at 0.3 of its tone in linear colour: two torches stand within 3 m of it and the tone map
+  // keeps a lit pale panel pale, so at 0.7 and 0.5 it barely moved; at 0.3 it is dark stone in its gilt, not a pale plaque)
+  add(wallThing('passage-crest', 'passage', 'crest', 'dracul', onWall(P0, 's', -7.6), py + 1.95, 0.8, 0.96, 0.1, { finish: 'relief', frame: 'gilt', tone: 0.3 }));
+  const ni = archFace('nurseryIn', 'passage');
+  add(wallThing('passage-eatme', 'passage', 'band', 'eatme', { x: ni.x, z: ni.z, n: ni.n }, py + 3.15, 1.2, 1.2 * BAND_ASPECT, 0.06, { mount: 'lintel', door: 'nurseryIn' }));
+  for (const c of concaveCorners('passage')) add(cornerWeb(`passage-web-${c.x},${c.z}`, 'passage', c, py + 2.97, 0.3));
+  add(diaphragmWeb('passage-web-dia0', 'passage', 0, 1, -1));
+  add(...doorWebs('passage-web-passageIn', 'passage', 'passageIn'));
+  const tw = upperLights('passage').find((t) => t.n[0] === 1); // the torch at the turn, on the west wall
+  add({ id: 'passage-motes-torch', zone: 'passage', kind: 'motes', variant: 'fire', hybrid: false, mount: 'air', from: [tw.x + 0.45, py + 2.3, tw.z], to: [tw.x + 1.35, py + 1.0, tw.z], spread: [0.5, 0.3], n: 70 });
+
+  // ---- the nursery (0.8): a child's room gone wrong, never cruel; the cot, the horse, the music box, the sheets, the window as they were ----
+  const nz = zoneOf('nursery'); const N = nz.rects[0]; const ny = nz.y; const NB = NURSERY_BEAMS;
+  const nh = HEARTHS.nursery; const nhz = (nh.minZ + nh.maxZ) / 2;
+  // the Count's arms painted in the little overmantel's panel (castle.js hearth 1.8 by 1.9: its panel from 2.16, its head from 2.76)
+  add(wallThing('nursery-crest-hearth', 'nursery', 'crest', 'dracul', onWall(N, 'e', nhz), ny + 2.42, 0.48, 0.62, 0.04, { finish: 'plaque', out: 0.35, mount: 'overmantel' }));
+  // a lit iron chandelier of five between the beams over the middle of the room, never over the cot
+  add({ id: 'nursery-chandelier', zone: 'nursery', kind: 'chandelier', variant: 'iron', hybrid: false, x: -10, y: ny + 3.25, z: -154.5, n: [0, 0],
+    w: 1.2, h: NB.ceil - 0.005 - 3.25, proud: 0, out: 0, mount: 'hang', arms: 5, pool: 2.0 }); // (its rose 5 mm under the ceiling)
+  add(candelabra('nursery-candelabra-e', 'nursery', onWall(N, 'e', -152.4), ny + 1.85), candelabra('nursery-candelabra-n', 'nursery', onWall(N, 'n', -10), ny + 1.85));
+  // a gargoyle in each corner under the beams' corbels; the Cheshire grin in the far corner seen from the door
+  for (const c of concaveCorners('nursery')) {
+    const ne = c.x > N.minX + 1 && c.z < N.minZ + 1;
+    add(corner(`nursery-garg-${c.x},${c.z}`, 'nursery', c, ny + 2.7, ne ? 'cheshire' : 'crouch', ne ? 0.8 : 0.72, ne ? { glow: true } : {}));
+  }
+  // a carved bat with its wings spread on the wall beside the rocking horse (beside it, never on it or over it), one north of the window, the pocket-watch bat on the north wall
+  // (fix round, M1 and M5: the bats a metre across; the watch's face 1.3 times as large, to read from the door)
+  add(bat('nursery-bat-horse', 'nursery', onWall(N, 's', NURSERY.horse.x), ny + 2.9, 'bat', 1.0));
+  add(bat('nursery-bat-w', 'nursery', onWall(N, 'w', -157.6), ny + 3.0, 'bat', 0.95));
+  add(bat('nursery-bat-watch', 'nursery', onWall(N, 'n', -6.6), ny + 2.85, 'watch', 1.0, { watchK: 1.3 }));
+  for (const c of concaveCorners('nursery')) add(cornerWeb(`nursery-web-${c.x},${c.z}`, 'nursery', c, ny + NB.beamBottom - 0.05, 0.6));
+  add(...doorWebs('nursery-web-nurseryIn', 'nursery', 'nurseryIn'));
+  add({ id: 'nursery-motes-hearth', zone: 'nursery', kind: 'motes', variant: 'fire', hybrid: false, mount: 'air', from: [N.maxX - 0.95, ny + 1.6, nhz], to: [N.maxX - 1.6, ny + 0.5, nhz], spread: [0.6, 0.3], n: 80 }); // (short of the cot)
+  add({ id: 'nursery-motes-chandelier', zone: 'nursery', kind: 'motes', variant: 'fire', hybrid: false, mount: 'air', from: [-10, ny + 3.0, -154.5], to: [-10, ny + 2.2, -154.5], spread: [0.8, 0.25], n: 90 });
+
+  // ---- the countway (0.9): the Count's own passage, the richest before his room ----
+  const cz = zoneOf('countway'); const cy = cz.y;
+  const ki = archFace('countIn', 'countway'); const kb = archFace('countwayIn', 'countway');
+  // his arms painted in gilt over his door (on his room's wall: the passage is as wide as the door), as high as the vault allows
+  add(wallThing('countway-crest', 'countway', 'crest', 'dracul', { x: ki.x, z: ki.z, n: ki.n }, cy + 3.16, 0.44, 0.36, 0.08, { finish: 'plaque', frame: 'gilt', mount: 'lintel', door: 'countIn' })); // (fix round, M7: narrower and lower, under the vault's end rib)
+  add({ id: 'countway-crest-glow', zone: 'countway', kind: 'glow', variant: 'wall', hybrid: false, mount: 'lintel', door: 'countIn', still: true, x: ki.x, y: cy + 3.35, z: ki.z + 0.03, n: ki.n, w: 1.5, h: 0.9, strength: 0.07 });
+  // a carved bat over the way back (its walls are the two doorways', the torch's and the card's, and the slit's: nothing else fits)
+  add(bat('countway-bat-door', 'countway', { x: kb.x, z: kb.z, n: kb.n }, cy + 3.18, 'bat', 0.72, { mount: 'lintel', door: 'countwayIn', tilt: 0 }));
+  add(...doorWebs('countway-web-countwayIn', 'countway', 'countwayIn'), ...doorWebs('countway-web-countIn', 'countway', 'countIn'));
+  { const sm = slitMotes('countway', 70); add({ ...sm, size: 0.6, from: [sm.from[0] - 0.15, sm.from[1], sm.from[2]], to: [sm.from[0] - 1.1, cy + 0.45, sm.to[2]] }); } // (a shorter shaft than group 1's, its drift kept off the slit's jambs: it ends short of the card on the far wall, and over the floor)
+
+  // the lean build and the paler stone of groups 2 and 3, so each room keeps to the budget and its carving parts from the wall
+  // (fix round, M1: in the two rooms, whose carving is high and far from a flame, a paler stone still, 1.65, so a bat or gargoyle keeps a visible edge against the dark wall)
+  for (const p of out) {
+    p.lean = true;
+    if ((p.kind === 'gargoyle' || p.kind === 'bat') && p.light == null) p.light = p.zone === 'mirror' || p.zone === 'nursery' ? 1.65 : 1.32;
+    if (p.variant === 'teacup' && p.kind === 'gargoyle') p.cupFit = true;
+  }
+  return out;
+}
+
+/** Group 4's boxes nothing may enter (called by keepClear with its padded box()). */
+function keepClearFour(zone, box) {
+  if (!['mirror', 'passage', 'nursery', 'countway'].includes(zone)) return;
+  const z = zoneOf(zone); const y0 = z.y;
+  for (const t of upperLights(zone)) {
+    const passage = zone !== 'mirror'; const ys = passage ? [y0 + 1.7, y0 + 3.0] : [t.y - 0.5, t.y + 0.75];
+    if (t.n[1] !== 0) box(`torch ${t.x},${t.z}`, 'torch', t.x - 0.3, t.x + 0.3, ys[0], ys[1], Math.min(t.z, t.z + t.n[1] * 0.6), Math.max(t.z, t.z + t.n[1] * 0.6));
+    else box(`torch ${t.x},${t.z}`, 'torch', Math.min(t.x, t.x + t.n[0] * 0.6), Math.max(t.x, t.x + t.n[0] * 0.6), ys[0], ys[1], t.z - 0.3, t.z + 0.3);
+  }
+  const foot = (id, b, h, kind = 'clue') => box(id, kind, b.minX, b.maxX, y0, y0 + h, b.minZ, b.maxZ);
+  if (zone === 'mirror') {
+    const mh = HEARTHS.mirror; // the chimneypiece, its mantel shelf (w + 0.46, 1.01 m out) to its top at 2.48
+    box('hearth', 'torch', mh.minX - 0.25, mh.maxX + 0.25, y0, y0 + mh.h + 0.18, mh.minZ, mh.minZ + 1.05);
+    const fm = MIRROR_ROOM.figureMirror; const fw = PROP_FOOT.figureMirror; // the figure-mirror: its frame and the crown of gilt balls on it
+    box('figure-mirror', 'clue', z.rects[0].minX, z.rects[0].minX + 0.35, y0, y0 + fw.h + 0.25, fm.z - fw.d / 2, fm.z + fw.d / 2);
+    const s = HAUNT_PLACES.mirror; box('mirror strip', 'route', s.minX, s.maxX, y0, y0 + 2.4, s.minZ, s.maxZ); // where the warden stands to see what is in it
+    const T = MIRROR_ROOM.table; box('table', 'clue', T.minX, T.maxX, y0, y0 + T.h + 0.35, T.minZ, T.maxZ); // and the salt box on it
+    for (const fu of FURNITURE) fu.places.forEach((pl, i) => foot(`${fu.id} ${i}`, footBox(pl.x, pl.z, PROP_FOOT[fu.kind], pl.yaw || 0), PROP_FOOT[fu.kind].h));
+    HAUNT_PLACES.doors.forEach((d, i) => box(`haunt door ${i}`, 'route', d.minX, d.maxX, y0, y0 + 1.2, d.minZ, d.maxZ)); // the floor kept free of furniture by each doorway (the arch's webs hang over it)
+  }
+  if (zone === 'nursery') {
+    const nh = HEARTHS.nursery; // on the east wall: its mantel shelf 2.26 long and 1.01 m out, its top at 2.08
+    const mid = (nh.minZ + nh.maxZ) / 2;
+    box('hearth', 'torch', nh.maxX - 1.05, nh.maxX, y0, y0 + nh.h + 0.18, mid - 1.15, mid + 1.15);
+    const C = NURSERY.cot; box('cot', 'clue', C.minX, C.maxX, y0, y0 + 1.3, C.minZ, C.maxZ); // its brass knobs at 1.2, the stakes and the crossbow in it
+    foot('horse', footBox(NURSERY.horse.x, NURSERY.horse.z, PROP_FOOT.horse, 0.6), PROP_FOOT.horse.h + 0.2); // and its rocking
+    const mb = NURSERY.musicBox; box('music box', 'clue', mb.x - 0.3, mb.x + 0.3, y0, y0 + 0.8, mb.z - 0.3, mb.z + 0.3);
+    NURSERY.sheets.forEach((s, i) => foot(`sheet ${i}`, footBox(s.x, s.z, i === 0 ? PROP_FOOT.sheetA : PROP_FOOT.sheetB, i * 1.1 + 0.3), (i === 0 ? PROP_FOOT.sheetA : PROP_FOOT.sheetB).h));
+  }
+  if (zone === 'countway') { // the card tacked under the torch (keepprops.js: 0.44 by 0.33)
+    const n = COUNTWAY.note; box('note', 'clue', n.x - 0.05, n.x + 0.1, y0 + n.y - 0.2, y0 + n.y + 0.2, n.z - 0.25, n.z + 0.25);
+  }
 }

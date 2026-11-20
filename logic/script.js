@@ -186,6 +186,7 @@ export const PROMPTS = f({
   fill: 'Fill', douse: 'Douse', pull: 'Pull', climb: 'Climb', set: 'Set',
   // The castle's two (Leap on the board; Hold up the garlic).
   leap: 'Leap', holdUp: 'Hold up',
+  takeLantern: 'Take the lantern', // the hand lantern on its nail in the hall
 });
 
 /**
@@ -226,12 +227,13 @@ export const NOTICES = f({
   ammo: 'Salt. For the salt gun.',
   halberd: 'Halberd. Heavy. A guard won\'t need it now.',
   health: 'A tonic. It tastes of iron. It helps.',
+  lantern: 'A hand lantern, oil still in it.', // the castle's (the owner's pick)
   hatsFall: 'The hats tumble off the pegs. The card is very clear about prices.',
   hatsSolved: 'Five hats, five pegs, and the gate gives a little cough and swings open.',
 });
 
 /** Ammunition plate labels for the two new weapons, from their approved names (Conflicts 5). */
-export const LABELS = f({ halberd: 'Halberd', cup: 'Tin cup' });
+export const LABELS = f({ halberd: 'Halberd', cup: 'Tin cup', lantern: 'Lantern' }); // lantern: the castle's hand lantern
 
 /**
  * Place banners by checkpoint index: the arrival point, the arch, then each gate passed.

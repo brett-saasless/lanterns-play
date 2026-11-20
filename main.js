@@ -14,6 +14,7 @@ import { COPY, CASTLE_COPY } from './logic/script.js';
 import { NEXT, PASSAGE, carryOf, seatCarry, passageOf, poseOf } from './logic/journey.js'; // issue #29: one continuous journey
 import { needsAutoReload, isGhostClick } from './logic/touchmap.js';
 import { carried } from './logic/weapon.js';
+import { sameWeaponSwap, lanternReady } from './logic/lantern.js'; // the castle's hand lantern: key 6 again puts it away; its touch button
 import { CUTAWAY, cutawayBlack } from './logic/cutaway.js'; // the werewolf cutaway's dip to black
 import { shouldWarmHeads, HEAD_ROOMS } from './logic/headrooms.js';
 
@@ -207,6 +208,7 @@ async function boot() {
     } catch { /* no fullscreen here */ }
   }
 
+  const toolsWarmed = new Set(); // the viewmodel tools whose programs have been built this session (the castle's lantern)
   const headsWarmed = new Set(); // the head rooms whose lights the heads' program has been built for, this session
   /** Switches the sim, the scene and the weapon to a room (Engine API, "Choosing a room"). */
   function enterRoom(name) {
@@ -955,8 +957,8 @@ async function boot() {
     if (state === 'PLAYING') {
       simDt = dt;
       const input = controls.snapshot(controls.touchMode() ? settings.touchSensitivity : settings.sensitivity);
-      // 1 and 2 name a weapon; asking for the one already in hand is no swap.
-      if (typeof input.swap === 'string' && sim.weapon.name === input.swap) input.swap = false;
+      // 1 and 2 name a weapon; asking for the one already in hand is no swap (but key 6 with the lantern up puts it away).
+      if (typeof input.swap === 'string' && sim.weapon.name === input.swap) input.swap = sameWeaponSwap(sim, input.swap);
       // touch has no R: an empty clip reloads by itself, but not on a swap frame (the sim swaps first: the reload would go to the new weapon)
       if (controls.touchMode() && !input.swap && needsAutoReload(sim.weapon)) input.reload = true;
       input.hold = eHeld; // E held down (the cord); ending a scene is the sim's call, never this file's
@@ -1036,12 +1038,17 @@ async function boot() {
       sceneSkippable: !!cut && cut.skippable !== false, // the bloom, the crater, the vault, the castle's strike: not the pyre or the triumph
       film: !!cut && cut.kind === 'cutaway', // the werewolf cutaway: SKIP alone over the film
       weaponCount: carried(sim).length, // in hand, the holster (next on Q) and the rack
+      hasLantern: lanternReady(sim), // the castle's hand lantern, taken, and the warden indoors
     });
 
     renderer.info.reset();
     renderer.clear();
     const building = settle(); // #29: the new level's programs are still being built under the cover
     if (!building) {
+      // the castle's hand lantern: its programs built once a session, on the first frame of play in the castle (the
+      // room's tone mapping, shadows and the tools' castle lights set by then: built earlier, at the title behind the
+      // castle, they would not be the programs its first raise asks for)
+      if (state === 'PLAYING' && sim.cfg.room === 'castle' && !toolsWarmed.has('lantern') && vm.warm(renderer, ['lantern'])) toolsWarmed.add('lantern');
       world.prerender(camera); // the gallery's glass redraws its target first (counted in the frame's draw stats)
       renderer.render(scene, camera);
       if (inView() && !(sim.waves && sim.waves.scene) && !endHold) {

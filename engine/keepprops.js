@@ -726,6 +726,7 @@ export function createKeepprops(scene, cfg, opts = {}) {
       braid.push(ball('wood', 0.008, 0.03 + (i % 2) * 0.012, y - 0.036, zz, 0x6b5a3c, 1, 0.6, 1, 0.2, 5)); // the root end
     }
     const braidG = mover(group, braid, wallX + 0.085, 1.88, b.z, 0, false);
+    const lanternG = hallLantern(group, parts, wallX);
     // the words, scratched in the stone beside it
     const scratch = scratchTexture(READS.garlicScratch);
     const scratchMat = new THREE.MeshStandardMaterial({ map: scratch, transparent: true, roughness: 0.9, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
@@ -748,9 +749,30 @@ export function createKeepprops(scene, cfg, opts = {}) {
     bake(group, parts);
     return {
       group,
-      tick(sim, w) { braidG.visible = !lootTaken(w, 'braid'); },
+      tick(sim, w) { braidG.visible = !lootTaken(w, 'braid'); lanternG.visible = !lootTaken(w, 'lantern'); },
       free() { scratch.dispose(); scratchMat.dispose(); },
     };
+  }
+
+  /**
+   * The hand lantern on its own nail by the braid (keepmap.js HALL.lantern; logic/lantern.js): the
+   * lanterns' shape from before the castle (a peaked cap and ring, four posts, a base, the glass),
+   * its wick turned down low, so its glass glows a dull amber and catches the eye. The nail stays
+   * in the wall (parts); the lantern is a mover the hall's tick hides once it is taken.
+   */
+  function hallLantern(group, parts, wallX) {
+    const L = HALL.lantern;
+    parts.push(rod('metal', [wallX, L.y + 0.02, L.z], [wallX + 0.1, L.y + 0.06, L.z], 0.008, IRON), ball('metal', 0.014, wallX + 0.1, L.y + 0.06, L.z, IRON, 1, 1, 1, 0.1, 6));
+    const lamp = [];
+    const LIRON = 0x4a3f3a; // the owner (LIFT): a few steps up from the gate lanterns' iron, so cap and ring read on the nail
+    lamp.push(part('metal', S.tint(new THREE.TorusGeometry(0.035, 0.007, 5, 12), LIRON, 0.1))); // the ring, on the nail
+    lamp.push(cyl('metal', 0.009, 0.009, 0.05, 0, -0.085, 0, LIRON, 5));
+    lamp.push(part('metal', S.tint(new THREE.ConeGeometry(0.13, 0.09, 4).rotateY(Math.PI / 4).translate(0, -0.08, 0), LIRON, 0.1))); // the cap
+    lamp.push(box('metal', 0.2, 0.02, 0.2, 0, -0.125, 0, LIRON));
+    for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) lamp.push(box('metal', 0.016, 0.26, 0.016, x * 0.088, -0.26, z * 0.088, LIRON, 0, 0));
+    lamp.push(box('metal', 0.2, 0.026, 0.2, 0, -0.395, 0, LIRON));
+    lamp.push(box('lit', 0.15, 0.24, 0.15, 0, -0.26, 0, 0x8a5e28, 0, 0)); // the glass, the wick turned low: a dull amber
+    return mover(group, lamp, wallX + 0.1 + 0.035, L.y + 0.06 - 0.035, L.z, 0, false);
   }
 
   // ---- Tea for the Dead: five clocks and the set table -----------------------------------------

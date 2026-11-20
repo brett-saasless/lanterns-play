@@ -3,7 +3,7 @@ import { createTouchInput } from './touchinput.js';
 
 const BASE_SENS = 0.0022; // radians per pixel at sensitivity 1.0
 const MAX_EVENT_DELTA = 250; // ignore browser pointer-lock spikes
-const SWAP_KEYS = { Digit1: 'bore', Digit2: 'crossbow', Digit3: 'halberd', Digit4: 'cup', Digit5: 'garlic' }; // weapon names as the rules know them (5: the castle's garlic, #9)
+const SWAP_KEYS = { Digit1: 'bore', Digit2: 'crossbow', Digit3: 'halberd', Digit4: 'cup', Digit5: 'garlic', Digit6: 'lantern' }; // weapon names as the rules know them (5: the castle's garlic, #9; 6: its hand lantern, again to put it away)
 
 export function createControls(target) {
   const keys = new Set();
@@ -35,6 +35,7 @@ export function createControls(target) {
     if ((e.code === 'Digit3' || e.code === 'Numpad3') && !e.repeat) swapQueued = SWAP_KEYS.Digit3;
     if ((e.code === 'Digit4' || e.code === 'Numpad4') && !e.repeat) swapQueued = SWAP_KEYS.Digit4;
     if ((e.code === 'Digit5' || e.code === 'Numpad5') && !e.repeat) swapQueued = SWAP_KEYS.Digit5;
+    if ((e.code === 'Digit6' || e.code === 'Numpad6') && !e.repeat) swapQueued = SWAP_KEYS.Digit6;
     if ((e.code === 'Enter' || e.code === 'NumpadEnter') && !e.repeat) skipQueued = true;
     keys.add(e.code);
   });
@@ -84,7 +85,7 @@ export function createControls(target) {
       sprint: k('ShiftLeft', 'ShiftRight') === 1 || t.sprint,
       jump: jumpQueued || t.jump,
       interact: interactQueued || t.interact,
-      swap: swapQueued || t.swap || false,
+      swap: swapQueued || (t.lamp ? 'lantern' : t.swap) || false, // the touch lantern button asks for it by name, as key 6
       skip: skipQueued || t.skip,
     };
     dx = 0;
