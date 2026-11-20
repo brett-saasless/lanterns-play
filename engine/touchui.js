@@ -10,8 +10,7 @@ const PARTS = [
   ['fire', ''],
   ['jump', ''],
   ['e', ''],
-  ['swap', ''],
-  ['lamp', ''], // the castle's hand lantern, once taken (logic/touchmap.js visibleControls)
+  ['swap', ''], // the weapon cycle, the castle's hand lantern on it once taken
   ['pause', 'II'],
   ['log', ''],
   ['skip', 'SKIP'],
@@ -35,6 +34,8 @@ export function createTouchUi({ root, controls, hooks }) {
     els[name] = el;
   }
   const knob = els.stick.firstChild;
+  let eIcon = 'hand'; // the picture E carries now (ICONS.e, the hand, as built)
+  els.e.dataset.icon = eIcon;
   let knobBy = null; // the pointer that owns the stick role: only it moves or recentres the knob
 
   function stickAt(id, e) {
@@ -98,7 +99,6 @@ export function createTouchUi({ root, controls, hooks }) {
   bind(els.look, { move: (id, dx, dy) => touch.lookMove(id, dx, dy) });
   bind(els.jump, { down: () => touch.press('jump') });
   bind(els.swap, { down: () => touch.press('swap') });
-  bind(els.lamp, { down: () => touch.press('lamp') });
   bind(els.skip, { down: () => touch.press('skip') });
   bind(els.e, {
     down: () => { touch.press('interact'); hooks.holdE(true); },
@@ -146,6 +146,13 @@ export function createTouchUi({ root, controls, hooks }) {
       const off = !show[name];
       if (off && !els[name].hidden) releaseAllOn(els[name]); // a control that hides lets go of its finger
       els[name].hidden = off;
+    }
+    // E's picture: a hand, or a foot for the Knight's Walk leap (logic/touchmap.js useIcon); swapped only on a change
+    const icon = ctx.useIcon === 'foot' ? 'foot' : 'hand';
+    if (icon !== eIcon) {
+      eIcon = icon;
+      els.e.innerHTML = icon === 'foot' ? ICONS.foot : ICONS.e;
+      els.e.dataset.icon = icon;
     }
   }
 

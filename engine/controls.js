@@ -85,7 +85,7 @@ export function createControls(target) {
       sprint: k('ShiftLeft', 'ShiftRight') === 1 || t.sprint,
       jump: jumpQueued || t.jump,
       interact: interactQueued || t.interact,
-      swap: swapQueued || (t.lamp ? 'lantern' : t.swap) || false, // the touch lantern button asks for it by name, as key 6
+      swap: swapQueued || t.swap || false, // touch swap is Q: the cycle, the castle's lantern on it once taken
       skip: skipQueued || t.skip,
     };
     dx = 0;

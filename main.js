@@ -12,9 +12,9 @@ import { COURT } from './logic/courtmap.js';
 import { restoreCheckpoint } from './logic/trail.js';
 import { COPY, CASTLE_COPY } from './logic/script.js';
 import { NEXT, PASSAGE, carryOf, seatCarry, passageOf, poseOf } from './logic/journey.js'; // issue #29: one continuous journey
-import { needsAutoReload, isGhostClick } from './logic/touchmap.js';
+import { needsAutoReload, isGhostClick, useIcon } from './logic/touchmap.js';
 import { carried } from './logic/weapon.js';
-import { sameWeaponSwap, lanternReady } from './logic/lantern.js'; // the castle's hand lantern: key 6 again puts it away; its touch button
+import { sameWeaponSwap } from './logic/lantern.js'; // the castle's hand lantern: key 6 again puts it away
 import { CUTAWAY, cutawayBlack } from './logic/cutaway.js'; // the werewolf cutaway's dip to black
 import { shouldWarmHeads, HEAD_ROOMS } from './logic/headrooms.js';
 
@@ -1037,8 +1037,8 @@ async function boot() {
       inLogRoom: inLogRoom(),
       sceneSkippable: !!cut && cut.skippable !== false, // the bloom, the crater, the vault, the castle's strike: not the pyre or the triumph
       film: !!cut && cut.kind === 'cutaway', // the werewolf cutaway: SKIP alone over the film
-      weaponCount: carried(sim).length, // in hand, the holster (next on Q) and the rack
-      hasLantern: lanternReady(sim), // the castle's hand lantern, taken, and the warden indoors
+      weaponCount: carried(sim).length, // in hand, the holster (next on Q) and the rack (the castle's lantern, once taken)
+      useIcon: useIcon(usePrompt && sim.waves ? sim.waves.focus : null), // E's picture: a foot for the Knight's Walk leap, else a hand
     });
 
     renderer.info.reset();

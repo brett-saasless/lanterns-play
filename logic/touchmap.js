@@ -30,12 +30,21 @@ export function visibleControls(ctx) {
     fire: on,
     jump: on,
     e: on && !!ctx.hasUsePrompt,
-    swap: on && ctx.weaponCount > 1,
-    lamp: on && !!ctx.hasLantern, // the castle's hand lantern, once taken, indoors (logic/lantern.js lanternReady)
+    swap: on && ctx.weaponCount > 1, // the castle's hand lantern is on this cycle once taken (no button of its own)
     pause: on,
     log: on && !!ctx.inLogRoom,
     skip: ctx.state === 'PLAYING' && !!ctx.sceneSkippable,
   };
+}
+
+// The picture on the touch use button (E) for what E would act on (a focus from trail.js / keep.js
+// focusOf, or null): a foot for the Knight's Walk leap, a hand for everything else. The prompt's
+// words are not changed by it. The button itself shows only with a prompt (visibleControls e).
+export const USE_ICONS = Object.freeze({ leap: 'foot' });
+
+export function useIcon(focus) {
+  const verb = focus && focus.verb;
+  return (typeof verb === 'string' && Object.prototype.hasOwnProperty.call(USE_ICONS, verb) && USE_ICONS[verb]) || 'hand';
 }
 
 // Touch only: a click at `now` is the lifted finger's, not a tap, within `ms` of a card opening

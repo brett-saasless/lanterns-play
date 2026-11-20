@@ -198,6 +198,7 @@
     /* The vh sizes come first. A custom property takes any value, so a later dvh line would always win and turn invalid
        where dvh is unknown: the dvh sizes replace these only inside @supports. */
     --stick: clamp(110px, 38vh, 170px); --fire: clamp(110px, 40vh, 180px); --jump: clamp(56px, 18vh, 80px); --ctx: clamp(52px, 16vh, 72px); --small: clamp(44px, 12vh, 52px);
+    --gap: 12px; /* between the stacked buttons over FIRE: E, swap, log (8 px on the shortest screens) */
     font-family: var(--label); color: var(--chalk); }
   @supports (height: 100dvh) {
     #touch { --stick: clamp(110px, 38dvh, 170px); --fire: clamp(110px, 40dvh, 180px); --jump: clamp(56px, 18dvh, 80px); --ctx: clamp(52px, 16dvh, 72px); --small: clamp(44px, 12dvh, 52px); }
@@ -219,12 +220,13 @@
   #touch > [data-touch="jump"] { right: calc(20px + var(--sar) + var(--fire) + 14px); bottom: calc(10px + var(--sab)); width: var(--jump); height: var(--jump); }
   #touch > [data-touch="e"] { right: calc(20px + var(--sar) + (var(--fire) - var(--ctx)) / 2); bottom: calc(16px + var(--sab) + var(--fire) + 12px);
     width: var(--ctx); height: var(--ctx); border-style: dashed; border-color: #c9a25c; background: rgba(201, 162, 92, 0.2); font-size: 22px; }
-  #touch > [data-touch="swap"], #touch > [data-touch="lamp"], #touch > [data-touch="pause"], #touch > [data-touch="log"], #touch > [data-touch="skip"] {
+  #touch > [data-touch="swap"], #touch > [data-touch="pause"], #touch > [data-touch="log"], #touch > [data-touch="skip"] {
     width: var(--small); height: var(--small); font-size: 12px; background: rgba(255, 255, 255, 0.1); }
-  #touch > [data-touch="swap"] { right: calc(20% + var(--sar)); top: 30%; }
-  #touch > [data-touch="lamp"] { right: calc(20% + var(--sar) + var(--small) + 14px); top: 30%; } /* the castle's lantern, beside swap */
+  /* one column over FIRE, bottom to top: E, swap, log. Each has its own fixed slot, so swap and log stay put while E hides and shows */
+  #touch > [data-touch="swap"], #touch > [data-touch="log"] { right: calc(20px + var(--sar) + (var(--fire) - var(--small)) / 2); }
+  #touch > [data-touch="swap"] { bottom: calc(16px + var(--sab) + var(--fire) + 12px + var(--ctx) + var(--gap)); }
+  #touch > [data-touch="log"] { bottom: calc(16px + var(--sab) + var(--fire) + 12px + var(--ctx) + var(--gap) + var(--small) + var(--gap)); }
   #touch > [data-touch="pause"] { left: 50%; top: calc(10px + var(--sat)); margin-left: calc(var(--small) / -2); }
-  #touch > [data-touch="log"] { right: calc(20% + var(--sar)); top: calc(10px + var(--sat)); }
   #touch > [data-touch="skip"] { left: calc(50% + var(--small)); top: calc(10px + var(--sat)); width: auto; padding: 0 16px; border-radius: 26px; }
   #rotate { position: fixed; inset: 0; z-index: 50; align-items: center; justify-content: center; padding: 24px; text-align: center;
     background: var(--bilge); color: var(--chalk); font-family: var(--label); font-size: 24px; letter-spacing: 0.06em;
@@ -252,7 +254,9 @@
      Every card fits the screen with no scroll; buttons stay at least 44 px tall; body text stays 13 px or more. */
   html.touch { --sat: env(safe-area-inset-top, 0px); --sar: env(safe-area-inset-right, 0px); --sab: env(safe-area-inset-bottom, 0px); --sal: env(safe-area-inset-left, 0px); }
   @media (max-height: 480px) {
-    /* HUD: health top-left under the wave plate, ammo top-right left of the log and swap buttons (the stick and FIRE own the bottom corners) */
+    /* HUD: health top-left under the wave plate, ammo top-right left of the log and swap column (the stick and FIRE own the bottom corners).
+       --colr: from the right edge to 12 px left of that column (#touch's --fire and --small in vh, never smaller than the dvh ones) */
+    html.touch { --colr: calc(20px + var(--sar) + (clamp(110px, 40vh, 180px) + clamp(44px, 12vh, 52px)) / 2 + 12px); }
     html.touch .plate { padding: 4px 10px; }
     html.touch #wavebox { top: calc(8px + var(--sat)); left: calc(8px + var(--sal)); gap: 12px; }
     html.touch #wavebox .num { font-size: 16px; margin-left: 6px; }
@@ -260,7 +264,7 @@
     html.touch #hbar { gap: 2px; }
     html.touch #hbar i { width: 7px; height: 14px; }
     html.touch #hnum { font-size: 20px; }
-    html.touch #ammobox { top: calc(8px + var(--sat)); right: calc(8px + var(--sar)); bottom: auto; }
+    html.touch #ammobox { top: calc(8px + var(--sat)); right: var(--colr); bottom: auto; }
     html.touch #ammobox .row { gap: 6px; }
     html.touch #mag { font-size: 20px; }
     html.touch #reserve { font-size: 14px; }
@@ -269,8 +273,8 @@
     html.touch #pips i { width: 5px; height: 10px; }
     html.touch #tray { left: calc(8px + var(--sal)); top: calc(82px + var(--sat)); bottom: auto; }
     html.touch #mutebox { top: auto; right: auto; left: 50%; transform: translateX(-50%); bottom: calc(8px + var(--sab)); }
-    html.touch #tick { top: calc(70px + var(--sat)); right: calc(12px + var(--sar)); }
-    html.touch #clue-logged { top: calc(72px + var(--sat)); right: calc(40px + var(--sar)); }
+    html.touch #tick { top: calc(70px + var(--sat)); right: calc(var(--colr) + 4px); } /* under the ammo plate, as before */
+    html.touch #clue-logged { top: calc(72px + var(--sat)); right: calc(var(--colr) + 32px); }
     html.touch #banner { font-size: 30px; }
     /* the spoken line sits between the stick and FIRE, above jump; the prompt and the notice line move up to meet it */
     html.touch #speech { bottom: calc(84px + var(--sab)); max-width: min(44ch, calc(100vw - 360px)); }
@@ -315,6 +319,9 @@
   }
   /* An iPhone in Safari with its toolbars up (about 320 to 350 px tall): the leaves a little closer still */
   @media (max-height: 350px) {
+    /* the E, swap and log column fits over FIRE: FIRE at its 110 px floor and 8 px between the stacked buttons */
+    html.touch #touch { --fire: 110px; --gap: 8px; }
+    html.touch { --colr: calc(20px + var(--sar) + (110px + 44px) / 2 + 12px); }
     html.touch .book { row-gap: 8px; padding-top: 12px; padding-bottom: 12px; }
     html.touch .book .leaf { line-height: 21px; }
   }

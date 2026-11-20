@@ -60,7 +60,7 @@ export function lanternIndoors(sim) {
   return id !== null && INDOOR.has(id);
 }
 
-/** True when the touch lantern button shows: owned, in the castle, indoors. */
+/** True when the lantern may be brought up: owned, in the castle, indoors (on touch, by the swap button's cycle). */
 export function lanternReady(sim) {
   return ownsLantern(sim) && lanternIndoors(sim);
 }
@@ -112,8 +112,8 @@ export function lanternBack(sim) {
 }
 
 /**
- * What a swap request means with the lantern about (key 6 and the touch lantern button ask for
- * 'lantern' by name): asked for while it is already up, it is put away, back to the weapon it
+ * What a swap request means with the lantern about (key 6 asks for 'lantern' by name; Q and the
+ * touch swap button ask for the next on the cycle): asked for while it is already up, it is put away, back to the weapon it
  * was drawn from (lanternBack); otherwise the request as it came.
  */
 export function lanternSwap(sim, want) {
