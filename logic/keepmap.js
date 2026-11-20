@@ -194,12 +194,15 @@ function upperSolid(L, x, z, state) {
 function baseFloor(x, z) {
   const road = roadFloor(x, z); // issue #29: the road climbs from the wood to the approach
   if (road != null) return road;
-  if (inRect(STAIRS.rect, x, z)) {
-    const m = Math.max(0, -118 - z); // metres north of the stairs' foot
-    const k = Math.min(STAIRS.treads, 1 + Math.floor(m / STAIRS.run));
-    return Math.min(UPPER, k * 0.25);
-  }
+  if (inRect(STAIRS.rect, x, z)) return stairFloor(z);
   return z <= -128 ? UPPER : 0;
+}
+
+/** The main stair's tread height at z (on the stair's footprint): the one rule baseFloor and the Dracula pass's head room (vamp.js treadAt) read. */
+export function stairFloor(z) {
+  const m = Math.max(0, -118 - z); // metres north of the stairs' foot
+  const k = Math.min(STAIRS.treads, 1 + Math.floor(m / STAIRS.run));
+  return Math.min(UPPER, k * 0.25);
 }
 
 /**
@@ -544,6 +547,43 @@ export function squareAt(x, z) {
   const file = Math.min(7, Math.floor((x - b.minX) / BOARD.square));
   const rank = Math.min(8, 1 + Math.floor((b.maxZ - z) / BOARD.square));
   return BOARD.files[file] + rank;
+}
+
+/**
+ * The White Knight, fallen off the board and broken (the owner, 2026-11-19; the Dracula pass, group 3):
+ * the set's knight (PIECE_FOOT.knight, carved in chessmen.js's ivory) in three big pieces and a scatter
+ * of chips in the walk's south-west corner between the door and the Mock Turtle, off the board and its
+ * frame. A prop, not a chessman: no rule reads it but the collision (solids.js boxes its three big
+ * pieces). Each part: { id, x, z (the middle of its footprint), yaw (its long axis, radians from +x
+ * toward +z), len, r (its widest radius across), h (how tall it lies) }. The foot (the turned base's
+ * stub) stands upright where it broke; the breast lies right beside it; the head lies a step away on its
+ * jaw, ears and mane up, its long axis across the eye's way in so it shows its profile.
+ */
+export const WRECK = f({
+  ivory: 0xe9e2cf, // chessmen.js IVORY
+  share: 0.65, // drawn in the fittings at this share of the ivory, under the room's grade (round 2, the art critic: 0.82 read pasted in)
+  parts: [
+    // (a lying part's long axis runs from its break nearer the foot, u = 0, to its far end, u = len)
+    { id: 'foot', x: 3.85, z: -94.7, yaw: 0.5, len: 0, r: 0.6, h: 0.62, solid: true }, // the base's stub, still upright, broken across its neck
+    { id: 'body', x: 2.39, z: -95.64, yaw: -2.377, len: 1.55, r: 0.45, h: 0.92, solid: true }, // the base's top and the breast, on its side against the stub
+    { id: 'head', x: 2.6, z: -96.95, yaw: -Math.PI / 2, len: 1.1, r: 0.2, h: 0.62, solid: true }, // the long head, snapped at the throat, on its jaw a step away
+  ],
+  // chips: [x, z, size, yaw]
+  chips: [[3.35, -95.35, 0.08, 0.3], [3.0, -94.3, 0.06, 1.1], [2.05, -96.6, 0.07, 2.0], [2.95, -96.35, 0.05, 0.7], [4.3, -95.45, 0.05, 1.6], [3.4, -93.8, 0.04, 2.6]],
+  scatter: { x: 2.9, z: -95.4, r: 1.1, n: 14 }, // a faint scatter of ivory dust and flecks on the flags round it
+});
+
+/** One wreck part's footprint: { minX, maxX, minZ, maxZ }, the exact bounds of its oriented len by 2r rectangle. */
+export function wreckFoot(p) {
+  const c = Math.abs(Math.cos(p.yaw)); const s = Math.abs(Math.sin(p.yaw));
+  const hx = c * p.len / 2 + s * p.r; const hz = s * p.len / 2 + c * p.r;
+  if (!p.len) return { minX: p.x - p.r, maxX: p.x + p.r, minZ: p.z - p.r, maxZ: p.z + p.r }; // a round stub
+  return { minX: p.x - hx, maxX: p.x + hx, minZ: p.z - hz, maxZ: p.z + hz };
+}
+
+/** The wreck's solid pieces as collision boxes (solids.js): { id, minX, maxX, minZ, maxZ, h }. */
+export function wreckBoxes() {
+  return WRECK.parts.filter((p) => p.solid).map((p) => ({ id: `wreck-${p.id}`, ...wreckFoot(p), h: p.h }));
 }
 
 // ---- upstairs (R10, R11, R13) -------------------------------------------------------------

@@ -28,6 +28,9 @@
 //   kit.chandelier({ variant, arms, w, h, seed, cups, ring }) -> { fit, flames: [[x, y, z, size]], webs: [[a, b, c]] }   (cups: teacup size, ring: ring thickness)
 //   kit.candelabra({ variant, arms, w, seed })      -> { fit, flames }
 //   kit.bottle({ w, h, gilt, label })               -> { stone | fit (gilt), quad (label: DRINK ME lettered, kit.materials.crest) }
+//   group 3: gargoyle variant 'hatter' (the Hatter's hat and its 10/6 card, in fit), o.cupFit (a teacup's china in fit, a third larger),
+//            chandelier o.rod (a plain iron rod for a long drop in place of the chain)
+//   kit.wreck(W, y0, seed)                          -> one geometry: the broken White Knight on the floor (logic/vamp.js WRECK), for the fittings
 //   kit.webs(tris)                                  -> uv'd geometry for kit.materials.web
 //   kit.glowDisc(c, a, b, rgb, strength)            -> glow geometry (castle's flickering glowMat, or kit.materials.still)
 //   kit.motes(vols, seed)                           -> Points geometry for kit.materials.motes
@@ -38,7 +41,9 @@
 import * as THREE from 'three';
 import * as S from './sculpt.js';
 import * as ST from './stone.js';
-import { PALETTE, MOTES, motePoints } from '../logic/vamp.js';
+import { PALETTE, MOTES, motePoints, GRADE } from '../logic/vamp.js';
+
+const MOON_RGB = GRADE.moon; // group 3: the moon's colour for a baked cold edge (moonRim)
 
 const TAU = Math.PI * 2;
 const lerp = (a, b, k) => a + (b - a) * k;
@@ -165,9 +170,9 @@ function drawLabel(g, x, y) {
 
 // Palettes for the two finishes and the height map: the same shapes, three sets of paint.
 const PAINT = {
-  plaque: { field: '#5a171b', diaper: 'rgba(20,4,6,0.45)', border: '#86682f', borderDark: '#3e2f16', charge: '#0e0a0a', rim: '#9c7a3c', crown: '#8c6c30', jewel: '#6e0f14', eye: '#b0261a', heart: '#5e0f14', bg: null },
-  relief: { field: '#5e6166', diaper: 'rgba(30,32,36,0.35)', border: '#8c8f94', borderDark: '#3a3c40', charge: '#9a9da2', rim: '#b4b7bb', crown: '#a2a5aa', jewel: '#7c7f84', eye: '#4a4c50', heart: '#8a8d92', bg: '#6b6e73' },
-  height: { field: '#6e6e6e', diaper: 'rgba(0,0,0,0.12)', border: '#c4c4c4', borderDark: '#8a8a8a', charge: '#ececec', rim: '#ffffff', crown: '#dadada', jewel: '#f4f4f4', eye: '#bdbdbd', heart: '#e4e4e4', bg: '#404040' },
+  plaque: { field: '#5a171b', diaper: 'rgba(20,4,6,0.45)', border: '#86682f', borderDark: '#3e2f16', charge: '#0e0a0a', rim: '#9c7a3c', crown: '#8c6c30', jewel: '#6e0f14', eye: '#b0261a', heart: '#5e0f14', bg: null, spade: '#7a1a22', spadeRim: '#b08a3c' },
+  relief: { field: '#5e6166', diaper: 'rgba(30,32,36,0.35)', border: '#8c8f94', borderDark: '#3a3c40', charge: '#9a9da2', rim: '#b4b7bb', crown: '#a2a5aa', jewel: '#7c7f84', eye: '#4a4c50', heart: '#8a8d92', bg: '#6b6e73', spade: '#7a1a22', spadeRim: '#b08a3c' },
+  height: { field: '#6e6e6e', diaper: 'rgba(0,0,0,0.12)', border: '#c4c4c4', borderDark: '#8a8a8a', charge: '#ececec', rim: '#ffffff', crown: '#dadada', jewel: '#f4f4f4', eye: '#bdbdbd', heart: '#e4e4e4', bg: '#404040', spade: '#e4e4e4', spadeRim: '#ffffff' },
 };
 
 function shieldPath(g, W, H) {
@@ -291,6 +296,8 @@ function drawArms(g, W, H, variant, p, rand, worn) {
     g.fillStyle = p.crown; g.fillRect(-s * 0.2, -s * 0.24, s * 0.4, s * 0.44); g.strokeRect(-s * 0.2, -s * 0.24, s * 0.4, s * 0.44); // the card
     g.fillStyle = p.borderDark; g.font = `bold ${Math.round(s * 0.17)}px serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('10/6', 0, -s * 0.02);
     g.restore();
+  } else if (variant === 'spade') { // (group 3, round 2: larger, in the heart's crimson with a gilt rim, so the hybrid reads at the landing's distance)
+    pipPath(g, variant, cx, cy + W * 0.01, W * 0.2); g.fillStyle = p.spade; g.fill(); g.strokeStyle = p.spadeRim; g.lineWidth = 3.5; g.stroke();
   } else {
     pipPath(g, variant, cx, cy + W * 0.01, W * 0.15); g.fillStyle = variant === 'heart' ? p.heart : p.charge; g.fill(); g.strokeStyle = p.rim; g.lineWidth = 2; g.stroke();
   }
@@ -433,15 +440,16 @@ export function createVampKit(opts = {}) {
   /** A crouching gargoyle on a corbel: h tall, facing +z with its back to the wall at z = 0. */
   function gargoyle(o = {}) {
     const v = o.variant || 'crouch'; const seed = o.seed || 1; const rand = S.rng(seed);
-    const k = (o.h || 0.8) / 0.9;
+    const k = (o.h || 0.8) / (v === 'hatter' ? 1.12 : 0.9); // (group 3: the Hatter's hat stands over the head, inside h)
     const st = []; const fit = [];
     const c = (hex) => hex;
     const dark = lerp(0.88, 1.05, rand());
     const tone = new THREE.Color(STONE).multiplyScalar(dark * (o.light || 1)).getHex(); // o.light: a paler stone (group 2), so it parts from a dark wall
     let glow = null; // o.glow (the Cheshire one): a baked pale grin and cat's eyes, drawn additive over the carving
     if (o.corbel !== false) {
-      st.push(boxG(0.44, 0.15, 0.5, 0, -0.075, 0.25, c(SOOT), 0.06));
-      st.push(boxG(0.32, 0.12, 0.36, 0, -0.21, 0.18, c(SOOT), 0.06));
+      const ct = o.corbelTone ? new THREE.Color(tone).multiplyScalar(0.85).getHex() : SOOT; // (group 3, round 2: o.corbelTone, the corbel in the figure's own stone, not a black block)
+      st.push(boxG(0.44, 0.15, 0.5, 0, -0.075, 0.25, c(ct), 0.06));
+      st.push(boxG(0.32, 0.12, 0.36, 0, -0.21, 0.18, c(ct), 0.06));
       if (o.edge === 'gilt') { // a tarnished gilt fillet round the corbel's lip, so the figure stands off the dark wall
         fit.push(boxG(0.46, 0.035, 0.03, 0, -0.02, 0.5, PALETTE.gold, 0.25));
         for (const sd of [-1, 1]) fit.push(boxG(0.03, 0.035, 0.5, sd * 0.225, -0.02, 0.25, PALETTE.gold, 0.25));
@@ -464,10 +472,13 @@ export function createVampKit(opts = {}) {
       st.push(ell(0.045, 0.032, 0.058, paw.x, paw.y - 0.01, paw.z + 0.01, tone));
     }
     if (teacup) { // the cup held out in both forepaws, on its saucer, the handle to one side
-      st.push(cyl(0.075, 0.08, 0.012, 0, 0.255, 0.53, PALETTE.china, 14));
-      st.push(lathe([[0.001, 0], [0.028, 0.002], [0.04, 0.015], [0.05, 0.05], [0.054, 0.068], [0.05, 0.068], [0.044, 0.05], [0.001, 0.05]], 0, 0.267, 0.53, PALETTE.china, 12));
+      const cup = [];
+      cup.push(cyl(0.075, 0.08, 0.012, 0, 0.255, 0.53, PALETTE.china, 14));
+      cup.push(lathe([[0.001, 0], [0.028, 0.002], [0.04, 0.015], [0.05, 0.05], [0.054, 0.068], [0.05, 0.068], [0.044, 0.05], [0.001, 0.05]], 0, 0.267, 0.53, PALETTE.china, 12));
       const handle = torus(0.018, 0.006, 0, 0, 0, PALETTE.china, false, 10); handle.rotateY(Math.PI / 2).translate(0.058, 0.31, 0.53);
-      st.push(handle);
+      cup.push(handle);
+      // (group 3, o.cupFit: the china in the fittings, a third larger, so it keeps its own pale colour and reads as a cup, not as more stone)
+      if (o.cupFit) { const C = S.merge(cup); C.translate(0, -0.29, -0.53).scale(2.0, 2.0, 2.0).translate(0, 0.29, 0.58).scale(k, k, k); fit.push(C); } else st.push(...cup);
     }
     // the head
     const hy = 0.66; const hz = 0.4;
@@ -497,9 +508,24 @@ export function createVampKit(opts = {}) {
       st.push(boxG(0.19, 0.03, 0.05, 0, hy + 0.05, hz + 0.08, tone, 0.1));
       for (const sd of [-1, 1]) {
         st.push(cone(0.012, 0.05, sd * 0.035, hy - 0.085, hz + 0.155, 0xd0d2d4, 4, 0, 0, true)); // fangs
-        st.push(cone(0.03, 0.2, sd * 0.06, hy + 0.12, hz - 0.03, tone, 5, -0.75, -sd * 0.35)); // horns swept back
+        if (v !== 'hatter') st.push(cone(0.03, 0.2, sd * 0.06, hy + 0.12, hz - 0.03, tone, 5, -0.75, -sd * 0.35)); // horns swept back (the hat sits there)
         st.push(cone(0.036, 0.1, sd * 0.105, hy + 0.06, hz - 0.02, tone, 4, -0.1, -sd * 0.7)); // bat's ears
         st.push(boxG(0.03, 0.018, 0.01, sd * 0.042, hy + 0.025, hz + 0.115, 0x121214, 0)); // deep-set eyes
+      }
+      if (v === 'hatter') { // group 3: the Hatter's tall hat, cocked back on the horned head, the 10/6 card in its crimson band (fittings: it keeps its colours)
+        const hat = [];
+        hat.push(cyl(0.165, 0.165, 0.016, 0, 0, 0, 0x2a1f2e, 18)); // the brim
+        hat.push(lathe([[0.001, 0.014], [0.092, 0.014], [0.086, 0.09], [0.094, 0.24], [0.112, 0.31], [0.001, 0.31]], 0, 0, 0, 0x3a2a40, 14)); // the crown (round 2: a notch darker, never the brightest thing there), flared at the top
+        hat.push(cyl(0.095, 0.094, 0.05, 0, 0.03, 0, PALETTE.crimson, 14)); // the band
+        const card = boxG(0.128, 0.09, 0.006, 0, 0, 0, 0xf2ece0, 0.03); card.rotateZ(0.25).translate(0.05, 0.09, 0.088); // the card, tucked in the band (round 2: half as big again, white)
+        hat.push(card);
+        // "10/6" inked on it: a one, a nought, a stroke and a six, in four marks (half as big again with the card)
+        for (const [x, w, hgt, rz] of [[0.02, 0.005, 0.026, 0], [0.035, 0.012, 0.024, 0], [0.051, 0.004, 0.03, -0.5], [0.066, 0.012, 0.024, 0]]) {
+          const X = 0.05 + (x - 0.043) * 1.5;
+          const mk = boxG(w * 1.5, hgt * 1.5, 0.002, 0, 0, 0, 0x1a1214, 0, 0, 0, rz); mk.rotateZ(0.25).translate(X, 0.09 + (X - 0.05) * 0.25, 0.0925); hat.push(mk);
+        }
+        const H = S.merge(hat); H.scale(1.25, 1.25, 1.25).rotateX(-0.28).rotateZ(0.12).translate(0, hy + 0.075, hz - 0.03).scale(k, k, k); // (with the carving's own scale)
+        fit.push(H);
       }
     }
     // wings: folded down the back, or spread
@@ -619,7 +645,7 @@ export function createVampKit(opts = {}) {
     const half = (y) => { const k = (y - y0) / L; return k < 0.72 ? lerp(0.17, 0.29, k / 0.72) : lerp(0.29, 0.2, (k - 0.72) / 0.28); };
     const lid = new THREE.Shape();
     lid.moveTo(-0.17, y0); lid.lineTo(0.17, y0); lid.lineTo(0.29, y0 + 0.72 * L); lid.lineTo(0.2, y0 + L); lid.lineTo(-0.2, y0 + L); lid.lineTo(-0.29, y0 + 0.72 * L); lid.closePath();
-    const lg = extrude(lid, 0.085, o.lid === 'pale' ? 0x8a6444 : PALETTE.wood, 0.28, 0.012); // o.lid pale: a weathered lid that reads in a dim room lg.translate(0, 0, 0.02);
+    const lg = extrude(lid, 0.085, o.lid === 'pale' ? 0x8a6444 : o.lid === 'moon' ? 0x332c34 : PALETTE.wood, 0.28, 0.012); // o.lid pale: a weathered lid that reads in a dim room lg.translate(0, 0, 0.02);
     fit.push(lg);
     const front = 0.02 + 0.085 + 0.012;
     for (const k of [0.16, 0.5, 0.84]) {
@@ -693,7 +719,8 @@ export function createVampKit(opts = {}) {
     }
     fit.push(torus(0.05, 0.012, hub.x, hub.y, hub.z, I, true, 10));
     const step = LEAN ? 0.24 : 0.16; // (lean: longer links, fewer of them, on a long chain)
-    for (let y = hub.y; y < H - 0.12; y += step) { // links, alternately turned
+    if (o.rod) fit.push(cyl(0.018, 0.018, H - 0.1 - hub.y, 0, hub.y, 0, I, 5)); // (group 3, o.rod: a long drop under a high vault on a plain iron rod)
+    for (let y = hub.y; !o.rod && y < H - 0.12; y += step) { // links, alternately turned
       const l = torus(0.035, 0.008, 0, 0, 0, I, false, 8);
       if (Math.round(y / step) % 2) l.rotateY(Math.PI / 2);
       l.scale(1, step * 10, 1).translate(0, y + step / 2, 0);
@@ -828,6 +855,137 @@ export function createVampKit(opts = {}) {
     return out;
   }
 
+  // ---- group 3: the White Knight, fallen off the board and broken (logic/vamp.js WRECK) ----
+
+  /**
+   * A turned solid about local +y through pts [[r, y], ...] (bottom to top), seg sides, each end cut in a
+   * jagged break (jag [bottom, top]: how far the break wanders up and down, 0 for a clean end), the broken
+   * faces closed in a duller, coarser ivory. Its outside is ivory. Returns one geometry (vertex colour).
+   */
+  function broken(pts, seg, jag, rand, hex) {
+    const n = pts.length; const pos = []; const idx = [];
+    const off = jag.map((j) => Array.from({ length: seg }, () => j * (rand() * 2 - 1)));
+    for (let i = 0; i < n; i++) {
+      for (let k = 0; k < seg; k++) {
+        const a = (k / seg) * TAU; const [r, y] = pts[i];
+        const dy = i === 0 ? off[0][k] : i === n - 1 ? off[1][k] : 0;
+        pos.push(Math.sin(a) * r, y + dy, Math.cos(a) * r);
+      }
+    }
+    for (let i = 0; i + 1 < n; i++) for (let k = 0; k < seg; k++) { const p = i * seg + k; const q = i * seg + (k + 1) % seg; idx.push(p, q, p + seg, q, q + seg, p + seg); }
+    const side = new THREE.BufferGeometry(); side.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); side.setIndex(idx); side.computeVertexNormals();
+    const out = [S.tint(side, hex, 0.06, rand() * 9)];
+    for (const [end, up] of [[0, false], [n - 1, true]]) { // the broken faces: a fan from a rough middle to the jagged rim
+      if (!jag[end ? 1 : 0] && !(end === 0 && pts[0][0] > 0.001)) continue;
+      if (pts[end][0] < 0.001) continue; // a closed point needs no face
+      const cp = []; let my = 0;
+      for (let k = 0; k < seg; k++) my += pos[(end * seg + k) * 3 + 1] / seg;
+      const c = [0, my + (up ? 1 : -1) * jag[end ? 1 : 0] * 0.4 * rand(), 0];
+      for (let k = 0; k < seg; k++) {
+        const p = (end * seg + k) * 3; const q = (end * seg + (k + 1) % seg) * 3;
+        const A = [pos[p], pos[p + 1], pos[p + 2]]; const B = [pos[q], pos[q + 1], pos[q + 2]];
+        cp.push(...c, ...(up ? A : B), ...(up ? B : A));
+      }
+      const face = new THREE.BufferGeometry(); face.setAttribute('position', new THREE.Float32BufferAttribute(cp, 3)); face.computeVertexNormals();
+      out.push(S.tint(face, end === 0 && !jag[0] ? hex : 0xcdc2a6, end === 0 && !jag[0] ? 0.06 : 0.22, rand() * 9)); // a fresh break: duller, grainier
+    }
+    return S.merge(out);
+  }
+
+  /** Lays a part built along +y (len long, profile pts) on its side: its axis along +x through the middle, rolled, and tipped onto its lower hull, so it rests on the floor where it would. */
+  function layDown(g, pts, len, squash, roll) {
+    g.rotateY(roll).translate(0, -len / 2, 0).rotateZ(-Math.PI / 2); // axis along +x, middle at 0
+    // the lower hull of the profile (axial u, -radius), and the edge under the middle of its mass: tip it level
+    const P = pts.map(([r, y]) => [y - len / 2, -r * squash]);
+    let wsum = 0; let uc = 0; for (const [u, v] of P) { wsum += v * v; uc += u * v * v; } uc /= wsum || 1;
+    const hull = [];
+    for (const p of [...P].sort((a, b) => a[0] - b[0])) {
+      while (hull.length >= 2) { const [a, b] = hull.slice(-2); if ((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) <= 0) hull.pop(); else break; }
+      hull.push(p);
+    }
+    let tip = 0;
+    for (let i = 0; i + 1 < hull.length; i++) if (hull[i][0] <= uc && hull[i + 1][0] >= uc) tip = Math.atan2(hull[i + 1][1] - hull[i][1], hull[i + 1][0] - hull[i][0]);
+    g.rotateZ(-tip);
+    return g;
+  }
+
+  /** Sets a geometry down on the floor at y0 (its lowest point a hair above it), then turns it yaw about y and moves it to (x, z). */
+  function setDown(g, y0, yaw, x, z) {
+    g.computeBoundingBox();
+    return g.translate(0, y0 + 0.003 - g.boundingBox.min.y, 0).rotateY(-yaw).translate(x, 0, z);
+  }
+
+  /**
+   * moonRim(g, k) -> g: a cold moon edge baked into the vertex colour (round 2, no light): every vertex whose
+   * normal turns up or toward dir ([x, y, z], default straight up) takes k of the moon's colour on top of its own,
+   * as far as it faces that way. For iron in the moon's room and the white knight's top faces.
+   */
+  function moonRim(g, k, dir = [0, 1, 0], from = 0.3) {
+    const n = g.attributes.normal; const c = g.attributes.color;
+    if (!n || !c) return g;
+    const m = Math.max(...MOON_RGB); const rgb = MOON_RGB.map((v) => v / m);
+    for (let i = 0; i < n.count; i++) {
+      const d = n.getX(i) * dir[0] + n.getY(i) * dir[1] + n.getZ(i) * dir[2];
+      if (d <= from) continue;
+      const t = k * (d - from) / (1 - from);
+      c.setXYZ(i, c.getX(i) + t * rgb[0], c.getY(i) + t * rgb[1], c.getZ(i) + t * rgb[2]);
+    }
+    return g;
+  }
+
+  /**
+   * wreck(W, y0, seed) -> one vertex-coloured geometry in world space, for the fittings (castle.js tints it
+   * with vamp.js wreckTint): the set's white knight (chessmen.js's ivory and its turned base) in three big
+   * pieces where W.parts has them lying, its chips and a faint scatter of ivory dust on the flags.
+   */
+  function wreck(W, y0, seed = 7) {
+    const rand = S.rng(seed); const I = W.ivory; const parts = []; const by = (id) => W.parts.find((p) => p.id === id);
+    // the foot of the turned base (plinth, torus, ogee and the bulb), broken across above the bulb, standing
+    const R = by('foot').r; const H = 0.95; // PIECE_FOOT.knight
+    // (round 2: up through the gadrooned bulb into the waisted neck, so the stub shows the set's turned profile)
+    const footPts = [[0, 0], [1, 0], [1, 0.05], [0.98, 0.075], [0.95, 0.1], [0.98, 0.125], [0.9, 0.146], [0.9, 0.178], [0.75, 0.25], [0.6, 0.33], [0.61, 0.384],
+      [0.66, 0.43], [0.67, 0.47], [0.62, 0.53], [0.5, 0.57], [0.44, 0.61], [0.42, 0.65]].map(([r, y]) => [r * R, y * H]);
+    const f = by('foot');
+    parts.push(setDown(broken(footPts, 12, [0, 0.04], rand, I), y0, f.yaw, f.x, f.z));
+    // the rest of the base (its neck, collars and platform) and the breast of the horse, broken at both ends, on its side
+    const b = by('body');
+    const bodyPts = [[0.36, 0], [0.35, 0.06], [0.3, 0.16], [0.38, 0.2], [0.39, 0.235], [0.3, 0.26], [0.29, 0.31], [0.34, 0.35], [0.35, 0.42], [0.42, 0.47], [0.42, 0.62], [0.38, 0.9], [0.31, 1.2], [0.25, 1.45], [0.24, b.len]];
+    parts.push(setDown(layDown(broken(bodyPts, 10, [0.06, 0.07], rand, I), bodyPts, b.len, 1, 0.6), y0, b.yaw, b.x, b.z));
+    // the long head, snapped at the throat, lying on its jaw with its ears and mane up, so its profile reads as a
+    // horse's from the side (round 2, the art critic: on its cheek it read as a fish). Built along +y from the throat
+    // (u 0) to the muzzle; the head's up is -x, its jaw +x, its narrow sides +-z (eyes there); dark is chessmen.js's ivory dark
+    const h = by('head'); const DK = 0x3a3128; const L = h.len;
+    const headPts = [[0.21, 0], [0.25, 0.1], [0.255, 0.28], [0.22, 0.48], [0.17, 0.7], [0.135, 0.88], [0.125, 0.98], [0.11, 1.05], [0.001, L]];
+    const hp = [broken(headPts, 12, [0.05, 0], rand, I).scale(1, 1, 0.72)];
+    hp.push(ell(0.16, 0.22, 0.15, 0.1, 0.27, 0, I, 0.06)); // the round of the jaw, under the cheek
+    for (const u of [0.0, 0.06, 0.12]) hp.push(cone(0.05, 0.15, -0.25, u + 0.02, 0, I, 4, 0, Math.PI / 2)); // the mane's crest, snapped with the neck
+    for (const sd of [-1, 1]) {
+      hp.push(cone(0.055, 0.2, -0.3, 0.17, sd * 0.07, I, 5, 0, Math.PI / 2 + 0.35)); // the ears, pricked up off the poll and swept back
+      hp.push(ell(0.035, 0.04, 0.02, -0.06, 0.32, sd * 0.18, DK, 0.05)); // the eyes, cut in the sides
+      hp.push(ell(0.03, 0.035, 0.025, 0.02, 1.05, sd * 0.05, DK, 0.05)); // the nostrils, cut deep
+    }
+    hp.push(boxG(0.012, 0.24, 0.13, 0.1, 0.96, 0, DK, 0.05)); // the line of the mouth
+    const head = S.merge(hp).translate(0, -L / 2, 0).rotateZ(-Math.PI / 2).rotateZ(-0.1); // muzzle along +x, a little nose-down onto the flags
+    parts.push(setDown(head, y0, h.yaw, h.x, h.z));
+    // the chips: small flakes of ivory, each resting on the flags at its own angle
+    for (const [x, z, s, yaw] of W.chips) {
+      const c = new THREE.OctahedronGeometry(s, 0); c.deleteAttribute('uv'); c.scale(1, 0.5, 0.8).rotateX(0.3 + rand() * 0.4);
+      parts.push(setDown(S.tint(c, rand() < 0.5 ? I : 0xcdc2a6, 0.12, x * 3), y0, yaw, x, z));
+    }
+    // a faint cold moon rim on every face turned up, so the pieces sit in the room's light (round 2: no light added, colour only)
+    const lit = S.merge(parts); parts.length = 0; parts.push(moonRim(lit, 0.35));
+    // a faint scatter: flecks of ivory dust lying flat round it, thinning out
+    const sc = W.scatter; const fl = [];
+    for (let i = 0; i < sc.n; i++) {
+      const a = rand() * TAU; const d = Math.sqrt(rand()) * sc.r; const s = 0.025 + rand() * 0.035; const t = rand() * TAU;
+      const x = sc.x + Math.cos(a) * d; const z = sc.z + Math.sin(a) * d;
+      for (let k = 0; k < 3; k++) { const u = t + (k * TAU) / 3 * -1; fl.push(x + Math.cos(u) * s, y0 + 0.004, z + Math.sin(u) * s); }
+    }
+    const fg = new THREE.BufferGeometry(); fg.setAttribute('position', new THREE.Float32BufferAttribute(fl, 3)); fg.computeVertexNormals();
+    parts.push(S.tint(fg, 0xb8b09c, 0.2, 5));
+    return S.merge(parts);
+  }
+
   function dispose() {
     for (const m of [crestMat, webMat, moteMat, stillMat]) { if (m.map) m.map.dispose(); if (m.bumpMap) m.bumpMap.dispose(); m.dispose(); }
   }
@@ -837,5 +995,6 @@ export function createVampKit(opts = {}) {
     materials: { crest: crestMat, web: webMat, motes: moteMat, still: stillMat },
     gargoyle: leanly(gargoyle), bat: leanly(bat), crest, coffin: leanly(coffin), chandelier: leanly(chandelier), candelabra: leanly(candelabra), bottle: leanly(bottle),
     webs, glowDisc, motes, mergeUV, dispose,
+    wreck, moonRim, // group 3
   };
 }

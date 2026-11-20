@@ -894,8 +894,10 @@ export function buildCastle(scene, cfg) {
   buildCount(byId.count);
   for (const z of zones) dress(z);
   // the grade: a dressed zone's flames throw a light a shade redder (the pool and a fire key)
-  for (const z of zones) for (const fr of z.fires) fr.red = z.cryptGrade && fr.y < z.y ? z.cryptGrade.fire : z.grade.fire; // the crypt's flames burn under the gallery's floor
-  for (const [id, k] of Object.entries(keys)) if (k.kind === 'fire' && byId[id]) k.red = byId[id].grade.fire;
+  // (group 3, round 2: each flame leans to its zone's own hue, V.GRADE_HUE: crimson on the stair and the landing)
+  const _hueOf = new Map(); const hueColour = (hex) => { if (!_hueOf.has(hex)) _hueOf.set(hex, new THREE.Color(hex)); return _hueOf.get(hex); };
+  for (const z of zones) for (const fr of z.fires) { const g = z.cryptGrade && fr.y < z.y ? z.cryptGrade : z.grade; fr.red = g.fire; fr.redC = hueColour(g.fireHex); } // the crypt's flames burn under the gallery's floor
+  for (const [id, k] of Object.entries(keys)) if (k.kind === 'fire' && byId[id]) { k.red = byId[id].grade.fire; k.redC = hueColour(byId[id].grade.fireHex); }
 
   function buildHall(z) {
     const r = z.rects[0];
@@ -1209,7 +1211,7 @@ export function buildCastle(scene, cfg) {
 
   /**
    * Builds every placement vamp.js lists for zone z into the zone's own lists: carved stone into its
-   * walls' mesh, iron, wood and wax into its fittings, candle flames into its flame and halo draws with
+   * walls' mesh (the gargoyles and bats inside into its fittings, V.fitStoneTint), iron, wood and wax into its fittings, candle flames into its flame and halo draws with
    * a baked pool for their light, the arms into one atlas mesh, the webs into one mesh, the dust into
    * one points draw. No collider: everything stands on a wall, in a corner, high, or hangs.
    */
@@ -1229,25 +1231,33 @@ export function buildCastle(scene, cfg) {
         if (zone !== 'gallery') z.halos.push(_dv.x, _dv.y + f[3] * 0.5, _dv.z);
       }
     };
+    // the gargoyles and bats (the visibility pass): in the room's fittings, at their share of the stone's
+    // value under the room's own grade (V.fitStoneTint), where the candles reach them; else in its stone
+    // group 3, round 2: iron in a moon room keeps a pale edge where it faces the window and the sky (colour only, no light)
+    const iron = (p, geo, k) => (V.MOON_ROOMS.includes(p.zone) && p.zone !== 'gallery' ? vamp.moonRim(geo, k, V.MOON_EDGE, 0.2) : geo);
+    const carved = (p, geo, m) => {
+      const t = V.fitStoneTint(p.zone, p.kind);
+      if (t) z.fit.push(tintColours(put(geo, m), t)); else walls.push(put(geo, m));
+    };
     for (const p of list) {
       const fy = p.zone === 'crypt' ? V.CRYPT_ZONE.y : z.y; // the floor its pools lie on
       rgb = p.zone === 'crypt' ? z.cryptGrade.glow : z.grade.glow;
       walls = p.zone === 'crypt' ? lowList : wallList(z); // the crypt's carving in its own run-down stone (and under its grade)
       const m = p.kind === 'web' || p.kind === 'motes' || p.kind === 'glow' ? null : placeMatrix(p.x, p.y, p.z, p.n, p.out || 0);
       if (p.kind === 'gargoyle') {
-        const b = vamp.gargoyle({ variant: p.variant, h: p.h, seed: p.seed, corbel: p.mount !== 'top', wings: p.wings, edge: p.edge, lean: p.lean, light: p.light, glow: p.glow });
-        walls.push(put(b.stone, m)); if (b.fit) z.fit.push(put(b.fit, m));
+        const b = vamp.gargoyle({ variant: p.variant, h: p.h, seed: p.seed, corbel: p.mount !== 'top', wings: p.wings, edge: p.edge, lean: p.lean, light: p.light, glow: p.glow, cupFit: p.cupFit, corbelTone: p.corbelTone });
+        carved(p, b.stone, m); if (b.fit) z.fit.push(put(b.fit, m));
         if (b.glow) z.moonGlow.push(put(b.glow, m)); // the Cheshire grin and eyes, baked pale over the carving (no light)
         if (p.rim) z.moonGlow.push(vamp.glowDisc([p.x, p.y + p.h * 0.55, p.z + p.n[1] * 0.02 + 0.0], [0.85, 0, 0], [0, 0.9, 0], V.GRADE.moon, 0.26)); // a moonlit rim behind it on the pier
       } else if (p.kind === 'bat') {
         const b = vamp.bat({ variant: p.variant, w: p.w, tilt: p.tilt, seed: p.seed, lean: p.lean, light: p.light });
-        walls.push(put(b.stone, m)); if (b.fit) z.fit.push(put(b.fit, m));
+        carved(p, b.stone, m); if (b.fit) z.fit.push(put(b.fit, m));
       } else if (p.kind === 'crest') {
         const b = vamp.crest({ variant: p.variant, finish: p.finish, w: p.w, h: p.h, proud: p.proud, frame: p.frame });
         z.crest.push(put(b.quad, m)); walls.push(put(b.stone, m)); if (b.fit) z.fit.push(put(b.fit, m));
       } else if (p.kind === 'coffin') {
         const b = vamp.coffin({ variant: p.variant, w: p.w, h: p.h, proud: p.proud, lean: p.lean, lid: p.lid });
-        walls.push(put(b.stone, m)); z.fit.push(put(b.fit, m));
+        walls.push(put(b.stone, m)); z.fit.push(iron(p, put(b.fit, m), 0.16)); // (group 3, round 2: in the moon's room its straps catch the moon)
         if (p.moonlit) { // the moon through the slit opposite falls on it: a still, cold pool on the lid
           const al = [p.n[1], 0, -p.n[0]];
           z.moonGlow.push(vamp.glowDisc([p.x + p.n[0] * (p.proud + 0.01), p.y + 1.0, p.z + p.n[1] * (p.proud + 0.01)], al.map((v) => v * 0.62), [0, 0.9 * 1.15, 0], V.GRADE.moon, 0.245)); // 0.9 m, the niche the brightest thing down the passage
@@ -1260,22 +1270,26 @@ export function buildCastle(scene, cfg) {
           z.glow.push(vamp.glowDisc([p.x + p.n[0] * 0.03, p.y + p.h * 0.45, p.z + p.n[1] * 0.03], al.map((v) => v * 0.55), [0, p.h * 0.75, 0], GLOW_WARM, 0.3));
         }
       } else if (p.kind === 'chandelier') {
-        const b = vamp.chandelier({ variant: p.variant, arms: p.arms, w: p.w, h: p.h, seed: z.index + 3, lean: p.lean, cups: p.cups, ring: p.lean ? 1.2 : 1 });
-        z.fit.push(put(b.fit, m));
-        lit(m, b.flames, p.zone);
-        for (const t of b.webs) webTris.push(t.map((q) => _dv.set(q[0], q[1], q[2]).applyMatrix4(m).toArray()));
+        const b = vamp.chandelier({ variant: p.variant, arms: p.arms, w: p.w, h: p.h, seed: z.index + 3, lean: p.lean, cups: p.cups, ring: p.lean ? 1.2 : 1, rod: p.rod });
+        z.fit.push(iron(p, put(b.fit, m), 0.24)); // (group 3, round 2: cold iron in the moon's room keeps a pale moonlit edge)
+        if (!p.cold) lit(m, b.flames, p.zone); // group 3: the Knight's Walk's iron is cold (the moon's room: no flame there)
+        if (!p.noWeb) for (const t of b.webs) webTris.push(t.map((q) => _dv.set(q[0], q[1], q[2]).applyMatrix4(m).toArray()));
         // its pool on the floor; none over the gallery's tiles, where the eye and the glass must see the same floor (a pool over a gone tile would hang in the air)
-        if (z.id !== 'gallery') z.glow.push(vamp.glowDisc([p.x, fy + 0.03, p.z], [2.6, 0, 0], [0, 0, 2.6], rgb, 0.2));
+        // (group 3: p.pool its radius, 0 for none: none over the stair's treads, a small one kept on the landing)
+        if (z.id !== 'gallery' && !p.cold && p.pool !== 0) z.glow.push(vamp.glowDisc([p.x, fy + 0.03, p.z], [p.pool || 2.6, 0, 0], [0, 0, p.pool || 2.6], rgb, 0.2));
       } else if (p.kind === 'candelabra') {
         const b = vamp.candelabra({ variant: p.variant, arms: p.arms, w: p.w, seed: z.index + p.y, lean: p.lean });
-        z.fit.push(put(b.fit, m));
+        z.fit.push(iron(p, put(b.fit, m), 0.24));
+        if (p.cold) continue; // group 3: a cold candelabra, its candles guttered: no flame, no pool
         lit(m, b.flames, p.zone);
         const al = [p.n[1], 0, -p.n[0]]; // along the wall
         z.glow.push(vamp.glowDisc([p.x + p.n[0] * 0.03, p.y + 0.42, p.z + p.n[1] * 0.03], al.map((v) => v * 0.75), [0, 0.95, 0], rgb, 0.34)); // on the wall behind
         if (!TOUCH_TIER || V.TOUCH.floorGlow) z.glow.push(vamp.glowDisc([p.x + p.n[0] * 0.7, fy + 0.03, p.z + p.n[1] * 0.7], al.map((v) => v * 1.3), [p.n[0] * 0.8, 0, p.n[1] * 0.8], rgb, 0.16)); // and on the floor under it (not on a phone)
       } else if (p.kind === 'glow') { // a broad baked pool on a wall (the crypt's far end), in the zone's candle colour
         const al = [p.n[1], 0, -p.n[0]];
-        z.glow.push(vamp.glowDisc([p.x + p.n[0] * 0.03, p.y, p.z + p.n[1] * 0.03], al.map((v) => v * p.w / 2), [0, p.h / 2, 0], rgb, p.strength));
+        (p.still ? z.moonGlow : z.glow).push(vamp.glowDisc([p.x + p.n[0] * 0.03, p.y, p.z + p.n[1] * 0.03], al.map((v) => v * p.w / 2), [0, p.h / 2, 0], p.variant === 'moon' ? V.MOON_WASH : rgb, p.strength)); // still: the kit's still glow (it breathes, never flickers); group 3's moon washes in a pale moon blue
+      } else if (p.kind === 'wreck') { // group 3: the broken White Knight on the walk's floor, its ivory in the fittings (pale under the room's grade)
+        z.fit.push(tintColours(vamp.wreck(V.WRECK, fy, p.seed), V.wreckTint(p.zone)));
       } else if (p.kind === 'web') webTris.push(p.pts);
       else if (p.kind === 'motes') z.motes.push(p);
     }
@@ -1286,12 +1300,31 @@ export function buildCastle(scene, cfg) {
    * The grade on a zone's stone: a shade darker and redder by its richness, and its warm bias (vertex colour only).
    * The gallery grades its crypt's parts with the crypt's grade before they are merged (z.low, finish).
    */
+  /**
+   * Group 3, round 2 (V.WARM_RAMP): a zone's stone a shade warmer toward one end, per vertex (z from z0 to z1 adds up to
+   * `to` less the zone's own bias), so the cold walk eases into the warm stair at its door. Build time only.
+   */
+  function warmRamp(geo, z) {
+    const R = V.WARM_RAMP[z.id]; const c = geo && geo.attributes.color;
+    if (!R || !c) return geo;
+    const p = geo.attributes.position; const add = R.to - (z.grade.bias || 0);
+    for (let i = 0; i < p.count; i++) {
+      const k = clamp((p.getZ(i) - R.z0) / (R.z1 - R.z0)) * add;
+      if (k > 0) c.setXYZ(i, c.getX(i) * (1 + k), c.getY(i), c.getZ(i) * (1 - k));
+    }
+    return geo;
+  }
+
   function gradeStone(geo, g) {
     if (!g.r) return geo;
-    const c = geo.attributes.color;
+    return tintColours(geo, V.gradeTint(g));
+  }
+
+  /** Multiplies a geometry's vertex colour by [r, g, b] (build time only). */
+  function tintColours(geo, t) {
+    const c = geo && geo.attributes.color;
     if (!c) return geo;
-    const w = g.warm + (g.bias || 0);
-    const a = c.array; const kr = g.stoneK * (1 + w); const kg = g.stoneK; const kb = g.stoneK * (1 - w);
+    const a = c.array; const [kr, kg, kb] = t;
     for (let i = 0; i < a.length; i += 3) { a[i] *= kr; a[i + 1] *= kg; a[i + 2] *= kb; }
     return geo;
   }
@@ -1489,7 +1522,7 @@ export function buildCastle(scene, cfg) {
 
   function finish(z) {
     const add = (m, cast = true, receive = true) => { m.castShadow = cast; m.receiveShadow = receive; z.group.add(m); return m; };
-    if (z.stone.length) add(new THREE.Mesh(gradeStone(S.merge(z.stone), z.grade), ST.stoneMaterial('ashlar', { floorY: z.y })));
+    if (z.stone.length) add(new THREE.Mesh(warmRamp(gradeStone(S.merge(z.stone), z.grade), z), ST.stoneMaterial('ashlar', { floorY: z.y })));
     if (z.worn.length) add(new THREE.Mesh(z.low ? S.merge(z.worn.map((g) => gradeStone(g, z.low.has(g) ? z.cryptGrade : z.grade))) : gradeStone(S.merge(z.worn), z.grade), ST.stoneMaterial('worn', { floorY: z.id === 'gallery' ? PLAN.gallery.cryptY : z.outside ? PLAN.outside.pit.y : z.y })));
     for (const [kind, parts] of Object.entries(z.floorParts)) add(new THREE.Mesh(S.merge(parts), ST.stoneMaterial(kind)), false);
     if (z.fit.length) add(new THREE.Mesh(S.merge(z.fit), fitMat));
@@ -1957,7 +1990,7 @@ export function buildCastle(scene, cfg) {
           key.target.position.set(want.target[0], want.target[1], want.target[2]);
           key.target.updateMatrixWorld();
           key.color.setHex(want.color);
-          if (want.red) key.color.lerp(_vFire, want.red); // the Dracula pass: a dressed room's fire leans red
+          if (want.red) key.color.lerp(want.redC || _vFire, want.red); // the Dracula pass: a dressed room's fire leans red
           key.angle = want.angle; key.penumbra = want.penumbra; key.decay = want.decay; key.distance = want.distance;
           const far = Math.hypot(want.pos[0] - want.target[0], want.pos[1] - want.target[1], want.pos[2] - want.target[2]);
           key.shadow.camera.near = want.kind === 'fire' ? 0.3 : Math.max(1, far * 0.35);
@@ -2019,7 +2052,7 @@ export function buildCastle(scene, cfg) {
       if (s.at && s.at.stamp === stamp) s.level = Math.min(1, s.level + dt * 2.5);
       // K4: the flames' share; a passage's torches keep more of it, the pools that make a passage readable (K2)
       s.l.color.copy(_fireC);
-      if (s.at && s.at.red) s.l.color.lerp(_vFire, s.at.red); // the Dracula pass: its zone's grade
+      if (s.at && s.at.red) s.l.color.lerp(s.at.redC || _vFire, s.at.red); // the Dracula pass: its zone's grade
       s.l.intensity = s.at ? 12 * (s.at.passage ? PASSAGE_FIRE : FIRE_SHARE) * (s.at.cold ? COLD.fire : 1) * s.at.power * clamp(s.level) * lightFlicker(time, s.at.seed) * filmTorch : 0;
     }
     vamp.materials.still.opacity = 1 - V.MOON_BREATH.depth + V.MOON_BREATH.depth * Math.sin(time * TAU / V.MOON_BREATH.period); // the moon's still glow breathes over 25 s
@@ -2037,7 +2070,8 @@ export function buildCastle(scene, cfg) {
     hemi.color.setHex(0x6f86b4);
     if (cold) hemi.color.setHex(COLD.hemi);
     hemi.color.lerp(_gold, dawnLevel * 0.8);
-    if (_gm.sky) hemi.color.lerp(_vSky, _gm.sky); // the Dracula pass: the night air a shade toward crimson
+    _vSkyNow.lerp(hueColour(gr.skyHex || V.GRADE.sky.hex), mixK); // (group 3, round 2: the air's hue eases across a threshold too)
+    if (_gm.sky) hemi.color.lerp(_vSkyNow, _gm.sky); // the Dracula pass: the night air a shade toward crimson
     if (_gm.bias) hemi.color.lerp(_vWarm, _gm.bias * 3.5); // and a room's warm bias (round 2)
     dawnGlass.opacity = 0.42 - 0.39 * dawnLevel; // K1: the glass clears as the sun comes up, so it lays no veil on the view
     if (dawnView) dawnView.setLevel(dawnLevel);
@@ -2058,7 +2092,7 @@ export function buildCastle(scene, cfg) {
   const _gold = new THREE.Color(HUE.dawn);
   // the Dracula pass's grade targets (logic/vamp.js GRADE), made once
   const _fireC = new THREE.Color(FIRELIGHT);
-  const _vFire = new THREE.Color(V.GRADE.fire.hex); const _vSky = new THREE.Color(V.GRADE.sky.hex);
+  const _vFire = new THREE.Color(V.GRADE.fire.hex); const _vSkyNow = new THREE.Color(V.GRADE.sky.hex);
   const _vShadow = new THREE.Color(V.GRADE.shadow.hex); const _vFog = new THREE.Color(V.GRADE.fog.hex);
   const _vWarm = new THREE.Color(0x8a5a40); // the warm bias's target (V.WARM_BIAS)
   const GRADE_MIX = ['sky', 'fog', 'shadow', 'bias']; const _gm = { sky: 0, fog: 0, shadow: 0, bias: 0 }; // the grade's air, eased

@@ -19,6 +19,7 @@ import { COURT, MAZE } from './courtmap.js';
 import {
   TEA, CLOCKS, ZONES, GALLERY_PROPS, BOARD, CRYPT_PROPS, NURSERY, FURNITURE, MIRROR_ROOM, PIT,
 } from './keepmap.js';
+import { wreckBoxes } from './keepmap.js'; // the Dracula pass, group 3: the broken White Knight on the Knight's Walk's floor
 
 const f = (o) => {
   Object.values(o).forEach((v) => { if (v && typeof v === 'object' && !Object.isFrozen(v)) f(v); });
@@ -107,6 +108,8 @@ export function castleSolids() {
   out.push(footBox(NURSERY.horse.x, NURSERY.horse.z, PROP_FOOT.horse, 0.6, 'horse', { id: 'horse' }));
   out.push(footBox(NURSERY.musicBox.x, NURSERY.musicBox.z, PROP_FOOT.musicTable, 0, 'table', { id: 'musicBox' }));
   NURSERY.sheets.forEach((s, i) => out.push(footBox(s.x, s.z, i === 0 ? PROP_FOOT.sheetA : PROP_FOOT.sheetB, i * 1.1 + 0.3, 'sheet', { id: `sheet${i}` })));
+  // the Dracula pass, group 3: the White Knight's three big pieces where they lie (keepmap.js WRECK; its chips and dust are walked over)
+  for (const b of wreckBoxes()) out.push({ ...aabb(b.minX, b.maxX, b.minZ, b.maxZ, b.h, 'wreck'), id: b.id });
   CASTLE = f(out);
   return CASTLE;
 }
